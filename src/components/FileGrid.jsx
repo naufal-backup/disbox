@@ -35,6 +35,7 @@ export default function FileGrid() {
   const [dragSource, setDragSource] = useState(null);
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [confirmAction, setConfirmAction] = useState(null);
+  const [dragOverTarget, setDragOverTarget] = useState(null); // Track hovered folder path
 
   useEffect(() => {
     if (selectedFiles.size === 0) setIsSelectionMode(false);
@@ -256,8 +257,15 @@ export default function FileGrid() {
 
     const name = sourcePath.split('/').pop();
     const targetPath = destDir ? `${destDir}/${name}` : name;
+    
+    // Prevent moving to same location
     if (sourcePath === targetPath) return;
-    if (destDir.startsWith(sourcePath + '/')) return;
+    
+    // Prevent moving into itself or its children
+    if (destDir === sourcePath || destDir.startsWith(sourcePath + '/')) {
+      toast.error('Tidak bisa memindahkan ke folder yang sama atau sub-folder');
+      return;
+    }
 
     try {
       await movePath(sourcePath, destDir);
@@ -272,7 +280,12 @@ export default function FileGrid() {
     <div
       className={`${styles.container} ${isDragOver ? styles.dragOver : ''} ${isSelectionMode ? styles.isSelectionMode : ''}`}
       style={{ '--zoom': zoom }}
-      onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
+      onDragOver={(e) => { 
+        e.preventDefault(); 
+        if (e.dataTransfer.types.includes('Files')) {
+          setIsDragOver(true); 
+        }
+      }}
       onDragLeave={() => setIsDragOver(false)}
       onDrop={(e) => { 
         setIsDragOver(false); 
@@ -374,11 +387,21 @@ export default function FileGrid() {
               return (
                 <div
                   key={dir}
-                  className={`${styles.card} ${selectedFiles.has(fullPath) ? styles.selected : ''}`}
+                  className={`${styles.card} ${selectedFiles.has(fullPath) ? styles.selected : ''} ${dragOverTarget === fullPath ? styles.isDragTarget : ''}`}
                   draggable={!isSelectionMode}
                   onDragStart={(e) => handleDragStart(e, fullPath)}
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={(e) => handleDropMove(e, fullPath)}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    if (fullPath !== dragSource && !fullPath.startsWith(dragSource + '/')) {
+                      e.dataTransfer.dropEffect = 'move';
+                    }
+                  }}
+                  onDragEnter={() => setDragOverTarget(fullPath)}
+                  onDragLeave={() => setDragOverTarget(null)}
+                  onDrop={(e) => {
+                    setDragOverTarget(null);
+                    handleDropMove(e, fullPath);
+                  }}
                   onDoubleClick={() => navigate('/' + fullPath)}
                   onClick={(e) => toggleSelect(fullPath, e)}
                   onContextMenu={(e) => { 
@@ -461,11 +484,21 @@ export default function FileGrid() {
               return (
                 <div 
                   key={dir} 
-                  className={`${styles.listRow} ${selectedFiles.has(fullPath) ? styles.selected : ''}`}
+                  className={`${styles.listRow} ${selectedFiles.has(fullPath) ? styles.selected : ''} ${dragOverTarget === fullPath ? styles.isDragTarget : ''}`}
                   draggable={!isSelectionMode}
                   onDragStart={(e) => handleDragStart(e, fullPath)}
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={(e) => handleDropMove(e, fullPath)}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    if (fullPath !== dragSource && !fullPath.startsWith(dragSource + '/')) {
+                      e.dataTransfer.dropEffect = 'move';
+                    }
+                  }}
+                  onDragEnter={() => setDragOverTarget(fullPath)}
+                  onDragLeave={() => setDragOverTarget(null)}
+                  onDrop={(e) => {
+                    setDragOverTarget(null);
+                    handleDropMove(e, fullPath);
+                  }}
                   onDoubleClick={() => navigate('/' + fullPath)}
                   onClick={(e) => toggleSelect(fullPath, e)}
                   onContextMenu={(e) => { 

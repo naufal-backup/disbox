@@ -258,6 +258,13 @@
   border-color: var(--accent);
 }
 
+.isDragTarget {
+  background: var(--teal-dim) !important;
+  border-color: var(--teal) !important;
+  transform: scale(1.02);
+  box-shadow: 0 0 15px var(--teal-dim);
+}
+
 /* Checkbox */
 .checkbox {
   position: absolute;
