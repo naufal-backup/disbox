@@ -16,6 +16,7 @@ export default function FileGrid() {
     addTransfer, updateTransfer, refresh, loading,
     movePath, copyPath, deletePath,
     bulkDelete, bulkMove, bulkCopy,
+    uiScale,
   } = useApp();
 
   const [viewMode, setViewMode] = useState('grid');
@@ -36,6 +37,12 @@ export default function FileGrid() {
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [confirmAction, setConfirmAction] = useState(null);
   const [dragOverTarget, setDragOverTarget] = useState(null); // Track hovered folder path
+
+  const getFolderSize = (path) => {
+    return files
+      .filter(f => f.path.startsWith(path + '/') || f.path === path)
+      .reduce((acc, f) => acc + (f.size || 0), 0);
+  };
 
   useEffect(() => {
     if (selectedFiles.size === 0) setIsSelectionMode(false);
@@ -384,6 +391,7 @@ export default function FileGrid() {
           <div className={styles.grid}>
             {subDirs.map(dir => {
               const fullPath = (dirPath ? dirPath + '/' : '') + dir;
+              const folderSize = getFolderSize(fullPath);
               return (
                 <div
                   key={dir}
@@ -407,7 +415,12 @@ export default function FileGrid() {
                   onContextMenu={(e) => { 
                     e.preventDefault(); 
                     e.stopPropagation();
-                    setContextMenu({ x: e.clientX, y: e.clientY, path: fullPath, isFolder: true }); 
+                    setContextMenu({ 
+                      x: e.clientX / uiScale, 
+                      y: e.clientY / uiScale, 
+                      path: fullPath, 
+                      isFolder: true 
+                    }); 
                   }}
                 >
                   <div className={styles.checkbox}>
@@ -429,6 +442,11 @@ export default function FileGrid() {
                     ) : dir}
                   </div>
                   <div className={styles.cardMeta}>Folder</div>
+                  
+                  {/* Stylish Size Badge */}
+                  <div className={styles.infoBadge}>
+                    <span>{formatSize(folderSize)}</span>
+                  </div>
                 </div>
               );
             })}
@@ -444,7 +462,13 @@ export default function FileGrid() {
                   onContextMenu={(e) => { 
                     e.preventDefault(); 
                     e.stopPropagation();
-                    setContextMenu({ x: e.clientX, y: e.clientY, path: file.path, file, isFolder: false }); 
+                    setContextMenu({ 
+                      x: e.clientX / uiScale, 
+                      y: e.clientY / uiScale, 
+                      path: file.path, 
+                      file, 
+                      isFolder: false 
+                    }); 
                   }}
                   onDoubleClick={() => downloadFile(file)}
                 >
@@ -481,6 +505,7 @@ export default function FileGrid() {
             </div>
             {subDirs.map(dir => {
               const fullPath = (dirPath ? dirPath + '/' : '') + dir;
+              const folderSize = getFolderSize(fullPath);
               return (
                 <div 
                   key={dir} 
@@ -504,7 +529,12 @@ export default function FileGrid() {
                   onContextMenu={(e) => { 
                     e.preventDefault(); 
                     e.stopPropagation();
-                    setContextMenu({ x: e.clientX, y: e.clientY, path: fullPath, isFolder: true }); 
+                    setContextMenu({ 
+                      x: e.clientX / uiScale, 
+                      y: e.clientY / uiScale, 
+                      path: fullPath, 
+                      isFolder: true 
+                    }); 
                   }}
                 >
                   <div className={styles.listCheckbox}>
@@ -545,7 +575,13 @@ export default function FileGrid() {
                   onContextMenu={(e) => { 
                     e.preventDefault(); 
                     e.stopPropagation();
-                    setContextMenu({ x: e.clientX, y: e.clientY, path: file.path, file, isFolder: false }); 
+                    setContextMenu({ 
+                      x: e.clientX / uiScale, 
+                      y: e.clientY / uiScale, 
+                      path: file.path, 
+                      file, 
+                      isFolder: false 
+                    }); 
                   }}
                 >
                   <div className={styles.listCheckbox}>

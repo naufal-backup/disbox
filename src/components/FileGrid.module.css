@@ -243,26 +243,60 @@
   flex-direction: column;
   align-items: center;
   gap: calc(8px * var(--zoom));
-  transition: all 0.15s;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   user-select: none;
+  outline: 2px solid transparent;
+  outline-offset: -2px;
 }
 
 .card:hover {
-  background: var(--bg-elevated);
+  background: var(--bg-hover);
   border-color: var(--border-bright);
-  transform: translateY(-1px);
+  transform: translateY(-2px) scale(1.01);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  z-index: 5;
 }
 
 .card.selected {
   background: var(--accent-dim);
   border-color: var(--accent);
+  outline-color: var(--accent);
+  box-shadow: 0 0 10px var(--accent-glow);
+}
+
+.infoBadge {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translate(-50%, -10px);
+  background: var(--bg-surface);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--accent);
+  padding: 4px 8px;
+  border-radius: 6px;
+  color: var(--accent-bright);
+  font-size: 10px;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  opacity: 0;
+  pointer-events: none;
+  transition: all 0.25s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+  white-space: nowrap;
+  z-index: 100;
+}
+
+.card:hover .infoBadge {
+  opacity: 1;
+  transform: translate(-50%, 0);
 }
 
 .isDragTarget {
   background: var(--teal-dim) !important;
   border-color: var(--teal) !important;
-  transform: scale(1.02);
-  box-shadow: 0 0 15px var(--teal-dim);
+  transform: scale(1.05) !important;
+  box-shadow: 0 0 30px var(--teal-dim);
+  z-index: 10;
 }
 
 /* Checkbox */
@@ -441,11 +475,26 @@
   border-radius: var(--radius-sm);
   cursor: pointer;
   gap: 10px;
-  transition: background 0.1s;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
 }
 
-.listRow:hover { background: var(--bg-elevated); }
-.listRow.selected { background: var(--accent-dim); }
+.listRow:hover { 
+  background: var(--bg-hover);
+  transform: translateX(4px);
+  box-shadow: -4px 0 0 var(--accent);
+}
+
+.listRow.selected { 
+  background: var(--accent-dim); 
+  box-shadow: -4px 0 0 var(--accent);
+}
+
+.listRow.isDragTarget {
+  background: var(--teal-dim) !important;
+  box-shadow: -4px 0 0 var(--teal) !important;
+  transform: scale(1.01) translateX(6px);
+}
 
 .listIcon { 
   width: calc(24px * var(--zoom)); 
@@ -511,10 +560,12 @@
   border: 1px solid var(--border-bright);
   border-radius: var(--radius);
   padding: 4px;
-  z-index: 1000;
+  z-index: 10000;
   min-width: 160px;
-  box-shadow: var(--shadow-lg);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
   animation: fadeIn 0.1s ease;
+  margin: 0;
+  transform: none;
 }
 
 .contextMenu button {

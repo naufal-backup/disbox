@@ -36,11 +36,17 @@ export function AppProvider({ children }) {
   const [transfers, setTransfers] = useState([]);
   const [savedWebhooks, setSavedWebhooks] = useState(getSavedWebhooks);
   const [theme, setTheme] = useState(() => localStorage.getItem('disbox_theme') || 'dark');
+  const [uiScale, setUiScale] = useState(() => Number(localStorage.getItem('disbox_ui_scale')) || 1);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
     localStorage.setItem('disbox_theme', theme);
   }, [theme]);
+
+  useEffect(() => {
+    document.body.style.zoom = uiScale;
+    localStorage.setItem('disbox_ui_scale', uiScale.toString());
+  }, [uiScale]);
 
   const toggleTheme = useCallback(() => {
     setTheme(prev => prev === 'dark' ? 'light' : 'dark');
@@ -226,6 +232,7 @@ export function AppProvider({ children }) {
       currentPath, setCurrentPath,
       loading, transfers, savedWebhooks,
       theme, toggleTheme,
+      uiScale, setUiScale,
       connect, disconnect, refresh,
       createFolder, movePath, copyPath, deletePath, 
       bulkDelete, bulkMove, bulkCopy,
