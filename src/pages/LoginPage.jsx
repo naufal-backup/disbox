@@ -1,0 +1,158 @@
+import { useState, useEffect } from 'react';
+import { Cloud, ExternalLink, AlertCircle, Loader2, Clock, ChevronDown, X } from 'lucide-react';
+import { useApp } from '../AppContext.jsx';
+import styles from './LoginPage.module.css';
+
+const DISCORD_WEBHOOK_REGEX = /^https:\/\/discord(app)?\.com\/api\/webhooks\/\d+\/.+$/;
+
+export default function LoginPage() {
+  const { connect, loading, savedWebhooks } = useApp();
+  const [url, setUrl] = useState('');
+  const [error, setError] = useState('');
+  const [showHistory, setShowHistory] = useState(false);
+
+  // Auto-load config: saat URL berubah dan valid, tampilkan info
+  const isValid = DISCORD_WEBHOOK_REGEX.test(url.trim());
+
+  // Auto-fill dari saved webhook pertama kali (tapi jangan auto-connect)
+  useEffect(() => {
+    if (!url && savedWebhooks.length > 0) {
+      // Jangan auto-fill — biarkan user pilih sendiri
+    }
+  }, []);
+
+  const handleConnect = async (webhookUrl) => {
+    const target = webhookUrl || url.trim();
+    setError('');
+    if (!target) { setError('Masukkan webhook URL'); return; }
+    if (!DISCORD_WEBHOOK_REGEX.test(target)) {
+      setError('Format webhook URL tidak valid');
+      return;
+    }
+    if (webhookUrl) setUrl(webhookUrl);
+    const result = await connect(target);
+    if (!result.ok) {
+      setError('Gagal connect. Pastikan webhook URL benar dan coba lagi.');
+    }
+  };
+
+  return (
+    <div className={styles.page}>
+      <div className={styles.bg}>
+        <div className={styles.glow1} />
+        <div className={styles.glow2} />
+        <div className={styles.grid} />
+      </div>
+
+      <div className={styles.card}>
+        <div className={styles.logo}>
+          <div className={styles.logoRing}>
+            <Cloud size={28} strokeWidth={1.5} />
+          </div>
+        </div>
+
+        <h1 className={styles.title}>Disbox</h1>
+        <p className={styles.subtitle}>Discord sebagai cloud storage kamu</p>
+
+        <div className={styles.features}>
+          {['Storage tak terbatas', 'Upload chunk 8MB', 'Metadata lokal', 'Virtual filesystem'].map(f => (
+            <div key={f} className={styles.feature}>
+              <div className={styles.featureDot} />
+              <span>{f}</span>
+            </div>
+          ))}
+        </div>
+
+        <div className={styles.divider} />
+
+        {/* Saved webhooks */}
+        {savedWebhooks.length > 0 && (
+          <div className={styles.savedSection}>
+            <button
+              className={styles.savedToggle}
+              onClick={() => setShowHistory(h => !h)}
+            >
+              <Clock size={12} />
+              <span>Webhook tersimpan ({savedWebhooks.length})</span>
+              <ChevronDown size={12} style={{ transform: showHistory ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
+            </button>
+
+            {showHistory && (
+              <div className={styles.savedList}>
+                {savedWebhooks.map((w, i) => (
+                  <button
+                    key={i}
+                    className={styles.savedItem}
+                    onClick={() => handleConnect(w.url)}
+                    disabled={loading}
+                  >
+                    <div className={styles.savedIcon}>
+                      <Cloud size={11} />
+                    </div>
+                    <div className={styles.savedInfo}>
+                      <span className={styles.savedLabel}>{w.label}</span>
+                      <span className={styles.savedUrl}>{w.url.slice(0, 48)}…</span>
+                    </div>
+                    {loading ? <Loader2 size={12} className="spin" /> : null}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* URL Input */}
+        <div className={styles.inputGroup}>
+          <label className={styles.label}>Discord Webhook URL</label>
+          <div className={styles.inputRow}>
+            <input
+              type="text"
+              className={`${styles.input} ${error ? styles.inputError : ''} ${isValid ? styles.inputValid : ''}`}
+              placeholder="https://discord.com/api/webhooks/…"
+              value={url}
+              onChange={e => { setUrl(e.target.value); setError(''); }}
+              onKeyDown={e => e.key === 'Enter' && handleConnect()}
+              spellCheck={false}
+              autoFocus
+            />
+            {url && (
+              <button className={styles.clearBtn} onClick={() => { setUrl(''); setError(''); }}>
+                <X size={12} />
+              </button>
+            )}
+          </div>
+          {error && (
+            <div className={styles.errorMsg}>
+              <AlertCircle size={12} /> {error}
+            </div>
+          )}
+          {isValid && !error && (
+            <div className={styles.validMsg}>✓ Format URL valid</div>
+          )}
+        </div>
+
+        <button className={styles.connectBtn} onClick={() => handleConnect()} disabled={loading || !url.trim()}>
+          {loading ? (
+            <><Loader2 size={16} className="spin" /> Connecting…</>
+          ) : (
+            <><Cloud size={16} /> Connect Drive</>
+          )}
+        </button>
+
+        <div className={styles.help}>
+          <a
+            className={styles.helpLink}
+            href="https://support.discord.com/hc/en-us/articles/228383668-Intro-to-Webhooks"
+            target="_blank"
+            rel="noreferrer"
+            onClick={e => { e.preventDefault(); window.open?.(e.currentTarget.href, '_blank'); }}
+          >
+            <ExternalLink size={11} /> Cara membuat webhook
+          </a>
+        </div>
+      </div>
+
+      <div className={styles.version}>Disbox v2.0 · Serverless Edition</div>
+    </div>
+  );
+}

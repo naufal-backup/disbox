@@ -1,0 +1,45 @@
+{
+  "name": "disbox-linux",
+  "version": "2.0.0",
+  "description": "Disbox - Discord Cloud Storage - Modern Linux Desktop App",
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+    "build": "vite build && electron-builder",
+    "build:web": "vite build",
+    "preview": "vite preview",
+    "electron": "electron .",
+    "setup": "npm install"
+  },
+  "build": {
+    "appId": "com.disbox.linux",
+    "productName": "Disbox",
+    "linux": {
+      "target": ["AppImage", "deb"],
+      "category": "Network",
+      "icon": "src/assets/icon.png"
+    },
+    "files": ["dist/**/*", "electron/**/*"],
+    "directories": {
+      "output": "release"
+    }
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.2.1",
+    "concurrently": "^8.2.2",
+    "electron": "^29.1.0",
+    "electron-builder": "^24.13.3",
+    "vite": "^5.1.4",
+    "wait-on": "^7.2.0"
+  },
+  "dependencies": {
+    "axios": "^1.6.7",
+    "framer-motion": "^11.0.8",
+    "lucide-react": "^0.344.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-dropzone": "^14.2.3",
+    "react-hot-toast": "^2.4.1",
+    "react-router-dom": "^6.22.2"
+  }
+}
