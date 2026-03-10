@@ -1,66 +1,79 @@
-Disbox-Linux
-==================================================
+# Disbox Linux ⬡
 
-Disbox-Linux adalah klien penyimpanan file berbasis Command Line Interface (CLI) untuk Linux yang memanfaatkan Discord sebagai media penyimpanan (cloud storage). Dibangun menggunakan Linux Shell Script untuk memastikan performa yang ringan dan integrasi sistem yang mulus.
+Disbox-Linux adalah aplikasi desktop penyimpanan awan (cloud storage) modern untuk Linux yang memanfaatkan Discord sebagai media penyimpanan. Aplikasi ini dibangun menggunakan **Electron** dan **React** untuk memberikan pengalaman pengguna yang mulus, ringan, dan canggih.
 
+![Preview 1](preview/Screenshot_20260310_214423.png)
 
-FITUR UTAMA
---------------------------------------------------
-* Ringan & Native: Ditulis menggunakan Bash, meminimalisir kebutuhan resource berlebih.
-* Integrasi API Discord: Memanfaatkan Webhook atau Bot Discord untuk proses upload dan download file.
-* Otomatisasi Mudah: Sangat mudah diintegrasikan dengan cron jobs atau script backup Linux lainnya.
+## 🚀 Fitur Utama
 
+*   **Penyimpanan Tak Terbatas:** Manfaatkan Discord Webhook untuk menyimpan file tanpa batasan kuota.
+*   **Virtual File System:** Kelola file Anda dengan struktur folder, layaknya Google Drive atau Dropbox.
+*   **Sistem Chunking Pintar:** File besar otomatis dipecah menjadi bagian-bagian kecil (8MB) untuk stabilitas upload.
+*   **Pratinjau File Langsung:**
+    *   **Gambar:** PNG, JPG, WebP, SVG.
+    *   **Media:** Pemutar Video dan Audio bawaan.
+    *   **Dokumen:** Viewer PDF terintegrasi.
+    *   **Kode:** *Syntax Highlighting* untuk berbagai bahasa pemrograman (JS, Python, Rust, dll).
+*   **Sinkronisasi Metadata:** Metadata disimpan secara lokal dan disinkronkan ke Discord untuk akses antar perangkat.
+*   **Manajemen File:** Mendukung multi-select untuk hapus massal, pindah folder, dan salin file.
+*   **Mode Gelap/Terang:** Antarmuka modern yang dapat disesuaikan dengan preferensi Anda.
 
-PRASYARAT
---------------------------------------------------
-Pastikan utilitas berikut telah terpasang di sistem Linux kamu:
-* bash (v4.0+)
-* curl (Untuk komunikasi dengan API Discord)
-* jq (Opsional: Untuk parsing respons JSON dari API)
+## 📸 Cuplikan Layar
 
+| Login Page | File Explorer |
+|:---:|:---:|
+| ![Login](preview/Screenshot_20260310_214405.png) | ![Drive](preview/Screenshot_20260310_214352.png) |
 
-INSTALASI
---------------------------------------------------
-Kloning repositori ini dan berikan hak akses eksekusi pada script utama.
+## 🛠 Prasyarat
 
-1. git clone https://github.com/naufal-backup/disbox-linux.git
-2. cd disbox-linux
-3. chmod +x disbox.sh
+Pastikan sistem Anda memiliki komponen berikut:
+*   **Node.js** (v18 atau lebih baru)
+*   **npm** atau **yarn**
 
+## ⚙️ Instalasi
 
-KONFIGURASI
---------------------------------------------------
-1. Salin contoh file konfigurasi yang tersedia:
-   cp config.example.env config.env
+1.  Kloning repositori ini:
+    ```bash
+    git clone https://github.com/naufal-backup/disbox-linux.git
+    cd disbox-linux
+    ```
 
-2. Edit config.env dan masukkan parameter yang diperlukan (seperti URL Webhook atau Token Bot):
-   DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/xxxx/yyyy"
+2.  Jalankan script setup atau install dependensi secara manual:
+    ```bash
+    chmod +x setup.sh
+    ./setup.sh
+    # ATAU
+    npm install
+    ```
 
+## 🖥 Penggunaan
 
-PENGGUNAAN
---------------------------------------------------
-Skrip ini dijalankan langsung melalui terminal. Berikut adalah beberapa contoh perintah dasar:
+### Mode Pengembangan
+Jalankan aplikasi dalam mode pengembangan dengan fitur *hot-reload*:
+```bash
+npm run dev
+```
 
-* Mengunggah File:
-  ./disbox.sh upload /path/to/local/file.zip
+### Build Aplikasi
+Untuk membuat paket aplikasi (`.AppImage` atau `.deb`):
+```bash
+npm run build
+```
+Hasil build akan tersedia di folder `release/`.
 
-* Mengunduh File:
-  ./disbox.sh download <file_id> /path/to/destination/
+## 🔒 Keamanan & Privasi
 
-* Melihat Daftar File:
-  ./disbox.sh list
+Disbox menggunakan **Discord Webhook** sebagai endpoint penyimpanan. Data Anda aman karena tidak ada server perantara (serverless). Metadata file Anda dienkripsi secara ringan dan hanya Anda yang memiliki akses melalui URL Webhook pribadi Anda.
 
+## 🤝 Kontribusi
 
-KONTRIBUSI
---------------------------------------------------
-Kontribusi, laporan bug, dan pull request sangat dipersilakan. 
-1. Fork repositori ini.
-2. Buat branch fitur baru (git checkout -b fitur-keren).
-3. Lakukan commit (git commit -m 'Menambahkan fitur keren').
-4. Push ke branch (git push origin fitur-keren).
+Laporan bug dan Pull Request sangat kami hargai!
+1. Fork repositori.
+2. Buat branch fitur (`git checkout -b fitur-keren`).
+3. Commit perubahan (`git commit -m 'Menambah fitur keren'`).
+4. Push ke branch (`git push origin fitur-keren`).
 5. Buat Pull Request.
 
+## 📄 Lisensi
 
-LISENSI
---------------------------------------------------
-MIT License
+Proyek ini dilisensikan di bawah **MIT License**.
