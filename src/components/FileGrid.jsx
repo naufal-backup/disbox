@@ -66,16 +66,17 @@ export default function FileGrid() {
 
     for (const file of selectedFiles) {
       const transferId = crypto.randomUUID();
-      const isNativePath = typeof file === 'string';
-      const fileName = isNativePath ? file.split('/').pop() : file.name;
+      const isStringPath = typeof file === 'string';
+      const nativePath = isStringPath ? file : file.path;
+      const fileName = isStringPath ? file.split('/').pop() : file.name;
       const uploadPath = dirPath ? `${dirPath}/${fileName}` : fileName;
 
       addTransfer({ id: transferId, name: fileName, progress: 0, type: 'upload', status: 'active' });
 
       try {
-        if (isNativePath) {
+        if (nativePath) {
           await api.uploadFile(
-            { nativePath: file, name: fileName },
+            { nativePath, name: fileName },
             uploadPath,
             (progress) => updateTransfer(transferId, { progress })
           );
@@ -96,6 +97,7 @@ export default function FileGrid() {
       } catch (e) {
         updateTransfer(transferId, { status: 'error', error: e.message });
         console.error('Upload failed:', e);
+        setTimeout(() => removeTransfer(transferId), 3000);
       }
     }
 
