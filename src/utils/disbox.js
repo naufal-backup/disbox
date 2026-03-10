@@ -35,7 +35,98 @@ export class DisboxAPI {
 
   async init() {
     this.hashedWebhook = await this.hashWebhook(this.webhookUrl);
+    // Sync metadata from Discord if local is missing (for new devices)
+    await this.syncMetadata();
     return this.hashedWebhook;
+  }
+
+  // ─── Metadata Sync (Discord as DB) ───────────────────────────────────────
+  
+  async syncMetadata() {
+    try {
+      const localFiles = await this.getFileSystem();
+      // As requested: if file exists, no need to download
+      if (localFiles.length > 0) {
+        console.log('[sync] Local metadata found, skipping download.');
+        return;
+      }
+
+      console.log('[sync] Checking Discord for metadata discovery...');
+      const res = await window.electron.fetch(this.webhookUrl);
+      if (!res.ok) return;
+      
+      const info = JSON.parse(res.body);
+      const match = info.name?.match(/dbx:(\d+)/);
+      if (!match) {
+        console.log('[sync] No metadata ID found in webhook name.');
+        return;
+      }
+
+      const msgId = match[1];
+      const msgUrl = `${this.webhookUrl}/messages/${msgId}`;
+      const msgRes = await window.electron.fetch(msgUrl);
+      if (!msgRes.ok) return;
+
+      const msg = JSON.parse(msgRes.body);
+      const attachmentUrl = msg.attachments?.[0]?.url;
+      if (!attachmentUrl) return;
+
+      console.log('[sync] Downloading metadata from Discord...');
+      const b64 = await window.electron.proxyDownload(attachmentUrl);
+      
+      // Safe base64 to string (UTF-8)
+      const binString = atob(b64);
+      const bytes = Uint8Array.from(binString, (c) => c.charCodeAt(0));
+      const jsonStr = new TextDecoder().decode(bytes);
+      const files = JSON.parse(jsonStr);
+
+      if (Array.isArray(files)) {
+        await window.electron.saveMetadata(this.hashedWebhook, files);
+        console.log('[sync] Metadata downloaded and saved locally.');
+      }
+    } catch (e) {
+      console.error('[sync] Sync-from-Discord failed:', e.message);
+    }
+  }
+
+  async uploadMetadataToDiscord(files) {
+    // Debounce to avoid Discord rate limits on name changes
+    if (this._syncTimeout) clearTimeout(this._syncTimeout);
+    
+    this._syncTimeout = setTimeout(async () => {
+      try {
+        console.log('[sync] Uploading metadata to Discord...');
+        const jsonStr = JSON.stringify(files);
+        const encoder = new TextEncoder();
+        const buffer = encoder.encode(jsonStr).buffer;
+        const b64 = await _bufferToBase64(buffer);
+        const filename = `disbox_metadata.json`;
+        
+        // Upload JSON file
+        const res = await window.electron.uploadChunk(this.webhookUrl, b64, filename);
+        if (!res.ok) throw new Error('Upload failed');
+        
+        const data = JSON.parse(res.body);
+        const msgId = data.id;
+
+        // Update Webhook Name to include the new metadata ID for discovery
+        const infoRes = await window.electron.fetch(this.webhookUrl);
+        if (infoRes.ok) {
+          const info = JSON.parse(infoRes.body);
+          let baseName = (info.name || 'Disbox').split(' | dbx:')[0];
+          const newName = `${baseName} | dbx:${msgId}`;
+          
+          await window.electron.fetch(this.webhookUrl, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: newName })
+          });
+          console.log('[sync] Metadata synced to Discord. Discovery ID:', msgId);
+        }
+      } catch (e) {
+        console.error('[sync] Sync-to-Discord failed:', e.message);
+      }
+    }, 4000); 
   }
 
   // Validasi webhook langsung ke Discord (via Electron IPC — no CORS)
@@ -65,6 +156,8 @@ export class DisboxAPI {
 
   async _saveFileSystem(files) {
     await window.electron.saveMetadata(this.hashedWebhook, files);
+    // Also sync to Discord for cross-device support
+    await this.uploadMetadataToDiscord(files);
   }
 
   async createFile(filePath, messageIds, size = 0) {
