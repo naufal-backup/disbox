@@ -617,6 +617,13 @@ export default function FileGrid() {
 
       {/* ── Context Menu ── */}
       {contextMenu && (
+        <div 
+          className={styles.contextMenuBackdrop} 
+          onClick={() => setContextMenu(null)} 
+          onContextMenu={(e) => { e.preventDefault(); setContextMenu(null); }}
+        />
+      )}
+      {contextMenu && (
         <div
           className={styles.contextMenu}
           style={{ top: contextMenu.y, left: contextMenu.x }}
