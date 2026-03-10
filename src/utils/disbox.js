@@ -71,11 +71,9 @@ export class DisboxAPI {
       if (!attachmentUrl) return;
 
       console.log('[sync] Downloading updated metadata from Discord...');
-      const b64 = await window.electron.proxyDownload(attachmentUrl);
+      const bytes = await window.electron.proxyDownload(attachmentUrl);
       
-      // Safe base64 to string (UTF-8)
-      const binString = atob(b64);
-      const bytes = Uint8Array.from(binString, (c) => c.charCodeAt(0));
+      // Decode binary metadata to JSON string
       const jsonStr = new TextDecoder().decode(bytes);
       const files = JSON.parse(jsonStr);
 
@@ -418,7 +416,9 @@ export function getMimeType(name) {
     jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
     gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml',
     txt: 'text/plain', html: 'text/html', css: 'text/css',
-    json: 'application/json', js: 'text/javascript',
+    json: 'application/json', js: 'text/javascript', ts: 'text/typescript',
+    py: 'text/x-python', rs: 'text/rust', md: 'text/markdown',
+    yml: 'text/yaml', yaml: 'text/yaml', xml: 'text/xml',
     zip: 'application/zip',
   };
   return map[ext] || 'application/octet-stream';

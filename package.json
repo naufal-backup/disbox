@@ -15,7 +15,10 @@
     "appId": "com.disbox.linux",
     "productName": "Disbox",
     "linux": {
-      "target": ["AppImage", "deb"],
+      "target": [
+        "AppImage",
+        "deb"
+      ],
       "category": "Network",
       "icon": "src/assets/icon.png",
       "executableName": "disbox",
@@ -23,7 +26,10 @@
         "StartupWMClass": "disbox"
       }
     },
-    "files": ["dist/**/*", "electron/**/*"],
+    "files": [
+      "dist/**/*",
+      "electron/**/*"
+    ],
     "directories": {
       "output": "release"
     }
@@ -44,6 +50,7 @@
     "react-dom": "^18.2.0",
     "react-dropzone": "^14.2.3",
     "react-hot-toast": "^2.4.1",
-    "react-router-dom": "^6.22.2"
+    "react-router-dom": "^6.22.2",
+    "react-syntax-highlighter": "^16.1.1"
   }
 }

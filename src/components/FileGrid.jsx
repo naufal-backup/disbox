@@ -8,6 +8,7 @@ import toast from 'react-hot-toast';
 import { useApp } from '../AppContext.jsx';
 import { formatSize, getFileIcon, getMimeType } from '../utils/disbox.js';
 import { CreateFolderModal, MoveModal, ConfirmModal } from './FolderModal.jsx';
+import FilePreview from './FilePreview.jsx';
 import styles from './FileGrid.module.css';
 
 export default function FileGrid() {
@@ -37,6 +38,7 @@ export default function FileGrid() {
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [confirmAction, setConfirmAction] = useState(null);
   const [dragOverTarget, setDragOverTarget] = useState(null); // Track hovered folder path
+  const [previewFile, setPreviewFile] = useState(null);
 
   const getFolderSize = (path) => {
     return files
@@ -56,30 +58,55 @@ export default function FileGrid() {
     setCurrentPath(path);
     setSelectedFiles(new Set());
     setContextMenu(null);
+    setSearchQuery('');
   };
 
   // ─── Files in current dir ────────────────────────────────────────────────────
   const displayedFiles = files.filter(f => {
     const parts = f.path.split('/').filter(Boolean);
     if (parts[parts.length - 1] === '.keep') return false; // Hide .keep placeholder
-    const fileDirStr = parts.slice(0, -1).join('/');
-    return fileDirStr === dirPath;
-  }).filter(f =>
-    !searchQuery || f.path.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+    
+    if (searchQuery) {
+      // Global search within current dir
+      const isInside = dirPath === '' || f.path.startsWith(dirPath + '/');
+      const matchesName = parts[parts.length - 1].toLowerCase().includes(searchQuery.toLowerCase());
+      return isInside && matchesName;
+    } else {
+      // Local dir
+      const fileDirStr = parts.slice(0, -1).join('/');
+      return fileDirStr === dirPath;
+    }
+  });
 
   // Subdirectories at current level
   const subDirs = (() => {
-    const depth = dirPath === '' ? 0 : dirPath.split('/').length;
-    const dirs = new Set();
+    const dirsMap = new Map();
     files.forEach(f => {
       const parts = f.path.split('/').filter(Boolean);
-      if (parts.length > depth + 1) {
-        const parentDir = parts.slice(0, depth).join('/');
-        if (parentDir === dirPath) dirs.add(parts[depth]);
+      let currentPath = '';
+      for (let i = 0; i < parts.length - 1; i++) {
+        currentPath = currentPath ? currentPath + '/' + parts[i] : parts[i];
+        if (!dirsMap.has(currentPath)) {
+          dirsMap.set(currentPath, parts[i]);
+        }
       }
     });
-    return [...dirs];
+
+    const results = [];
+    for (const [fullPath, name] of dirsMap.entries()) {
+      if (searchQuery) {
+        const isInside = dirPath === '' || fullPath.startsWith(dirPath + '/');
+        if (isInside && name.toLowerCase().includes(searchQuery.toLowerCase())) {
+          results.push({ name, fullPath });
+        }
+      } else {
+        const parentPath = fullPath.split('/').slice(0, -1).join('/');
+        if (parentPath === dirPath) {
+          results.push({ name, fullPath });
+        }
+      }
+    }
+    return results;
   })();
 
   // ─── Actions ─────────────────────────────────────────────────────────────────
@@ -387,12 +414,11 @@ export default function FileGrid() {
           </div>
         ) : viewMode === 'grid' ? (
           <div className={styles.grid}>
-            {subDirs.map(dir => {
-              const fullPath = (dirPath ? dirPath + '/' : '') + dir;
+            {subDirs.map(({ name: dir, fullPath }) => {
               const folderSize = getFolderSize(fullPath);
               return (
                 <div
-                  key={dir}
+                  key={fullPath}
                   className={`${styles.card} ${selectedFiles.has(fullPath) ? styles.selected : ''} ${dragOverTarget === fullPath ? styles.isDragTarget : ''}`}
                   draggable={!isSelectionMode}
                   onDragStart={(e) => handleDragStart(e, fullPath)}
@@ -468,7 +494,7 @@ export default function FileGrid() {
                       isFolder: false 
                     }); 
                   }}
-                  onDoubleClick={() => downloadFile(file)}
+                  onDoubleClick={() => setPreviewFile(file)}
                 >
                   <div className={styles.checkbox}>
                     <Check size={12} strokeWidth={3} />
@@ -501,12 +527,11 @@ export default function FileGrid() {
               <span style={{ width: 100, textAlign: 'right' }}>Ukuran</span>
               <span style={{ width: 120 }}></span>
             </div>
-            {subDirs.map(dir => {
-              const fullPath = (dirPath ? dirPath + '/' : '') + dir;
+            {subDirs.map(({ name: dir, fullPath }) => {
               const folderSize = getFolderSize(fullPath);
               return (
                 <div 
-                  key={dir} 
+                  key={fullPath} 
                   className={`${styles.listRow} ${selectedFiles.has(fullPath) ? styles.selected : ''} ${dragOverTarget === fullPath ? styles.isDragTarget : ''}`}
                   draggable={!isSelectionMode}
                   onDragStart={(e) => handleDragStart(e, fullPath)}
@@ -581,6 +606,7 @@ export default function FileGrid() {
                       isFolder: false 
                     }); 
                   }}
+                  onDoubleClick={() => setPreviewFile(file)}
                 >
                   <div className={styles.listCheckbox}>
                     {selectedFiles.has(file.path) && <Check size={10} strokeWidth={4} />}
@@ -692,6 +718,12 @@ export default function FileGrid() {
           danger={confirmAction.danger}
           onConfirm={confirmAction.onConfirm}
           onClose={() => setConfirmAction(null)}
+        />
+      )}
+      {previewFile && (
+        <FilePreview
+          file={previewFile}
+          onClose={() => setPreviewFile(null)}
         />
       )}
     </div>
