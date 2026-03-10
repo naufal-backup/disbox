@@ -2,7 +2,7 @@
 
 Disbox-Linux adalah aplikasi desktop penyimpanan awan (cloud storage) modern untuk Linux yang memanfaatkan Discord sebagai media penyimpanan. Aplikasi ini dibangun menggunakan **Electron** dan **React** untuk memberikan pengalaman pengguna yang mulus, ringan, dan canggih.
 
-![Main UI](preview/Screenshot_20260310_214423.png)
+![Main UI](preview/file_explorer.png)
 
 ## 🚀 Fitur Utama
 
@@ -22,7 +22,11 @@ Disbox-Linux adalah aplikasi desktop penyimpanan awan (cloud storage) modern unt
 
 | Login Page | File Explorer |
 |:---:|:---:|
-| ![Login](preview/Screenshot_20260310_214405.png) | ![Drive](preview/Screenshot_20260310_214352.png) |
+| ![Login](preview/login_page.png) | ![Drive](preview/file_explorer.png) |
+
+| Document Viewer | Context Menu |
+|:---:|:---:|
+| ![Preview](preview/preview_documents.png) | ![Context](preview/right_click.png) |
 
 ## 🛠 Prasyarat
 
