@@ -213,8 +213,7 @@ export default function FileGrid() {
       if (window.electron) {
         const savePath = await window.electron.saveFile(fileName);
         if (savePath) {
-          const b64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
-          await window.electron.writeFile(savePath, b64);
+          await window.electron.writeFile(savePath, new Uint8Array(buffer));
         }
       } else {
         const a = document.createElement('a');

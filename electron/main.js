@@ -99,14 +99,14 @@ ipcMain.handle('net-fetch', async (_, url, options = {}) => {
   }
 });
 
-// Binary download via net.fetch — returns base64
+// Binary download via net.fetch — returns Buffer directly
 ipcMain.handle('proxy-download', async (_, url) => {
   try {
     const response = await net.fetch(url, {
       headers: { 'User-Agent': 'Mozilla/5.0 Disbox/2.0' },
     });
     const arrayBuffer = await response.arrayBuffer();
-    return Buffer.from(arrayBuffer).toString('base64');
+    return Buffer.from(arrayBuffer);
   } catch (e) {
     throw new Error(`Download failed: ${e.message}`);
   }
@@ -146,8 +146,15 @@ ipcMain.handle('read-file', async (_, filePath) => {
 });
 
 ipcMain.handle('save-file', async (_, { savePath, data }) => {
-  fs.writeFileSync(savePath, Buffer.from(data, 'base64'));
-  return true;
+  try {
+    // data can be Uint8Array from renderer or base64 string
+    const buffer = (typeof data === 'string') ? Buffer.from(data, 'base64') : Buffer.from(data);
+    await fs.promises.writeFile(savePath, buffer);
+    return true;
+  } catch (e) {
+    console.error('[save-file] error:', e.message);
+    throw e;
+  }
 });
 
 ipcMain.handle('open-path', async (_, filePath) => shell.openPath(filePath));

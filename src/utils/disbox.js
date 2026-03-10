@@ -343,9 +343,7 @@ export class DisboxAPI {
       if (!attachmentUrl) throw new Error('Attachment URL tidak ditemukan');
 
       // Download binary via Electron (no CORS)
-      const b64 = await window.electron.proxyDownload(attachmentUrl);
-      const chunkData = Uint8Array.from(atob(b64), c => c.charCodeAt(0)).buffer;
-
+      const chunkData = await window.electron.proxyDownload(attachmentUrl);
       chunks.push(chunkData);
       onProgress?.((i + 1) / messageIds.length);
     }
