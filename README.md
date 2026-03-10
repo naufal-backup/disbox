@@ -18,8 +18,8 @@ Disbox-Linux adalah aplikasi desktop penyimpanan awan (cloud storage) modern unt
 *   **Manajemen File:** Mendukung multi-select untuk hapus massal, pindah folder, dan salin file.
 *   **Mode Gelap/Terang:** Antarmuka modern yang dapat disesuaikan dengan preferensi Anda.
 ## 🚀 Fitur Mendatang
-***Cloud Save Games**
-***Sharing Link Folder/File**
+*   **Cloud Save Games**
+*   **Sharing Link Folder/File**
 
 
 ## 📸 Cuplikan Layar
