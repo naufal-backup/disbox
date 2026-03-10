@@ -228,63 +228,95 @@ ipcMain.handle('upload-chunk', async (_, webhookUrl, chunkB64, filename) => {
   }
 });
 
-// ─── IPC: Upload file besar langsung dari path (stream, tanpa load ke RAM) ───
+// ─── IPC: Upload file besar langsung dari path (Parallel 8 Chunks with Throttle) ──
 ipcMain.handle('upload-file-from-path', async (event, webhookUrl, nativePath, _destPath) => {
   try {
     const stats = fs.statSync(nativePath);
     const totalSize = stats.size;
-    const CHUNK = 8 * 1024 * 1024; // 8MB — Discord attachment limit ~10MB untuk non-boosted server
+    const CHUNK = 8 * 1024 * 1024; // 8MB
     const numChunks = Math.ceil(totalSize / CHUNK) || 1;
     const filename = require('path').basename(nativePath);
-    const messageIds = [];
-
+    const messageIds = new Array(numChunks);
     const fd = fs.openSync(nativePath, 'r');
-    try {
-      for (let i = 0; i < numChunks; i++) {
-        const start = i * CHUNK;
-        const size = Math.min(CHUNK, totalSize - start);
-        const buf = Buffer.alloc(size);
-        fs.readSync(fd, buf, 0, size, start);
 
-        const boundary = '----DisboxBoundary' + Date.now().toString(36) + i;
-        const header = Buffer.from(
-          '--' + boundary + '\r\n' +
-          'Content-Disposition: form-data; name="file"; filename="' + filename + '.part' + i + '"\r\n' +
-          'Content-Type: application/octet-stream\r\n\r\n'
-        );
-        const footer = Buffer.from('\r\n--' + boundary + '--\r\n');
-        const body = new Uint8Array(Buffer.concat([header, buf, footer]));
+    let completedChunks = 0;
+    let activeUploads = 0;
+    let nextChunkIndex = 0;
 
-        console.log(`[upload-path] chunk ${i+1}/${numChunks} (${size} bytes)`);
-
-        const response = await net.fetch(webhookUrl + '?wait=true', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'multipart/form-data; boundary=' + boundary,
-            'User-Agent': 'Mozilla/5.0 Disbox/2.0',
-          },
-          body,
-        });
-
-        const text = await response.text();
-        console.log(`[upload-path] chunk ${i} response ${response.status}:`, text.slice(0, 300));
-        if (!response.ok) {
-          return { ok: false, error: `Chunk ${i} gagal (${response.status}): ${text.slice(0, 300)}` };
+    return new Promise((resolve, reject) => {
+      async function uploadNext() {
+        if (completedChunks === numChunks) {
+          fs.closeSync(fd);
+          return resolve({ ok: true, messageIds, size: totalSize });
         }
 
-        const data = JSON.parse(text);
-        messageIds.push(data.id);
-
-        // Kirim progress ke renderer
-        event.sender.send('upload-progress', (i + 1) / numChunks);
+        while (activeUploads < 8 && nextChunkIndex < numChunks) {
+          const index = nextChunkIndex++;
+          activeUploads++;
+          uploadChunk(index);
+        }
       }
-    } finally {
-      fs.closeSync(fd);
-    }
 
-    return { ok: true, messageIds, size: totalSize };
+      async function uploadChunk(index, retryCount = 0) {
+        try {
+          const start = index * CHUNK;
+          const size = Math.min(CHUNK, totalSize - start);
+          const buf = Buffer.alloc(size);
+          fs.readSync(fd, buf, 0, size, start);
+
+          const boundary = '----DisboxBoundary' + Date.now().toString(36) + index;
+          const header = Buffer.from(
+            '--' + boundary + '\r\n' +
+            'Content-Disposition: form-data; name="file"; filename="' + filename + '.part' + index + '"\r\n' +
+            'Content-Type: application/octet-stream\r\n\r\n'
+          );
+          const footer = Buffer.from('\r\n--' + boundary + '--\r\n');
+          const body = new Uint8Array(Buffer.concat([header, buf, footer]));
+
+          const response = await net.fetch(webhookUrl + '?wait=true', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'multipart/form-data; boundary=' + boundary,
+              'User-Agent': 'Mozilla/5.0 Disbox/2.0',
+            },
+            body,
+          });
+
+          const text = await response.text();
+
+          if (response.status === 429) {
+            const retryAfter = JSON.parse(text).retry_after || 5;
+            console.warn(`[upload] Rate limited on chunk ${index}, retrying in ${retryAfter}s...`);
+            setTimeout(() => uploadChunk(index, retryCount + 1), (retryAfter * 1000) + 500);
+            return;
+          }
+
+          if (!response.ok) {
+            throw new Error(`Status ${response.status}: ${text.slice(0, 100)}`);
+          }
+
+          const data = JSON.parse(text);
+          messageIds[index] = data.id;
+          
+          activeUploads--;
+          completedChunks++;
+          event.sender.send('upload-progress', completedChunks / numChunks);
+          uploadNext();
+        } catch (e) {
+          if (retryCount < 3) {
+            console.error(`[upload] Error on chunk ${index}, retry ${retryCount + 1}:`, e.message);
+            setTimeout(() => uploadChunk(index, retryCount + 1), 2000);
+          } else {
+            fs.closeSync(fd);
+            reject(new Error(`Gagal upload chunk ${index} setelah 3 kali coba: ${e.message}`));
+          }
+        }
+      }
+
+      uploadNext();
+    });
   } catch (e) {
-    console.error('[upload-path] error:', e.message);
+    console.error('[upload-path] Fatal error:', e.message);
     return { ok: false, error: e.message };
   }
 });
