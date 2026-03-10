@@ -2,11 +2,12 @@ import { useState, useCallback, useEffect } from 'react';
 import {
   Upload, FolderPlus, Grid3x3, List, Search,
   Download, Trash2, Edit3, Folder,
-  ChevronRight, Home, Move, Copy,
+  ChevronRight, Home, Move, Copy, Check, AlertCircle, ZoomIn
 } from 'lucide-react';
+import toast from 'react-hot-toast';
 import { useApp } from '../AppContext.jsx';
 import { formatSize, getFileIcon, getMimeType } from '../utils/disbox.js';
-import { CreateFolderModal, MoveModal } from './FolderModal.jsx';
+import { CreateFolderModal, MoveModal, ConfirmModal } from './FolderModal.jsx';
 import styles from './FileGrid.module.css';
 
 export default function FileGrid() {
@@ -14,17 +15,30 @@ export default function FileGrid() {
     api, files, currentPath, setCurrentPath,
     addTransfer, updateTransfer, refresh, loading,
     movePath, copyPath, deletePath,
+    bulkDelete, bulkMove, bulkCopy,
   } = useApp();
 
   const [viewMode, setViewMode] = useState('grid');
+  const [zoom, setZoom] = useState(() => Number(localStorage.getItem('disbox_zoom')) || 1);
   const [searchQuery, setSearchQuery] = useState('');
+  
+  useEffect(() => {
+    localStorage.setItem('disbox_zoom', zoom.toString());
+  }, [zoom]);
   const [selectedFiles, setSelectedFiles] = useState(new Set());
   const [contextMenu, setContextMenu] = useState(null);
   const [renameTarget, setRenameTarget] = useState(null); // { path, isFolder }
   const [renameValue, setRenameValue] = useState('');
   const [uploading, setUploading] = useState(false);
   const [showCreateFolder, setShowCreateFolder] = useState(false);
-  const [moveModal, setMoveModal] = useState(null); // { path, mode: 'move'|'copy' }
+  const [moveModal, setMoveModal] = useState(null); // { paths, mode: 'move'|'copy' }
+  const [dragSource, setDragSource] = useState(null);
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [confirmAction, setConfirmAction] = useState(null);
+
+  useEffect(() => {
+    if (selectedFiles.size === 0) setIsSelectionMode(false);
+  }, [selectedFiles]);
 
   // ─── Path helpers ────────────────────────────────────────────────────────────
   const pathParts = currentPath === '/' ? [] : currentPath.split('/').filter(Boolean);
@@ -64,11 +78,39 @@ export default function FileGrid() {
   
   const handleDelete = async (targetPath) => {
     const name = targetPath.split('/').pop();
-    if (!confirm(`Hapus "${name}"? Semua isi di dalamnya akan ikut terhapus.`)) return;
-    try { 
-      await deletePath(targetPath); 
-      setContextMenu(null);
-    } catch (e) { alert('Gagal hapus: ' + e.message); }
+    setConfirmAction({
+      title: 'Hapus Item',
+      message: `Apakah Anda yakin ingin menghapus "${name}"? Semua isi di dalamnya akan ikut terhapus.`,
+      danger: true,
+      onConfirm: async () => {
+        try { 
+          await deletePath(targetPath); 
+          setContextMenu(null);
+          toast.success('Dihapus');
+        } catch (e) { toast.error('Gagal hapus: ' + e.message); }
+      }
+    });
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedFiles.size === 0) return;
+    setConfirmAction({
+      title: 'Hapus Beberapa Item',
+      message: `Apakah Anda yakin ingin menghapus ${selectedFiles.size} item terpilih?`,
+      danger: true,
+      onConfirm: async () => {
+        try {
+          await bulkDelete([...selectedFiles]);
+          clearSelection();
+          toast.success(`${selectedFiles.size} item dihapus`);
+        } catch (e) { toast.error('Gagal hapus: ' + e.message); }
+      }
+    });
+  };
+
+  const handleBulkMove = (mode = 'move') => {
+    if (selectedFiles.size === 0) return;
+    setMoveModal({ paths: [...selectedFiles], mode });
   };
 
   const startRename = (path, isFolder = false) => {
@@ -180,6 +222,13 @@ export default function FileGrid() {
   // ─── Selection ───────────────────────────────────────────────────────────────
   const toggleSelect = (fileId, e) => {
     e.stopPropagation();
+    
+    if (!e.ctrlKey && !isSelectionMode) {
+      setSelectedFiles(new Set());
+      return;
+    }
+
+    setIsSelectionMode(true);
     setSelectedFiles(prev => {
       const next = new Set(prev);
       next.has(fileId) ? next.delete(fileId) : next.add(fileId);
@@ -187,33 +236,78 @@ export default function FileGrid() {
     });
   };
 
+  const clearSelection = () => {
+    setSelectedFiles(new Set());
+    setIsSelectionMode(false);
+  };
+
+  const handleDragStart = (e, path) => {
+    if (isSelectionMode) { e.preventDefault(); return; }
+    setDragSource(path);
+    e.dataTransfer.setData('text/plain', path);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDropMove = async (e, destDir) => {
+    e.preventDefault();
+    const sourcePath = e.dataTransfer.getData('text/plain') || dragSource;
+    if (!sourcePath) return;
+    if (sourcePath.startsWith('http') || e.dataTransfer.files.length > 0) return;
+
+    const name = sourcePath.split('/').pop();
+    const targetPath = destDir ? `${destDir}/${name}` : name;
+    if (sourcePath === targetPath) return;
+    if (destDir.startsWith(sourcePath + '/')) return;
+
+    try {
+      await movePath(sourcePath, destDir);
+      toast.success('Dipindahkan');
+    } catch (e) { toast.error('Gagal pindah'); }
+    setDragSource(null);
+  };
+
   const [isDragOver, setIsDragOver] = useState(false);
 
   return (
     <div
-      className={`${styles.container} ${isDragOver ? styles.dragOver : ''}`}
+      className={`${styles.container} ${isDragOver ? styles.dragOver : ''} ${isSelectionMode ? styles.isSelectionMode : ''}`}
+      style={{ '--zoom': zoom }}
       onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
       onDragLeave={() => setIsDragOver(false)}
-      onDrop={(e) => { setIsDragOver(false); handleDropZone(e); }}
-      onClick={() => { setContextMenu(null); setSelectedFiles(new Set()); }}
-    >
+      onDrop={(e) => { 
+        setIsDragOver(false); 
+        if (e.dataTransfer.files.length > 0) handleDropZone(e);
+      }}
+      onClick={() => { setContextMenu(null); if (!isSelectionMode) clearSelection(); }}
+      >
       {/* ── Toolbar ── */}
+
       <div className={styles.toolbar}>
         <div className={styles.breadcrumb}>
-          <button className={styles.breadcrumbItem} onClick={() => navigate('/')}>
+          <button 
+            className={styles.breadcrumbItem} 
+            onClick={() => navigate('/')}
+            onDragOver={e => e.preventDefault()}
+            onDrop={e => handleDropMove(e, '')}
+          >
             <Home size={13} />
           </button>
-          {pathParts.map((part, i) => (
-            <span key={i} className={styles.breadcrumbRow}>
-              <ChevronRight size={12} className={styles.breadcrumbSep} />
-              <button
-                className={styles.breadcrumbItem}
-                onClick={() => navigate('/' + pathParts.slice(0, i + 1).join('/'))}
-              >
-                {part}
-              </button>
-            </span>
-          ))}
+          {pathParts.map((part, i) => {
+            const targetPath = '/' + pathParts.slice(0, i + 1).join('/');
+            return (
+              <span key={i} className={styles.breadcrumbRow}>
+                <ChevronRight size={12} className={styles.breadcrumbSep} />
+                <button
+                  className={styles.breadcrumbItem}
+                  onClick={() => navigate(targetPath)}
+                  onDragOver={e => e.preventDefault()}
+                  onDrop={e => handleDropMove(e, targetPath === '/' ? '' : targetPath.slice(1))}
+                >
+                  {part}
+                </button>
+              </span>
+            );
+          })}
         </div>
 
         <div className={styles.toolbarRight}>
@@ -235,6 +329,19 @@ export default function FileGrid() {
             <button className={`${styles.viewBtn} ${viewMode === 'list' ? styles.viewActive : ''}`} onClick={() => setViewMode('list')}>
               <List size={13} />
             </button>
+          </div>
+
+          <div className={styles.zoomBox}>
+            <ZoomIn size={13} />
+            <input
+              type="range"
+              min="0.6"
+              max="1.8"
+              step="0.1"
+              value={zoom}
+              onChange={e => setZoom(parseFloat(e.target.value))}
+              className={styles.zoomSlider}
+            />
           </div>
 
           <button className={styles.folderBtn} onClick={() => setShowCreateFolder(true)} title="Folder Baru">
@@ -267,14 +374,22 @@ export default function FileGrid() {
               return (
                 <div
                   key={dir}
-                  className={styles.card}
+                  className={`${styles.card} ${selectedFiles.has(fullPath) ? styles.selected : ''}`}
+                  draggable={!isSelectionMode}
+                  onDragStart={(e) => handleDragStart(e, fullPath)}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => handleDropMove(e, fullPath)}
                   onDoubleClick={() => navigate('/' + fullPath)}
+                  onClick={(e) => toggleSelect(fullPath, e)}
                   onContextMenu={(e) => { 
                     e.preventDefault(); 
                     e.stopPropagation();
                     setContextMenu({ x: e.clientX, y: e.clientY, path: fullPath, isFolder: true }); 
                   }}
                 >
+                  <div className={styles.checkbox}>
+                    <Check size={12} strokeWidth={3} />
+                  </div>
                   <div className={styles.cardIcon}>
                     <Folder size={32} strokeWidth={1.5} style={{ color: 'var(--amber)' }} />
                   </div>
@@ -300,6 +415,8 @@ export default function FileGrid() {
                 <div
                   key={file.path}
                   className={`${styles.card} ${selectedFiles.has(file.path) ? styles.selected : ''}`}
+                  draggable={!isSelectionMode}
+                  onDragStart={(e) => handleDragStart(e, file.path)}
                   onClick={(e) => toggleSelect(file.path, e)}
                   onContextMenu={(e) => { 
                     e.preventDefault(); 
@@ -308,6 +425,9 @@ export default function FileGrid() {
                   }}
                   onDoubleClick={() => downloadFile(file)}
                 >
+                  <div className={styles.checkbox}>
+                    <Check size={12} strokeWidth={3} />
+                  </div>
                   <div className={styles.cardIcon}>
                     <span style={{ fontSize: 32 }}>{getFileIcon(name)}</span>
                   </div>
@@ -331,6 +451,7 @@ export default function FileGrid() {
         ) : (
           <div className={styles.list}>
             <div className={styles.listHeader}>
+              <span style={{ width: 30 }}></span>
               <span style={{ flex: 1 }}>Nama</span>
               <span style={{ width: 100, textAlign: 'right' }}>Ukuran</span>
               <span style={{ width: 120 }}></span>
@@ -340,14 +461,22 @@ export default function FileGrid() {
               return (
                 <div 
                   key={dir} 
-                  className={styles.listRow} 
+                  className={`${styles.listRow} ${selectedFiles.has(fullPath) ? styles.selected : ''}`}
+                  draggable={!isSelectionMode}
+                  onDragStart={(e) => handleDragStart(e, fullPath)}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => handleDropMove(e, fullPath)}
                   onDoubleClick={() => navigate('/' + fullPath)}
+                  onClick={(e) => toggleSelect(fullPath, e)}
                   onContextMenu={(e) => { 
                     e.preventDefault(); 
                     e.stopPropagation();
                     setContextMenu({ x: e.clientX, y: e.clientY, path: fullPath, isFolder: true }); 
                   }}
                 >
+                  <div className={styles.listCheckbox}>
+                    {selectedFiles.has(fullPath) && <Check size={10} strokeWidth={4} />}
+                  </div>
                   <div className={styles.listIcon}><Folder size={16} style={{ color: 'var(--amber)' }} /></div>
                   <span className={`${styles.listName} truncate`}>
                     {renameTarget?.path === fullPath ? (
@@ -377,6 +506,8 @@ export default function FileGrid() {
                 <div
                   key={file.path}
                   className={`${styles.listRow} ${selectedFiles.has(file.path) ? styles.selected : ''}`}
+                  draggable={!isSelectionMode}
+                  onDragStart={(e) => handleDragStart(e, file.path)}
                   onClick={(e) => toggleSelect(file.path, e)}
                   onContextMenu={(e) => { 
                     e.preventDefault(); 
@@ -384,6 +515,9 @@ export default function FileGrid() {
                     setContextMenu({ x: e.clientX, y: e.clientY, path: file.path, file, isFolder: false }); 
                   }}
                 >
+                  <div className={styles.listCheckbox}>
+                    {selectedFiles.has(file.path) && <Check size={10} strokeWidth={4} />}
+                  </div>
                   <div className={styles.listIcon}>{getFileIcon(name)}</div>
                   <span className={`${styles.listName} truncate`}>
                     {renameTarget?.path === file.path ? (
@@ -419,24 +553,41 @@ export default function FileGrid() {
           style={{ top: contextMenu.y, left: contextMenu.x }}
           onClick={e => e.stopPropagation()}
         >
-          {!contextMenu.isFolder && (
-            <button onClick={() => { downloadFile(contextMenu.file); setContextMenu(null); }}>
-              <Download size={13} /> Download
-            </button>
+          {selectedFiles.size > 1 && selectedFiles.has(contextMenu.path) ? (
+            <>
+              <button onClick={() => { handleBulkMove('move'); setContextMenu(null); }}>
+                <Move size={13} /> Pindah {selectedFiles.size} item…
+              </button>
+              <button onClick={() => { handleBulkMove('copy'); setContextMenu(null); }}>
+                <Copy size={13} /> Salin {selectedFiles.size} item…
+              </button>
+              <div className={styles.contextDivider} />
+              <button className={styles.dangerItem} onClick={() => { handleBulkDelete(); setContextMenu(null); }}>
+                <Trash2 size={13} /> Hapus {selectedFiles.size} item
+              </button>
+            </>
+          ) : (
+            <>
+              {!contextMenu.isFolder && (
+                <button onClick={() => { downloadFile(contextMenu.file); setContextMenu(null); }}>
+                  <Download size={13} /> Download
+                </button>
+              )}
+              <button onClick={() => { setMoveModal({ path: contextMenu.path, mode: 'move' }); setContextMenu(null); }}>
+                <Move size={13} /> Pindah ke…
+              </button>
+              <button onClick={() => { setMoveModal({ path: contextMenu.path, mode: 'copy' }); setContextMenu(null); }}>
+                <Copy size={13} /> Salin ke…
+              </button>
+              <button onClick={() => startRename(contextMenu.path, contextMenu.isFolder)}>
+                <Edit3 size={13} /> Rename
+              </button>
+              <div className={styles.contextDivider} />
+              <button className={styles.dangerItem} onClick={() => { handleDelete(contextMenu.path); setContextMenu(null); }}>
+                <Trash2 size={13} /> Hapus
+              </button>
+            </>
           )}
-          <button onClick={() => { setMoveModal({ path: contextMenu.path, mode: 'move' }); setContextMenu(null); }}>
-            <Move size={13} /> Pindah ke…
-          </button>
-          <button onClick={() => { setMoveModal({ path: contextMenu.path, mode: 'copy' }); setContextMenu(null); }}>
-            <Copy size={13} /> Salin ke…
-          </button>
-          <button onClick={() => startRename(contextMenu.path, contextMenu.isFolder)}>
-            <Edit3 size={13} /> Rename
-          </button>
-          <div className={styles.contextDivider} />
-          <button className={styles.dangerItem} onClick={() => { handleDelete(contextMenu.path); setContextMenu(null); }}>
-            <Trash2 size={13} /> Hapus
-          </button>
         </div>
       )}
 
@@ -455,8 +606,18 @@ export default function FileGrid() {
       {moveModal && (
         <MoveModal
           file={moveModal.path}
+          paths={moveModal.paths}
           mode={moveModal.mode}
-          onClose={() => setMoveModal(null)}
+          onClose={() => { setMoveModal(null); clearSelection(); }}
+        />
+      )}
+      {confirmAction && (
+        <ConfirmModal
+          title={confirmAction.title}
+          message={confirmAction.message}
+          danger={confirmAction.danger}
+          onConfirm={confirmAction.onConfirm}
+          onClose={() => setConfirmAction(null)}
         />
       )}
     </div>

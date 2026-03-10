@@ -1,4 +1,4 @@
-import { HardDrive, Upload, Clock, Star, Trash2, Settings, RefreshCw, LogOut } from 'lucide-react';
+import { HardDrive, Upload, Clock, Star, Trash2, Settings, RefreshCw, LogOut, Sun, Moon } from 'lucide-react';
 import { useApp } from '../AppContext.jsx';
 import styles from './Sidebar.module.css';
 
@@ -10,7 +10,7 @@ const navItems = [
 ];
 
 export default function Sidebar({ activePage, onNavigate }) {
-  const { disconnect, refresh, loading, files } = useApp();
+  const { disconnect, refresh, loading, files, theme, toggleTheme } = useApp();
 
   const totalSize = files.reduce((sum, f) => sum + (f.size || 0), 0);
   const formatSizeGB = (bytes) => {
@@ -52,6 +52,10 @@ export default function Sidebar({ activePage, onNavigate }) {
 
       {/* Actions */}
       <div className={styles.actions}>
+        <button className={styles.actionBtn} onClick={toggleTheme}>
+          {theme === 'dark' ? <Sun size={13} /> : <Moon size={13} />}
+          <span>{theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>
+        </button>
         <button className={styles.actionBtn} onClick={refresh} disabled={loading}>
           <RefreshCw size={13} className={loading ? 'spin' : ''} />
           <span>Refresh</span>

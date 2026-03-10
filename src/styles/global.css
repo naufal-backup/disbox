@@ -2,15 +2,15 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  --bg-deep:        #080810;
-  --bg-base:        #0d0d18;
-  --bg-surface:     #13131f;
-  --bg-elevated:    #1a1a2e;
-  --bg-hover:       #1f1f35;
-  --bg-active:      #252540;
+  --bg-deep:        #05050a;
+  --bg-base:        #0a0a15;
+  --bg-surface:     #121222;
+  --bg-elevated:    #1c1c32;
+  --bg-hover:       #242440;
+  --bg-active:      #2d2d50;
 
-  --border:         rgba(255,255,255,0.06);
-  --border-bright:  rgba(255,255,255,0.12);
+  --border:         rgba(255,255,255,0.08);
+  --border-bright:  rgba(255,255,255,0.15);
 
   --accent:         #5865f2;
   --accent-glow:    rgba(88,101,242,0.35);
@@ -23,10 +23,10 @@
   --red:            #ed4245;
   --green:          #3ba55d;
 
-  --text-primary:   #e8e8f0;
-  --text-secondary: #9090b0;
-  --text-muted:     #5a5a78;
-  --text-dim:       #3a3a55;
+  --text-primary:   #ffffff;
+  --text-secondary: #c0c0e0;
+  --text-muted:     #8a8aaa;
+  --text-dim:       #5a5a75;
 
   --font-display:   'Syne', sans-serif;
   --font-body:      'Inter', sans-serif;
@@ -37,10 +37,34 @@
   --radius-lg:      16px;
   --radius-xl:      24px;
 
-  --shadow-sm:      0 2px 8px rgba(0,0,0,0.4);
-  --shadow:         0 4px 20px rgba(0,0,0,0.5);
-  --shadow-lg:      0 8px 40px rgba(0,0,0,0.6);
+  --shadow-sm:      0 2px 8px rgba(0,0,0,0.5);
+  --shadow:         0 4px 20px rgba(0,0,0,0.6);
+  --shadow-lg:      0 8px 40px rgba(0,0,0,0.7);
   --glow-accent:    0 0 20px var(--accent-glow);
+}
+
+[data-theme='light'] {
+  --bg-deep:        #e0e0eb;
+  --bg-base:        #f0f2f5;
+  --bg-surface:     #ffffff;
+  --bg-elevated:    #ffffff;
+  --bg-hover:       #e8ebf0;
+  --bg-active:      #dde2eb;
+
+  --border:         rgba(0,0,0,0.12);
+  --border-bright:  rgba(0,0,0,0.2);
+
+  --text-primary:   #0a0a1a;
+  --text-secondary: #353550;
+  --text-muted:     #5a5a7a;
+  --text-dim:       #8a8aa0;
+
+  --shadow-sm:      0 2px 8px rgba(0,0,0,0.1);
+  --shadow:         0 4px 20px rgba(0,0,0,0.12);
+  --shadow-lg:      0 8px 40px rgba(0,0,0,0.15);
+
+  --accent-dim:     rgba(88,101,242,0.1);
+  --accent-glow:    rgba(88,101,242,0.1);
 }
 
 html, body, #root {

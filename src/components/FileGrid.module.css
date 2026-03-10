@@ -157,6 +157,42 @@
   border-color: var(--amber);
 }
 
+.zoomBox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 4px 10px;
+  color: var(--text-muted);
+}
+
+.zoomSlider {
+  -webkit-appearance: none;
+  width: 80px;
+  height: 4px;
+  background: var(--bg-hover);
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+
+.zoomSlider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  background: var(--accent);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: all 0.1s;
+}
+
+.zoomSlider::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+  background: var(--accent-bright);
+}
+
 /* ── Content ── */
 .content {
   flex: 1;
@@ -166,12 +202,12 @@
 
 .loading {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(calc(130px * var(--zoom)), 1fr));
   gap: 12px;
 }
 
 .skeletonCard {
-  height: 130px;
+  height: calc(130px * var(--zoom));
   border-radius: var(--radius);
 }
 
@@ -192,20 +228,21 @@
 /* ── Grid View ── */
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(calc(120px * var(--zoom)), 1fr));
+  gap: calc(10px * var(--zoom));
 }
 
 .card {
+  position: relative;
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 14px 12px;
+  padding: calc(14px * var(--zoom)) calc(12px * var(--zoom));
   cursor: pointer;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
+  gap: calc(8px * var(--zoom));
   transition: all 0.15s;
   user-select: none;
 }
@@ -221,9 +258,145 @@
   border-color: var(--accent);
 }
 
-.cardIcon { font-size: 32px; line-height: 1; }
+/* Checkbox */
+.checkbox {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  border: 1.5px solid var(--text-dim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-surface);
+  color: white;
+  transition: all 0.15s;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.isSelectionMode .checkbox { opacity: 1; pointer-events: auto; }
+
+.selected .checkbox {
+  background: var(--accent);
+  border-color: var(--accent);
+  opacity: 1;
+}
+
+.listCheckbox {
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  border: 1.5px solid var(--text-dim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.1s;
+  flex-shrink: 0;
+  opacity: 0;
+}
+
+.isSelectionMode .listCheckbox { opacity: 1; }
+
+.selected .listCheckbox {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+  opacity: 1;
+}
+
+/* Selection Bar */
+.selectionBar {
+  position: absolute;
+  top: 60px;
+  left: 20px;
+  right: 20px;
+  height: 48px;
+  background: var(--accent);
+  border-radius: var(--radius);
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  gap: 16px;
+  color: white;
+  z-index: 100;
+  box-shadow: 0 8px 32px rgba(88,101,242,0.4);
+  animation: slideDown 0.2s ease;
+}
+
+@keyframes slideDown {
+  from { transform: translateY(-10px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.selectionCount {
+  font-weight: 600;
+  font-size: 14px;
+  flex: 1;
+}
+
+.selectionActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.selectionBtn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: rgba(255,255,255,0.15);
+  border: none;
+  border-radius: 6px;
+  color: white;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.selectionBtn:hover { background: rgba(255,255,255,0.25); }
+
+.dangerBtn {
+  background: rgba(237,66,69,0.25) !important;
+}
+.dangerBtn:hover { background: rgba(237,66,69,0.4) !important; }
+
+.closeSelection {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: white;
+  cursor: pointer;
+  border-radius: 50%;
+  transition: background 0.15s;
+}
+
+.closeSelection:hover { background: rgba(255,255,255,0.1); }
+
+.cardIcon { 
+  font-size: calc(32px * var(--zoom)); 
+  line-height: 1; 
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cardIcon svg {
+  width: calc(32px * var(--zoom)) !important;
+  height: calc(32px * var(--zoom)) !important;
+}
+
 .cardName {
-  font-size: 11px;
+  font-size: calc(11px * var(--zoom));
   font-weight: 500;
   text-align: center;
   color: var(--text-primary);
@@ -232,16 +405,20 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.cardMeta { font-size: 10px; color: var(--text-muted); font-family: var(--font-mono); }
+.cardMeta { font-size: calc(10px * var(--zoom)); color: var(--text-muted); font-family: var(--font-mono); }
 
 /* ── List View ── */
-.list { display: flex; flex-direction: column; }
+.list { 
+  display: flex; 
+  flex-direction: column; 
+  font-size: calc(13px * var(--zoom));
+}
 
 .listHeader {
   display: flex;
   align-items: center;
   padding: 6px 12px;
-  font-size: 11px;
+  font-size: calc(11px * var(--zoom));
   font-weight: 600;
   color: var(--text-muted);
   text-transform: uppercase;
@@ -253,7 +430,7 @@
 .listRow {
   display: flex;
   align-items: center;
-  padding: 8px 12px;
+  padding: calc(8px * var(--zoom)) 12px;
   border-radius: var(--radius-sm);
   cursor: pointer;
   gap: 10px;
@@ -263,9 +440,23 @@
 .listRow:hover { background: var(--bg-elevated); }
 .listRow.selected { background: var(--accent-dim); }
 
-.listIcon { width: 24px; text-align: center; flex-shrink: 0; font-size: 16px; }
-.listName { flex: 1; font-size: 13px; min-width: 0; }
-.listSize { width: 100px; text-align: right; font-size: 12px; font-family: var(--font-mono); color: var(--text-muted); }
+.listIcon { 
+  width: calc(24px * var(--zoom)); 
+  text-align: center; 
+  flex-shrink: 0; 
+  font-size: calc(16px * var(--zoom)); 
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.listIcon svg {
+  width: calc(16px * var(--zoom)) !important;
+  height: calc(16px * var(--zoom)) !important;
+}
+
+.listName { flex: 1; min-width: 0; }
+.listSize { width: 100px; text-align: right; color: var(--text-muted); }
 
 .listActions {
   width: 80px;

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { FolderPlus, Move, Copy, X, ChevronRight, Home, Check } from 'lucide-react';
+import { FolderPlus, Move, Copy, X, ChevronRight, Home, Check, AlertCircle } from 'lucide-react';
 import { useApp } from '../AppContext.jsx';
 import styles from './FolderModal.module.css';
 
@@ -54,17 +54,19 @@ export function CreateFolderModal({ onClose }) {
 }
 
 // ─── Move / Copy Modal ────────────────────────────────────────────────────────
-export function MoveModal({ file, mode, onClose }) {
-  const { getAllDirs, movePath, copyPath } = useApp();
+export function MoveModal({ file, paths, mode, onClose }) {
+  const { getAllDirs, movePath, copyPath, bulkMove, bulkCopy } = useApp();
   const [selectedDir, setSelectedDir] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  // file can be a string path (for folders) or a file object (for files)
-  const itemPath = typeof file === 'string' ? file : file.path;
-  const itemName = itemPath.split('/').pop();
+  const isBulk = Array.isArray(paths) && paths.length > 0;
+  const itemPath = isBulk ? null : (typeof file === 'string' ? file : file.path);
+  const itemName = isBulk ? `${paths.length} item` : itemPath.split('/').pop();
 
   const dirs = getAllDirs().filter(d => {
-    // Jangan tampilkan direktori saat ini atau subdirektori dari item itu sendiri
+    if (isBulk) {
+      return !paths.some(p => d === p || d.startsWith(p + '/'));
+    }
     const itemDirPath = '/' + itemPath.split('/').slice(0, -1).join('/');
     return d !== itemDirPath && !d.startsWith(itemPath + '/');
   });
@@ -73,9 +75,11 @@ export function MoveModal({ file, mode, onClose }) {
     if (selectedDir === null) return;
     setLoading(true);
     const destDir = selectedDir === '/' ? '' : selectedDir.slice(1);
-    const ok = mode === 'move'
-      ? await movePath(itemPath, destDir)
-      : await copyPath(itemPath, destDir);
+    
+    const ok = isBulk
+      ? (mode === 'move' ? await bulkMove(paths, destDir) : await bulkCopy(paths, destDir))
+      : (mode === 'move' ? await movePath(itemPath, destDir) : await copyPath(itemPath, destDir));
+
     setLoading(false);
     if (ok) onClose();
   };
@@ -124,6 +128,40 @@ export function MoveModal({ file, mode, onClose }) {
             style={mode === 'copy' ? { background: 'var(--teal)' } : {}}
           >
             {loading ? 'Memproses…' : mode === 'move' ? 'Pindahkan' : 'Salin ke sini'}
+          </button>
+        </div>
+      </div>
+    </Backdrop>
+  );
+}
+
+// ─── Confirm Modal ────────────────────────────────────────────────────────────
+export function ConfirmModal({ title, message, onConfirm, onClose, danger = false }) {
+  return (
+    <Backdrop onClose={onClose}>
+      <div className={styles.modal} style={{ width: 360 }}>
+        <div className={styles.header}>
+          <div className={styles.headerIcon} style={{ background: danger ? 'rgba(237,66,69,0.15)' : 'var(--accent-dim)', color: danger ? 'var(--red)' : 'var(--accent-bright)' }}>
+            <AlertCircle size={16} />
+          </div>
+          <span>{title || 'Konfirmasi'}</span>
+          <button className={styles.closeBtn} onClick={onClose}><X size={14} /></button>
+        </div>
+
+        <div className={styles.body}>
+          <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+            {message}
+          </p>
+        </div>
+
+        <div className={styles.footer}>
+          <button className={styles.cancelBtn} onClick={onClose}>Batal</button>
+          <button
+            className={styles.confirmBtn}
+            onClick={() => { onConfirm(); onClose(); }}
+            style={danger ? { background: 'var(--red)' } : {}}
+          >
+            Ya, Lanjutkan
           </button>
         </div>
       </div>

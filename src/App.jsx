@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Toaster } from 'react-hot-toast';
 import { AppProvider, useApp } from './AppContext.jsx';
 import TitleBar from './components/TitleBar.jsx';
 import LoginPage from './pages/LoginPage.jsx';
@@ -22,6 +23,18 @@ function AppInner() {
 
   return (
     <div className={styles.app}>
+      <Toaster 
+        position="bottom-center" 
+        toastOptions={{
+          style: {
+            background: 'var(--bg-elevated)',
+            color: 'var(--text-primary)',
+            border: '1px solid var(--border-bright)',
+            fontSize: '13px',
+            borderRadius: '10px',
+          }
+        }}
+      />
       {isElectron && <TitleBar />}
       <div className={styles.body}>
         {autoConnecting ? (

@@ -183,6 +183,15 @@ export class DisboxAPI {
     return { deleted: true };
   }
 
+  async bulkDelete(paths) {
+    const files = await this.getFileSystem();
+    const filtered = files.filter(f => 
+      !paths.some(p => f.path === p || f.path.startsWith(p + '/'))
+    );
+    await this._saveFileSystem(filtered);
+    return { deleted: true };
+  }
+
   async renamePath(oldPath, newPath) {
     const files = await this.getFileSystem();
     let found = false;
@@ -201,6 +210,25 @@ export class DisboxAPI {
     return { success: found };
   }
 
+  async bulkMove(paths, destDir) {
+    const files = await this.getFileSystem();
+    const updated = files.map(f => {
+      for (const oldPath of paths) {
+        const name = oldPath.split('/').pop();
+        const newPath = destDir ? `${destDir}/${name}` : name;
+        if (f.path === oldPath) {
+          return { ...f, path: newPath };
+        }
+        if (f.path.startsWith(oldPath + '/')) {
+          return { ...f, path: f.path.replace(oldPath + '/', newPath + '/') };
+        }
+      }
+      return f;
+    });
+    await this._saveFileSystem(updated);
+    return { success: true };
+  }
+
   async copyPath(oldPath, newPath) {
     const files = await this.getFileSystem();
     const toAdd = [];
@@ -214,6 +242,29 @@ export class DisboxAPI {
     
     if (toAdd.length > 0) {
       // Filter out existing files at destination to avoid duplicates
+      const newPaths = new Set(toAdd.map(a => a.path));
+      const filteredFiles = files.filter(f => !newPaths.has(f.path));
+      await this._saveFileSystem([...filteredFiles, ...toAdd]);
+    }
+    return { success: toAdd.length > 0 };
+  }
+
+  async bulkCopy(paths, destDir) {
+    const files = await this.getFileSystem();
+    const toAdd = [];
+    paths.forEach(oldPath => {
+      const name = oldPath.split('/').pop();
+      const newPath = destDir ? `${destDir}/${name}` : name;
+      files.forEach(f => {
+        if (f.path === oldPath) {
+          toAdd.push({ ...f, path: newPath, createdAt: Date.now() });
+        } else if (f.path.startsWith(oldPath + '/')) {
+          toAdd.push({ ...f, path: f.path.replace(oldPath + '/', newPath + '/'), createdAt: Date.now() });
+        }
+      });
+    });
+
+    if (toAdd.length > 0) {
       const newPaths = new Set(toAdd.map(a => a.path));
       const filteredFiles = files.filter(f => !newPaths.has(f.path));
       await this._saveFileSystem([...filteredFiles, ...toAdd]);

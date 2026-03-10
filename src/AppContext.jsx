@@ -35,6 +35,16 @@ export function AppProvider({ children }) {
   const [loading, setLoading] = useState(false);
   const [transfers, setTransfers] = useState([]);
   const [savedWebhooks, setSavedWebhooks] = useState(getSavedWebhooks);
+  const [theme, setTheme] = useState(() => localStorage.getItem('disbox_theme') || 'dark');
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('disbox_theme', theme);
+  }, [theme]);
+
+  const toggleTheme = useCallback(() => {
+    setTheme(prev => prev === 'dark' ? 'light' : 'dark');
+  }, []);
 
   const connect = useCallback(async (url) => {
     setLoading(true);
@@ -158,6 +168,42 @@ export function AppProvider({ children }) {
     }
   }, [api, refresh]);
 
+  const bulkDelete = useCallback(async (paths) => {
+    if (!api) return false;
+    try {
+      await api.bulkDelete(paths);
+      await refresh();
+      return true;
+    } catch (e) {
+      console.error('Bulk delete failed:', e);
+      return false;
+    }
+  }, [api, refresh]);
+
+  const bulkMove = useCallback(async (paths, destDir) => {
+    if (!api) return false;
+    try {
+      await api.bulkMove(paths, destDir);
+      await refresh();
+      return true;
+    } catch (e) {
+      console.error('Bulk move failed:', e);
+      return false;
+    }
+  }, [api, refresh]);
+
+  const bulkCopy = useCallback(async (paths, destDir) => {
+    if (!api) return false;
+    try {
+      await api.bulkCopy(paths, destDir);
+      await refresh();
+      return true;
+    } catch (e) {
+      console.error('Bulk copy failed:', e);
+      return false;
+    }
+  }, [api, refresh]);
+
   // ─── Get all directories ────────────────────────────────────────────────────
   const getAllDirs = useCallback(() => {
     const dirs = new Set(['/']);
@@ -179,8 +225,11 @@ export function AppProvider({ children }) {
       api, webhookUrl, isConnected, files, fileTree,
       currentPath, setCurrentPath,
       loading, transfers, savedWebhooks,
+      theme, toggleTheme,
       connect, disconnect, refresh,
-      createFolder, movePath, copyPath, deletePath, getAllDirs,
+      createFolder, movePath, copyPath, deletePath, 
+      bulkDelete, bulkMove, bulkCopy,
+      getAllDirs,
       addTransfer, updateTransfer, removeTransfer,
     }}>
       {children}
