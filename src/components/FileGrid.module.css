@@ -5,15 +5,23 @@
   overflow: hidden;
   position: relative;
 }
-
 .toolbar {
   display: flex;
   align-items: center;
-  padding: 10px 20px;
+  padding: 8px 20px;
   border-bottom: 1px solid var(--border);
   gap: 12px;
   background: var(--bg-base);
   flex-shrink: 0;
+  min-height: 48px;
+}
+
+.toolbarRight {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  margin-left: auto;
 }
 
 .breadcrumb {

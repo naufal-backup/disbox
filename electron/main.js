@@ -13,8 +13,7 @@ function createWindow() {
     height: 820,
     minWidth: 900,
     minHeight: 600,
-    frame: false,
-    titleBarStyle: 'hidden',
+    frame: true,
     backgroundColor: '#0d0d12',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -32,7 +31,11 @@ function createWindow() {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   }
 
-  mainWindow.once('ready-to-show', () => mainWindow.show());
+  mainWindow.once('ready-to-show', () => {
+    mainWindow.show();
+    mainWindow.setAutoHideMenuBar(true);
+    mainWindow.setMenuBarVisibility(false);
+  });
   mainWindow.on('closed', () => { mainWindow = null; });
 }
 

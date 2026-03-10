@@ -17,7 +17,11 @@
     "linux": {
       "target": ["AppImage", "deb"],
       "category": "Network",
-      "icon": "src/assets/icon.png"
+      "icon": "src/assets/icon.png",
+      "executableName": "disbox",
+      "desktop": {
+        "StartupWMClass": "disbox"
+      }
     },
     "files": ["dist/**/*", "electron/**/*"],
     "directories": {

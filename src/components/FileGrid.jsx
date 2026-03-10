@@ -22,7 +22,7 @@ export default function FileGrid() {
   const [viewMode, setViewMode] = useState('grid');
   const [zoom, setZoom] = useState(() => Number(localStorage.getItem('disbox_zoom')) || 1);
   const [searchQuery, setSearchQuery] = useState('');
-  
+
   useEffect(() => {
     localStorage.setItem('disbox_zoom', zoom.toString());
   }, [zoom]);
@@ -301,7 +301,6 @@ export default function FileGrid() {
       onClick={() => { setContextMenu(null); if (!isSelectionMode) clearSelection(); }}
       >
       {/* ── Toolbar ── */}
-
       <div className={styles.toolbar}>
         <div className={styles.breadcrumb}>
           <button 

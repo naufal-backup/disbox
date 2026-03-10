@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Toaster } from 'react-hot-toast';
 import { AppProvider, useApp } from './AppContext.jsx';
-import TitleBar from './components/TitleBar.jsx';
 import LoginPage from './pages/LoginPage.jsx';
 import DrivePage from './pages/DrivePage.jsx';
 import styles from './App.module.css';
@@ -19,8 +18,6 @@ function AppInner() {
     }
   }, []);
 
-  const isElectron = !!window.electron;
-
   return (
     <div className={styles.app}>
       <Toaster 
@@ -35,7 +32,6 @@ function AppInner() {
           }
         }}
       />
-      {isElectron && <TitleBar />}
       <div className={styles.body}>
         {autoConnecting ? (
           <div className={styles.splash}>
