@@ -154,6 +154,15 @@ ipcMain.handle('get-version', () => app.getVersion());
 const { app: electronApp } = require('electron');
 const METADATA_DIR = require('path').join(require('os').homedir(), '.config', 'disbox');
 
+// Watch metadata directory for external changes (manual edits, sync, etc)
+if (!fs.existsSync(METADATA_DIR)) fs.mkdirSync(METADATA_DIR, { recursive: true });
+fs.watch(METADATA_DIR, (eventType, filename) => {
+  if (filename && filename.endsWith('.json')) {
+    const hash = filename.replace('.json', '');
+    mainWindow?.webContents.send('metadata-external-change', hash);
+  }
+});
+
 ipcMain.handle('load-metadata', async (_, hash) => {
   try {
     if (!fs.existsSync(METADATA_DIR)) fs.mkdirSync(METADATA_DIR, { recursive: true });

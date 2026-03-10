@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import {
   Upload, FolderPlus, Grid3x3, List, Search,
   Download, Trash2, Edit3, Folder,
@@ -13,17 +13,18 @@ export default function FileGrid() {
   const {
     api, files, currentPath, setCurrentPath,
     addTransfer, updateTransfer, refresh, loading,
+    movePath, copyPath, deletePath,
   } = useApp();
 
   const [viewMode, setViewMode] = useState('grid');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedFiles, setSelectedFiles] = useState(new Set());
   const [contextMenu, setContextMenu] = useState(null);
-  const [renameTarget, setRenameTarget] = useState(null);
+  const [renameTarget, setRenameTarget] = useState(null); // { path, isFolder }
   const [renameValue, setRenameValue] = useState('');
   const [uploading, setUploading] = useState(false);
   const [showCreateFolder, setShowCreateFolder] = useState(false);
-  const [moveModal, setMoveModal] = useState(null); // { file, mode: 'move'|'copy' }
+  const [moveModal, setMoveModal] = useState(null); // { path, mode: 'move'|'copy' }
 
   // ─── Path helpers ────────────────────────────────────────────────────────────
   const pathParts = currentPath === '/' ? [] : currentPath.split('/').filter(Boolean);
@@ -58,6 +59,39 @@ export default function FileGrid() {
     });
     return [...dirs];
   })();
+
+  // ─── Actions ─────────────────────────────────────────────────────────────────
+  
+  const handleDelete = async (targetPath) => {
+    const name = targetPath.split('/').pop();
+    if (!confirm(`Hapus "${name}"? Semua isi di dalamnya akan ikut terhapus.`)) return;
+    try { 
+      await deletePath(targetPath); 
+      setContextMenu(null);
+    } catch (e) { alert('Gagal hapus: ' + e.message); }
+  };
+
+  const startRename = (path, isFolder = false) => {
+    setRenameTarget({ path, isFolder });
+    setRenameValue(path.split('/').pop());
+    setContextMenu(null);
+  };
+
+  const commitRename = async () => {
+    if (!renameTarget || !renameValue.trim()) { setRenameTarget(null); return; }
+    const oldPath = renameTarget.path;
+    const parts = oldPath.split('/');
+    parts[parts.length - 1] = renameValue.trim();
+    const newPath = parts.join('/');
+    
+    if (oldPath === newPath) { setRenameTarget(null); return; }
+
+    try { 
+      await api.renamePath(oldPath, newPath); 
+      refresh(); 
+    } catch (e) { alert('Gagal rename: ' + e.message); }
+    setRenameTarget(null);
+  };
 
   // ─── Upload ──────────────────────────────────────────────────────────────────
   const handleUpload = async (selectedFiles) => {
@@ -141,29 +175,6 @@ export default function FileGrid() {
     } catch (e) {
       updateTransfer(transferId, { status: 'error', error: e.message });
     }
-  };
-
-  // ─── Delete ──────────────────────────────────────────────────────────────────
-  const deleteFile = async (file) => {
-    if (!confirm(`Hapus "${file.path.split('/').pop()}"?`)) return;
-    try { await api.deleteFile(file.path); refresh(); }
-    catch (e) { alert('Gagal hapus: ' + e.message); }
-  };
-
-  // ─── Rename ──────────────────────────────────────────────────────────────────
-  const startRename = (file) => {
-    setRenameTarget(file);
-    setRenameValue(file.path.split('/').pop());
-    setContextMenu(null);
-  };
-
-  const commitRename = async () => {
-    if (!renameTarget || !renameValue.trim()) { setRenameTarget(null); return; }
-    const parts = renameTarget.path.split('/');
-    parts[parts.length - 1] = renameValue.trim();
-    try { await api.renameFile(renameTarget.path, parts.join('/')); refresh(); }
-    catch (e) { alert('Gagal rename: ' + e.message); }
-    setRenameTarget(null);
   };
 
   // ─── Selection ───────────────────────────────────────────────────────────────
@@ -251,19 +262,38 @@ export default function FileGrid() {
           </div>
         ) : viewMode === 'grid' ? (
           <div className={styles.grid}>
-            {subDirs.map(dir => (
-              <div
-                key={dir}
-                className={styles.card}
-                onDoubleClick={() => navigate((dirPath ? '/' + dirPath : '') + '/' + dir)}
-              >
-                <div className={styles.cardIcon}>
-                  <Folder size={32} strokeWidth={1.5} style={{ color: 'var(--amber)' }} />
+            {subDirs.map(dir => {
+              const fullPath = (dirPath ? dirPath + '/' : '') + dir;
+              return (
+                <div
+                  key={dir}
+                  className={styles.card}
+                  onDoubleClick={() => navigate('/' + fullPath)}
+                  onContextMenu={(e) => { 
+                    e.preventDefault(); 
+                    e.stopPropagation();
+                    setContextMenu({ x: e.clientX, y: e.clientY, path: fullPath, isFolder: true }); 
+                  }}
+                >
+                  <div className={styles.cardIcon}>
+                    <Folder size={32} strokeWidth={1.5} style={{ color: 'var(--amber)' }} />
+                  </div>
+                  <div className={styles.cardName} title={dir}>
+                    {renameTarget?.path === fullPath ? (
+                      <input
+                        className={styles.renameInput}
+                        value={renameValue}
+                        onChange={e => setRenameValue(e.target.value)}
+                        onBlur={commitRename}
+                        onKeyDown={e => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setRenameTarget(null); }}
+                        autoFocus onClick={e => e.stopPropagation()}
+                      />
+                    ) : dir}
+                  </div>
+                  <div className={styles.cardMeta}>Folder</div>
                 </div>
-                <div className={styles.cardName}>{dir}</div>
-                <div className={styles.cardMeta}>Folder</div>
-              </div>
-            ))}
+              );
+            })}
             {displayedFiles.map(file => {
               const name = file.path.split('/').pop();
               return (
@@ -271,13 +301,28 @@ export default function FileGrid() {
                   key={file.path}
                   className={`${styles.card} ${selectedFiles.has(file.path) ? styles.selected : ''}`}
                   onClick={(e) => toggleSelect(file.path, e)}
-                  onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, file }); }}
+                  onContextMenu={(e) => { 
+                    e.preventDefault(); 
+                    e.stopPropagation();
+                    setContextMenu({ x: e.clientX, y: e.clientY, path: file.path, file, isFolder: false }); 
+                  }}
                   onDoubleClick={() => downloadFile(file)}
                 >
                   <div className={styles.cardIcon}>
                     <span style={{ fontSize: 32 }}>{getFileIcon(name)}</span>
                   </div>
-                  <div className={styles.cardName} title={name}>{name}</div>
+                  <div className={styles.cardName} title={name}>
+                    {renameTarget?.path === file.path ? (
+                      <input
+                        className={styles.renameInput}
+                        value={renameValue}
+                        onChange={e => setRenameValue(e.target.value)}
+                        onBlur={commitRename}
+                        onKeyDown={e => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setRenameTarget(null); }}
+                        autoFocus onClick={e => e.stopPropagation()}
+                      />
+                    ) : name}
+                  </div>
                   <div className={styles.cardMeta}>{formatSize(file.size || 0)}</div>
                 </div>
               );
@@ -288,16 +333,44 @@ export default function FileGrid() {
             <div className={styles.listHeader}>
               <span style={{ flex: 1 }}>Nama</span>
               <span style={{ width: 100, textAlign: 'right' }}>Ukuran</span>
-              <span style={{ width: 100 }}></span>
+              <span style={{ width: 120 }}></span>
             </div>
-            {subDirs.map(dir => (
-              <div key={dir} className={styles.listRow} onDoubleClick={() => navigate((dirPath ? '/' + dirPath : '') + '/' + dir)}>
-                <div className={styles.listIcon}><Folder size={16} style={{ color: 'var(--amber)' }} /></div>
-                <span className={`${styles.listName} truncate`}>{dir}</span>
-                <span className={styles.listSize}>—</span>
-                <div className={styles.listActions} />
-              </div>
-            ))}
+            {subDirs.map(dir => {
+              const fullPath = (dirPath ? dirPath + '/' : '') + dir;
+              return (
+                <div 
+                  key={dir} 
+                  className={styles.listRow} 
+                  onDoubleClick={() => navigate('/' + fullPath)}
+                  onContextMenu={(e) => { 
+                    e.preventDefault(); 
+                    e.stopPropagation();
+                    setContextMenu({ x: e.clientX, y: e.clientY, path: fullPath, isFolder: true }); 
+                  }}
+                >
+                  <div className={styles.listIcon}><Folder size={16} style={{ color: 'var(--amber)' }} /></div>
+                  <span className={`${styles.listName} truncate`}>
+                    {renameTarget?.path === fullPath ? (
+                      <input
+                        className={styles.renameInput}
+                        value={renameValue}
+                        onChange={e => setRenameValue(e.target.value)}
+                        onBlur={commitRename}
+                        onKeyDown={e => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setRenameTarget(null); }}
+                        autoFocus onClick={e => e.stopPropagation()}
+                      />
+                    ) : dir}
+                  </span>
+                  <span className={styles.listSize}>—</span>
+                  <div className={styles.listActions} onClick={e => e.stopPropagation()}>
+                    <button className={styles.iconBtn} onClick={() => setMoveModal({ path: fullPath, mode: 'move' })} title="Pindah"><Move size={13} /></button>
+                    <button className={styles.iconBtn} onClick={() => setMoveModal({ path: fullPath, mode: 'copy' })} title="Salin"><Copy size={13} /></button>
+                    <button className={styles.iconBtn} onClick={() => startRename(fullPath, true)} title="Rename"><Edit3 size={13} /></button>
+                    <button className={`${styles.iconBtn} ${styles.danger}`} onClick={() => handleDelete(fullPath)} title="Hapus"><Trash2 size={13} /></button>
+                  </div>
+                </div>
+              );
+            })}
             {displayedFiles.map(file => {
               const name = file.path.split('/').pop();
               return (
@@ -305,7 +378,11 @@ export default function FileGrid() {
                   key={file.path}
                   className={`${styles.listRow} ${selectedFiles.has(file.path) ? styles.selected : ''}`}
                   onClick={(e) => toggleSelect(file.path, e)}
-                  onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, file }); }}
+                  onContextMenu={(e) => { 
+                    e.preventDefault(); 
+                    e.stopPropagation();
+                    setContextMenu({ x: e.clientX, y: e.clientY, path: file.path, file, isFolder: false }); 
+                  }}
                 >
                   <div className={styles.listIcon}>{getFileIcon(name)}</div>
                   <span className={`${styles.listName} truncate`}>
@@ -323,10 +400,10 @@ export default function FileGrid() {
                   <span className={styles.listSize}>{formatSize(file.size || 0)}</span>
                   <div className={styles.listActions} onClick={e => e.stopPropagation()}>
                     <button className={styles.iconBtn} onClick={() => downloadFile(file)} title="Download"><Download size={13} /></button>
-                    <button className={styles.iconBtn} onClick={() => setMoveModal({ file, mode: 'move' })} title="Pindah"><Move size={13} /></button>
-                    <button className={styles.iconBtn} onClick={() => setMoveModal({ file, mode: 'copy' })} title="Salin"><Copy size={13} /></button>
-                    <button className={styles.iconBtn} onClick={() => startRename(file)} title="Rename"><Edit3 size={13} /></button>
-                    <button className={`${styles.iconBtn} ${styles.danger}`} onClick={() => deleteFile(file)} title="Hapus"><Trash2 size={13} /></button>
+                    <button className={styles.iconBtn} onClick={() => setMoveModal({ path: file.path, mode: 'move' })} title="Pindah"><Move size={13} /></button>
+                    <button className={styles.iconBtn} onClick={() => setMoveModal({ path: file.path, mode: 'copy' })} title="Salin"><Copy size={13} /></button>
+                    <button className={styles.iconBtn} onClick={() => startRename(file.path)} title="Rename"><Edit3 size={13} /></button>
+                    <button className={`${styles.iconBtn} ${styles.danger}`} onClick={() => handleDelete(file.path)} title="Hapus"><Trash2 size={13} /></button>
                   </div>
                 </div>
               );
@@ -342,20 +419,22 @@ export default function FileGrid() {
           style={{ top: contextMenu.y, left: contextMenu.x }}
           onClick={e => e.stopPropagation()}
         >
-          <button onClick={() => { downloadFile(contextMenu.file); setContextMenu(null); }}>
-            <Download size={13} /> Download
-          </button>
-          <button onClick={() => { setMoveModal({ file: contextMenu.file, mode: 'move' }); setContextMenu(null); }}>
+          {!contextMenu.isFolder && (
+            <button onClick={() => { downloadFile(contextMenu.file); setContextMenu(null); }}>
+              <Download size={13} /> Download
+            </button>
+          )}
+          <button onClick={() => { setMoveModal({ path: contextMenu.path, mode: 'move' }); setContextMenu(null); }}>
             <Move size={13} /> Pindah ke…
           </button>
-          <button onClick={() => { setMoveModal({ file: contextMenu.file, mode: 'copy' }); setContextMenu(null); }}>
+          <button onClick={() => { setMoveModal({ path: contextMenu.path, mode: 'copy' }); setContextMenu(null); }}>
             <Copy size={13} /> Salin ke…
           </button>
-          <button onClick={() => startRename(contextMenu.file)}>
+          <button onClick={() => startRename(contextMenu.path, contextMenu.isFolder)}>
             <Edit3 size={13} /> Rename
           </button>
           <div className={styles.contextDivider} />
-          <button className={styles.dangerItem} onClick={() => { deleteFile(contextMenu.file); setContextMenu(null); }}>
+          <button className={styles.dangerItem} onClick={() => { handleDelete(contextMenu.path); setContextMenu(null); }}>
             <Trash2 size={13} /> Hapus
           </button>
         </div>
@@ -375,7 +454,7 @@ export default function FileGrid() {
       )}
       {moveModal && (
         <MoveModal
-          file={moveModal.file}
+          file={moveModal.path}
           mode={moveModal.mode}
           onClose={() => setMoveModal(null)}
         />

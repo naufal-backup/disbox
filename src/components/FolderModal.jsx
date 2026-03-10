@@ -55,14 +55,18 @@ export function CreateFolderModal({ onClose }) {
 
 // ─── Move / Copy Modal ────────────────────────────────────────────────────────
 export function MoveModal({ file, mode, onClose }) {
-  const { getAllDirs, moveFile, copyFile, currentPath } = useApp();
+  const { getAllDirs, movePath, copyPath } = useApp();
   const [selectedDir, setSelectedDir] = useState(null);
   const [loading, setLoading] = useState(false);
 
+  // file can be a string path (for folders) or a file object (for files)
+  const itemPath = typeof file === 'string' ? file : file.path;
+  const itemName = itemPath.split('/').pop();
+
   const dirs = getAllDirs().filter(d => {
-    // Jangan tampilkan direktori saat ini atau subdirektori dari file itu sendiri
-    const fileDirPath = '/' + file.path.split('/').slice(0, -1).join('/');
-    return d !== fileDirPath && !d.startsWith(fileDirPath + '/');
+    // Jangan tampilkan direktori saat ini atau subdirektori dari item itu sendiri
+    const itemDirPath = '/' + itemPath.split('/').slice(0, -1).join('/');
+    return d !== itemDirPath && !d.startsWith(itemPath + '/');
   });
 
   const handleConfirm = async () => {
@@ -70,13 +74,11 @@ export function MoveModal({ file, mode, onClose }) {
     setLoading(true);
     const destDir = selectedDir === '/' ? '' : selectedDir.slice(1);
     const ok = mode === 'move'
-      ? await moveFile(file, destDir)
-      : await copyFile(file, destDir);
+      ? await movePath(itemPath, destDir)
+      : await copyPath(itemPath, destDir);
     setLoading(false);
     if (ok) onClose();
   };
-
-  const fileName = file.path.split('/').pop();
 
   return (
     <Backdrop onClose={onClose}>
@@ -85,14 +87,14 @@ export function MoveModal({ file, mode, onClose }) {
           <div className={styles.headerIcon} style={{ background: mode === 'move' ? 'rgba(240,165,0,0.15)' : 'rgba(0,212,170,0.12)', color: mode === 'move' ? 'var(--amber)' : 'var(--teal)' }}>
             {mode === 'move' ? <Move size={16} /> : <Copy size={16} />}
           </div>
-          <span>{mode === 'move' ? 'Pindah' : 'Salin'} File</span>
+          <span>{mode === 'move' ? 'Pindah' : 'Salin'} Item</span>
           <button className={styles.closeBtn} onClick={onClose}><X size={14} /></button>
         </div>
 
         <div className={styles.body}>
           <p className={styles.fileLabel}>
-            <span style={{ color: 'var(--text-muted)' }}>File: </span>
-            <strong>{fileName}</strong>
+            <span style={{ color: 'var(--text-muted)' }}>Nama: </span>
+            <strong>{itemName}</strong>
           </p>
           <label className={styles.label}>Pilih Tujuan</label>
           <div className={styles.dirList}>

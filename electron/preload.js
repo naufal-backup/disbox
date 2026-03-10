@@ -33,4 +33,9 @@ contextBridge.exposeInMainWorld('electron', {
   // Local metadata storage (replaces software.disbox.app)
   loadMetadata: (hash) => ipcRenderer.invoke('load-metadata', hash),
   saveMetadata: (hash, data) => ipcRenderer.invoke('save-metadata', hash, data),
+  onMetadataChange: (callback) => {
+    const listener = (_, hash) => callback(hash);
+    ipcRenderer.on('metadata-external-change', listener);
+    return () => ipcRenderer.removeListener('metadata-external-change', listener);
+  }
 });

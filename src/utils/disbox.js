@@ -35,7 +35,8 @@ export class DisboxAPI {
 
   async init() {
     this.hashedWebhook = await this.hashWebhook(this.webhookUrl);
-    // Sync metadata from Discord if local is missing (for new devices)
+    this.lastSyncedId = localStorage.getItem(`dbx_last_sync_${this.hashedWebhook}`);
+    // Sync metadata from Discord
     await this.syncMetadata();
     return this.hashedWebhook;
   }
@@ -44,13 +45,6 @@ export class DisboxAPI {
   
   async syncMetadata() {
     try {
-      const localFiles = await this.getFileSystem();
-      // As requested: if file exists, no need to download
-      if (localFiles.length > 0) {
-        console.log('[sync] Local metadata found, skipping download.');
-        return;
-      }
-
       console.log('[sync] Checking Discord for metadata discovery...');
       const res = await window.electron.fetch(this.webhookUrl);
       if (!res.ok) return;
@@ -63,6 +57,11 @@ export class DisboxAPI {
       }
 
       const msgId = match[1];
+      if (msgId === this.lastSyncedId) {
+        console.log('[sync] Local metadata is up to date.');
+        return;
+      }
+
       const msgUrl = `${this.webhookUrl}/messages/${msgId}`;
       const msgRes = await window.electron.fetch(msgUrl);
       if (!msgRes.ok) return;
@@ -71,7 +70,7 @@ export class DisboxAPI {
       const attachmentUrl = msg.attachments?.[0]?.url;
       if (!attachmentUrl) return;
 
-      console.log('[sync] Downloading metadata from Discord...');
+      console.log('[sync] Downloading updated metadata from Discord...');
       const b64 = await window.electron.proxyDownload(attachmentUrl);
       
       // Safe base64 to string (UTF-8)
@@ -82,7 +81,9 @@ export class DisboxAPI {
 
       if (Array.isArray(files)) {
         await window.electron.saveMetadata(this.hashedWebhook, files);
-        console.log('[sync] Metadata downloaded and saved locally.');
+        this.lastSyncedId = msgId;
+        localStorage.setItem(`dbx_last_sync_${this.hashedWebhook}`, msgId);
+        console.log('[sync] Metadata updated from Discord.');
       }
     } catch (e) {
       console.error('[sync] Sync-from-Discord failed:', e.message);
@@ -121,6 +122,9 @@ export class DisboxAPI {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ name: newName })
           });
+          
+          this.lastSyncedId = msgId;
+          localStorage.setItem(`dbx_last_sync_${this.hashedWebhook}`, msgId);
           console.log('[sync] Metadata synced to Discord. Discovery ID:', msgId);
         }
       } catch (e) {
@@ -170,20 +174,56 @@ export class DisboxAPI {
     return entry;
   }
 
-  async deleteFile(filePath) {
+  async deletePath(targetPath) {
     const files = await this.getFileSystem();
-    const filtered = files.filter(f => f.path !== filePath);
+    const filtered = files.filter(f => 
+      f.path !== targetPath && !f.path.startsWith(targetPath + '/')
+    );
     await this._saveFileSystem(filtered);
     return { deleted: true };
   }
 
-  async renameFile(oldPath, newPath) {
+  async renamePath(oldPath, newPath) {
     const files = await this.getFileSystem();
-    const idx = files.findIndex(f => f.path === oldPath);
-    if (idx >= 0) files[idx] = { ...files[idx], path: newPath };
-    await this._saveFileSystem(files);
-    return files[idx];
+    let found = false;
+    const updated = files.map(f => {
+      if (f.path === oldPath) {
+        found = true;
+        return { ...f, path: newPath };
+      }
+      if (f.path.startsWith(oldPath + '/')) {
+        found = true;
+        return { ...f, path: f.path.replace(oldPath + '/', newPath + '/') };
+      }
+      return f;
+    });
+    if (found) await this._saveFileSystem(updated);
+    return { success: found };
   }
+
+  async copyPath(oldPath, newPath) {
+    const files = await this.getFileSystem();
+    const toAdd = [];
+    files.forEach(f => {
+      if (f.path === oldPath) {
+        toAdd.push({ ...f, path: newPath, createdAt: Date.now() });
+      } else if (f.path.startsWith(oldPath + '/')) {
+        toAdd.push({ ...f, path: f.path.replace(oldPath + '/', newPath + '/'), createdAt: Date.now() });
+      }
+    });
+    
+    if (toAdd.length > 0) {
+      // Filter out existing files at destination to avoid duplicates
+      const newPaths = new Set(toAdd.map(a => a.path));
+      const filteredFiles = files.filter(f => !newPaths.has(f.path));
+      await this._saveFileSystem([...filteredFiles, ...toAdd]);
+    }
+    return { success: toAdd.length > 0 };
+  }
+
+  // Legacy compatibility
+  async deleteFile(filePath) { return this.deletePath(filePath); }
+  async renameFile(oldPath, newPath) { return this.renamePath(oldPath, newPath); }
 
   // ─── Upload ke Discord ────────────────────────────────────────────────────
   // Jika ada filePath (dari Electron file dialog) → kirim path ke main process,

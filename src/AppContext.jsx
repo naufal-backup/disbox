@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback } from 'react';
+import { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import { DisboxAPI, buildTree } from './utils/disbox.js';
 
 const AppContext = createContext(null);
@@ -72,19 +72,33 @@ export function AppProvider({ children }) {
     setTransfers([]);
   }, []);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (syncToDiscord = false) => {
     if (!api) return;
     setLoading(true);
     try {
       const fs = await api.getFileSystem();
       setFiles(fs);
       setFileTree(buildTree(fs));
+      if (syncToDiscord) {
+        await api.uploadMetadataToDiscord(fs);
+      }
     } catch (e) {
       console.error('Refresh failed:', e);
     } finally {
       setLoading(false);
     }
   }, [api]);
+
+  // Listen for external changes to JSON metadata (manual edits etc)
+  useEffect(() => {
+    if (!window.electron?.onMetadataChange || !api) return;
+    const cleanup = window.electron.onMetadataChange((hash) => {
+      if (api.hashedWebhook === hash) {
+        refresh(true); // Reload and sync to Discord
+      }
+    });
+    return cleanup;
+  }, [api, refresh]);
 
   // ─── Create folder ──────────────────────────────────────────────────────────
   const createFolder = useCallback(async (folderName) => {
@@ -101,13 +115,13 @@ export function AppProvider({ children }) {
     }
   }, [api, currentPath, refresh]);
 
-  // ─── Move file ──────────────────────────────────────────────────────────────
-  const moveFile = useCallback(async (file, destDir) => {
+  // ─── Move path (file/folder) ────────────────────────────────────────────────
+  const movePath = useCallback(async (oldPath, destDir) => {
     if (!api) return false;
-    const fileName = file.path.split('/').pop();
-    const newPath = destDir ? `${destDir}/${fileName}` : fileName;
+    const name = oldPath.split('/').pop();
+    const newPath = destDir ? `${destDir}/${name}` : name;
     try {
-      await api.renameFile(file.path, newPath);
+      await api.renamePath(oldPath, newPath);
       await refresh();
       return true;
     } catch (e) {
@@ -116,18 +130,30 @@ export function AppProvider({ children }) {
     }
   }, [api, refresh]);
 
-  // ─── Copy file ──────────────────────────────────────────────────────────────
-  const copyFile = useCallback(async (file, destDir) => {
+  // ─── Copy path (file/folder) ────────────────────────────────────────────────
+  const copyPath = useCallback(async (oldPath, destDir) => {
     if (!api) return false;
-    const fileName = file.path.split('/').pop();
-    const newPath = destDir ? `${destDir}/${fileName}` : fileName;
+    const name = oldPath.split('/').pop();
+    const newPath = destDir ? `${destDir}/${name}` : name;
     try {
-      // Copy = create new record with same messageIds
-      await api.createFile(newPath, file.messageIds, file.size);
+      await api.copyPath(oldPath, newPath);
       await refresh();
       return true;
     } catch (e) {
       console.error('Copy failed:', e);
+      return false;
+    }
+  }, [api, refresh]);
+
+  // ─── Delete path (file/folder) ──────────────────────────────────────────────
+  const deletePath = useCallback(async (path) => {
+    if (!api) return false;
+    try {
+      await api.deletePath(path);
+      await refresh();
+      return true;
+    } catch (e) {
+      console.error('Delete failed:', e);
       return false;
     }
   }, [api, refresh]);
@@ -154,7 +180,7 @@ export function AppProvider({ children }) {
       currentPath, setCurrentPath,
       loading, transfers, savedWebhooks,
       connect, disconnect, refresh,
-      createFolder, moveFile, copyFile, getAllDirs,
+      createFolder, movePath, copyPath, deletePath, getAllDirs,
       addTransfer, updateTransfer, removeTransfer,
     }}>
       {children}
