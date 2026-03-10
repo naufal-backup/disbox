@@ -17,6 +17,10 @@ Disbox-Linux adalah aplikasi desktop penyimpanan awan (cloud storage) modern unt
 *   **Sinkronisasi Metadata:** Metadata disimpan secara lokal dan disinkronkan ke Discord untuk akses antar perangkat.
 *   **Manajemen File:** Mendukung multi-select untuk hapus massal, pindah folder, dan salin file.
 *   **Mode Gelap/Terang:** Antarmuka modern yang dapat disesuaikan dengan preferensi Anda.
+## 🚀 Fitur Mendatang
+*   **Cloud Save Games**
+*   **Sharing Link Folder/File**
+
 
 ## 📸 Cuplikan Layar
 
