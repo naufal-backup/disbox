@@ -236,13 +236,13 @@ ipcMain.handle('upload-chunk', async (_, webhookUrl, chunkB64, filename) => {
 });
 
 // ─── IPC: Upload file besar langsung dari path (Parallel 8 Chunks with Throttle) ──
-ipcMain.handle('upload-file-from-path', async (event, webhookUrl, nativePath, _destPath) => {
+ipcMain.handle('upload-file-from-path', async (event, webhookUrl, nativePath, destName) => {
   try {
     const stats = fs.statSync(nativePath);
     const totalSize = stats.size;
     const CHUNK = 8 * 1024 * 1024; // 8MB
     const numChunks = Math.ceil(totalSize / CHUNK) || 1;
-    const filename = require('path').basename(nativePath);
+    const filename = destName || require('path').basename(nativePath);
     const messageIds = new Array(numChunks);
     const fd = fs.openSync(nativePath, 'r');
 

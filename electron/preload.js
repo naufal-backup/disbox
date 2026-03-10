@@ -26,8 +26,10 @@ contextBridge.exposeInMainWorld('electron', {
 
   // Upload file besar langsung dari path — tidak load ke RAM
   uploadFileFromPath: (webhookUrl, nativePath, destPath, onProgress) => {
-    ipcRenderer.on('upload-progress', (_, p) => onProgress?.(p));
-    return ipcRenderer.invoke('upload-file-from-path', webhookUrl, nativePath, destPath);
+    const listener = (_, p) => onProgress?.(p);
+    ipcRenderer.on('upload-progress', listener);
+    return ipcRenderer.invoke('upload-file-from-path', webhookUrl, nativePath, destPath)
+      .finally(() => ipcRenderer.removeListener('upload-progress', listener));
   },
 
   // Local metadata storage (replaces software.disbox.app)

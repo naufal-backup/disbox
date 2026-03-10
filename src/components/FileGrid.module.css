@@ -307,6 +307,10 @@
   z-index: 10;
 }
 
+.isDragTarget * {
+  pointer-events: none;
+}
+
 /* Checkbox */
 .checkbox {
   position: absolute;

@@ -54,21 +54,43 @@ export function CreateFolderModal({ onClose }) {
 }
 
 // ─── Move / Copy Modal ────────────────────────────────────────────────────────
-export function MoveModal({ file, paths, mode, onClose }) {
-  const { getAllDirs, movePath, copyPath, bulkMove, bulkCopy } = useApp();
+export function MoveModal({ id, file, paths, mode, onClose }) {
+  const { getAllDirs, movePath, copyPath, bulkMove, bulkCopy, files: allFiles } = useApp();
   const [selectedDir, setSelectedDir] = useState(null);
   const [loading, setLoading] = useState(false);
 
   const isBulk = Array.isArray(paths) && paths.length > 0;
-  const itemPath = isBulk ? null : (typeof file === 'string' ? file : file.path);
+  
+  // Resolve itemPath if we have an ID
+  let itemPath = isBulk ? null : (typeof file === 'string' ? file : file.path);
+  if (id && !isBulk) {
+    const f = allFiles.find(x => x.id === id);
+    if (f) itemPath = f.path;
+  }
+
   const itemName = isBulk ? `${paths.length} item` : itemPath.split('/').pop();
 
   const dirs = getAllDirs().filter(d => {
     if (isBulk) {
-      return !paths.some(p => d === p || d.startsWith(p + '/'));
+      return !paths.some(p => {
+        // p could be ID or path
+        const isId = p.includes('-') && p.length > 30;
+        let pPath = p;
+        if (isId) {
+          const f = allFiles.find(x => x.id === p);
+          if (f) pPath = f.path;
+        }
+        return d === pPath || d.startsWith(pPath + '/');
+      });
     }
     const itemDirPath = '/' + itemPath.split('/').slice(0, -1).join('/');
-    return d !== itemDirPath && !d.startsWith(itemPath + '/');
+    const targetDir = d === '/' ? '' : d.slice(1);
+    
+    // Cannot move/copy to same directory
+    if (targetDir === itemPath.split('/').slice(0, -1).join('/')) return false;
+    
+    // Cannot move/copy into self or subfolders
+    return d !== '/' + itemPath && !d.startsWith('/' + itemPath + '/');
   });
 
   const handleConfirm = async () => {
@@ -78,7 +100,7 @@ export function MoveModal({ file, paths, mode, onClose }) {
     
     const ok = isBulk
       ? (mode === 'move' ? await bulkMove(paths, destDir) : await bulkCopy(paths, destDir))
-      : (mode === 'move' ? await movePath(itemPath, destDir) : await copyPath(itemPath, destDir));
+      : (mode === 'move' ? await movePath(itemPath, destDir, id) : await copyPath(itemPath, destDir, id));
 
     setLoading(false);
     if (ok) onClose();

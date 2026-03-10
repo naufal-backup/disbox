@@ -337,3 +337,46 @@
   color: var(--green);
   margin-top: 2px;
 }
+
+/* ── Advanced Options ── */
+.advancedSection {
+  margin-bottom: 20px;
+}
+
+.advancedToggle {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 4px 0;
+  transition: color 0.15s;
+  text-decoration: underline;
+}
+
+.advancedToggle:hover {
+  color: var(--text-secondary);
+}
+
+.advancedFields {
+  margin-top: 10px;
+  padding: 12px;
+  background: var(--bg-deep);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  animation: slideDown 0.2s ease;
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.helpText {
+  font-size: 10px;
+  color: var(--text-dim);
+  line-height: 1.4;
+}

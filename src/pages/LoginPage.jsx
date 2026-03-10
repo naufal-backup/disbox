@@ -8,6 +8,8 @@ const DISCORD_WEBHOOK_REGEX = /^https:\/\/discord(app)?\.com\/api\/webhooks\/\d+
 export default function LoginPage() {
   const { connect, loading, savedWebhooks } = useApp();
   const [url, setUrl] = useState('');
+  const [metadataId, setMetadataId] = useState('');
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [error, setError] = useState('');
   const [showHistory, setShowHistory] = useState(false);
 
@@ -30,7 +32,7 @@ export default function LoginPage() {
       return;
     }
     if (webhookUrl) setUrl(webhookUrl);
-    const result = await connect(target);
+    const result = await connect(target, metadataId.trim() || null);
     if (!result.ok) {
       setError('Gagal connect. Pastikan webhook URL benar dan coba lagi.');
     }
@@ -128,6 +130,31 @@ export default function LoginPage() {
           )}
           {isValid && !error && (
             <div className={styles.validMsg}>✓ Format URL valid</div>
+          )}
+        </div>
+
+        {/* Advanced Options */}
+        <div className={styles.advancedSection}>
+          <button 
+            className={styles.advancedToggle}
+            onClick={() => setShowAdvanced(!showAdvanced)}
+            type="button"
+          >
+            {showAdvanced ? 'Sembunyikan Opsi Lanjutan' : 'Opsi Lanjutan (Manual Sync)'}
+          </button>
+          
+          {showAdvanced && (
+            <div className={styles.advancedFields}>
+              <label className={styles.label}>Metadata Message ID (Opsional)</label>
+              <input
+                type="text"
+                className={styles.input}
+                placeholder="ID pesan yang berisi metadata.json"
+                value={metadataId}
+                onChange={e => setMetadataId(e.target.value)}
+              />
+              <p className={styles.helpText}>Gunakan ini jika Disbox gagal mendeteksi metadata secara otomatis.</p>
+            </div>
           )}
         </div>
 

@@ -52,11 +52,11 @@ export function AppProvider({ children }) {
     setTheme(prev => prev === 'dark' ? 'light' : 'dark');
   }, []);
 
-  const connect = useCallback(async (url) => {
+  const connect = useCallback(async (url, metadataId = null) => {
     setLoading(true);
     try {
       const instance = new DisboxAPI(url);
-      await instance.init();
+      await instance.init(metadataId);
       const fs = await instance.getFileSystem();
 
       localStorage.setItem('disbox_webhook', url);
@@ -132,12 +132,12 @@ export function AppProvider({ children }) {
   }, [api, currentPath, refresh]);
 
   // ─── Move path (file/folder) ────────────────────────────────────────────────
-  const movePath = useCallback(async (oldPath, destDir) => {
+  const movePath = useCallback(async (oldPath, destDir, id = null) => {
     if (!api) return false;
     const name = oldPath.split('/').pop();
     const newPath = destDir ? `${destDir}/${name}` : name;
     try {
-      await api.renamePath(oldPath, newPath);
+      await api.renamePath(oldPath, newPath, id);
       await refresh();
       return true;
     } catch (e) {
@@ -147,12 +147,12 @@ export function AppProvider({ children }) {
   }, [api, refresh]);
 
   // ─── Copy path (file/folder) ────────────────────────────────────────────────
-  const copyPath = useCallback(async (oldPath, destDir) => {
+  const copyPath = useCallback(async (oldPath, destDir, id = null) => {
     if (!api) return false;
     const name = oldPath.split('/').pop();
     const newPath = destDir ? `${destDir}/${name}` : name;
     try {
-      await api.copyPath(oldPath, newPath);
+      await api.copyPath(oldPath, newPath, id);
       await refresh();
       return true;
     } catch (e) {
@@ -162,10 +162,10 @@ export function AppProvider({ children }) {
   }, [api, refresh]);
 
   // ─── Delete path (file/folder) ──────────────────────────────────────────────
-  const deletePath = useCallback(async (path) => {
+  const deletePath = useCallback(async (path, id = null) => {
     if (!api) return false;
     try {
-      await api.deletePath(path);
+      await api.deletePath(path, id);
       await refresh();
       return true;
     } catch (e) {

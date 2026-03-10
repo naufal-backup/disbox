@@ -20,7 +20,8 @@ function _bufferToBase64(buffer) {
 
 export class DisboxAPI {
   constructor(webhookUrl) {
-    this.webhookUrl = webhookUrl;
+    // Clean webhook URL from any query parameters (like ?wait=true)
+    this.webhookUrl = webhookUrl.split('?')[0];
     this.hashedWebhook = null;
   }
 
@@ -33,42 +34,73 @@ export class DisboxAPI {
       .join('');
   }
 
-  async init() {
+  async init(forceSyncId = null) {
     this.hashedWebhook = await this.hashWebhook(this.webhookUrl);
     this.lastSyncedId = localStorage.getItem(`dbx_last_sync_${this.hashedWebhook}`);
+    console.log('[disbox] Initialized with webhook hash:', this.hashedWebhook);
     // Sync metadata from Discord
-    await this.syncMetadata();
+    await this.syncMetadata(forceSyncId);
     return this.hashedWebhook;
   }
 
   // ─── Metadata Sync (Discord as DB) ───────────────────────────────────────
   
-  async syncMetadata() {
+  async syncMetadata(forceId = null) {
     try {
-      console.log('[sync] Checking Discord for metadata discovery...');
-      const res = await window.electron.fetch(this.webhookUrl);
-      if (!res.ok) return;
+      let msgId = forceId;
       
-      const info = JSON.parse(res.body);
-      const match = info.name?.match(/dbx:(\d+)/);
-      if (!match) {
-        console.log('[sync] No metadata ID found in webhook name.');
-        return;
+      if (!msgId) {
+        console.log('[sync] Checking Discord for metadata discovery...');
+        const res = await window.electron.fetch(this.webhookUrl);
+        if (!res.ok) {
+          console.error('[sync] Failed to fetch webhook info:', res.status);
+          return;
+        }
+        
+        const info = JSON.parse(res.body);
+        // More flexible regex: allow spaces, pipes, and different separators
+        const match = info.name?.match(/dbx[:\s]+(\d+)/);
+        if (!match) {
+          console.log('[sync] No metadata ID found in webhook name:', info.name);
+          // If no discovery ID in name, but we have a lastSyncedId, let's at least try that as fallback
+          if (this.lastSyncedId) {
+            console.log('[sync] Falling back to last known synced ID:', this.lastSyncedId);
+            msgId = this.lastSyncedId;
+          } else {
+            return;
+          }
+        } else {
+          msgId = match[1];
+        }
       }
 
-      const msgId = match[1];
-      if (msgId === this.lastSyncedId) {
+      console.log('[sync] Target metadata message ID:', msgId);
+      
+      if (msgId === this.lastSyncedId && !forceId) {
         console.log('[sync] Local metadata is up to date.');
-        return;
+        // Even if ID matches, let's verify local file exists
+        const local = await window.electron.loadMetadata(this.hashedWebhook);
+        if (local && local.length > 0) return;
+        console.log('[sync] Local metadata missing, re-downloading...');
       }
 
       const msgUrl = `${this.webhookUrl}/messages/${msgId}`;
       const msgRes = await window.electron.fetch(msgUrl);
-      if (!msgRes.ok) return;
+      if (!msgRes.ok) {
+        console.error('[sync] Failed to fetch metadata message:', msgRes.status);
+        // If message is 404, the discovery ID is dead
+        return;
+      }
 
       const msg = JSON.parse(msgRes.body);
-      const attachmentUrl = msg.attachments?.[0]?.url;
-      if (!attachmentUrl) return;
+      // Look for disbox_metadata.json in attachments
+      const attachment = msg.attachments?.find(a => a.filename.includes('metadata.json'));
+      const attachmentUrl = attachment?.url || msg.attachments?.[0]?.url;
+      
+      if (!attachmentUrl) {
+        console.error('[sync] No attachment found in metadata message.');
+        return;
+      }
 
       console.log('[sync] Downloading updated metadata from Discord...');
       const bytes = await window.electron.proxyDownload(attachmentUrl);
@@ -81,7 +113,7 @@ export class DisboxAPI {
         await window.electron.saveMetadata(this.hashedWebhook, files);
         this.lastSyncedId = msgId;
         localStorage.setItem(`dbx_last_sync_${this.hashedWebhook}`, msgId);
-        console.log('[sync] Metadata updated from Discord.');
+        console.log('[sync] Metadata updated from Discord. Items:', files.length);
       }
     } catch (e) {
       console.error('[sync] Sync-from-Discord failed:', e.message);
@@ -103,7 +135,7 @@ export class DisboxAPI {
         
         // Upload JSON file
         const res = await window.electron.uploadChunk(this.webhookUrl, b64, filename);
-        if (!res.ok) throw new Error('Upload failed');
+        if (!res.ok) throw new Error(`Upload failed with status ${res.status}`);
         
         const data = JSON.parse(res.body);
         const msgId = data.id;
@@ -112,14 +144,20 @@ export class DisboxAPI {
         const infoRes = await window.electron.fetch(this.webhookUrl);
         if (infoRes.ok) {
           const info = JSON.parse(infoRes.body);
-          let baseName = (info.name || 'Disbox').split(' | dbx:')[0];
+          // Keep the part before the first separator or the whole name if no dbx:
+          let baseName = (info.name || 'Disbox').split(/[|:-] dbx:/)[0].trim();
           const newName = `${baseName} | dbx:${msgId}`;
           
-          await window.electron.fetch(this.webhookUrl, {
+          console.log('[sync] Updating webhook name to:', newName);
+          const patchRes = await window.electron.fetch(this.webhookUrl, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ name: newName })
           });
+          
+          if (!patchRes.ok) {
+            console.warn('[sync] Failed to update webhook name. Discovery might fail on next session.', patchRes.status);
+          }
           
           this.lastSyncedId = msgId;
           localStorage.setItem(`dbx_last_sync_${this.hashedWebhook}`, msgId);
@@ -150,7 +188,29 @@ export class DisboxAPI {
   async getFileSystem() {
     try {
       const data = await window.electron.loadMetadata(this.hashedWebhook);
-      return Array.isArray(data) ? data : [];
+      let files = Array.isArray(data) ? data : [];
+      
+      // Auto-convert: add IDs if missing and enforce pattern/order
+      let changed = false;
+      files = files.map(f => {
+        if (!f.id || Object.keys(f)[0] !== 'path') {
+          changed = true;
+          return {
+            path: f.path,
+            messageIds: f.messageIds || [],
+            size: f.size || 0,
+            createdAt: f.createdAt || Date.now(),
+            id: f.id || crypto.randomUUID()
+          };
+        }
+        return f;
+      });
+
+      if (changed) {
+        await window.electron.saveMetadata(this.hashedWebhook, files);
+      }
+
+      return files;
     } catch {
       return [];
     }
@@ -162,39 +222,53 @@ export class DisboxAPI {
     await this.uploadMetadataToDiscord(files);
   }
 
-  async createFile(filePath, messageIds, size = 0) {
+  async createFile(filePath, messageIds, size = 0, id = null) {
     const files = await this.getFileSystem();
-    const existing = files.findIndex(f => f.path === filePath);
-    const entry = { path: filePath, messageIds, size, createdAt: Date.now() };
+    const fileId = id || crypto.randomUUID();
+    
+    // Construct entry with specific key order
+    const entry = { 
+      path: filePath, 
+      messageIds, 
+      size, 
+      createdAt: Date.now(),
+      id: fileId
+    };
+
+    const existing = files.findIndex(f => f.id === fileId);
     if (existing >= 0) files[existing] = entry;
     else files.push(entry);
+    
     await this._saveFileSystem(files);
     return entry;
   }
 
-  async deletePath(targetPath) {
+  async deletePath(targetPath, id = null) {
+    const files = await this.getFileSystem();
+    const filtered = files.filter(f => {
+      if (id && f.id === id) return false;
+      if (!id && f.path === targetPath) return false;
+      if (f.path.startsWith(targetPath + '/')) return false;
+      return true;
+    });
+    await this._saveFileSystem(filtered);
+    return { deleted: true };
+  }
+
+  async bulkDelete(pathsOrIds) {
     const files = await this.getFileSystem();
     const filtered = files.filter(f => 
-      f.path !== targetPath && !f.path.startsWith(targetPath + '/')
+      !pathsOrIds.some(p => f.id === p || f.path === p || f.path.startsWith(p + '/'))
     );
     await this._saveFileSystem(filtered);
     return { deleted: true };
   }
 
-  async bulkDelete(paths) {
-    const files = await this.getFileSystem();
-    const filtered = files.filter(f => 
-      !paths.some(p => f.path === p || f.path.startsWith(p + '/'))
-    );
-    await this._saveFileSystem(filtered);
-    return { deleted: true };
-  }
-
-  async renamePath(oldPath, newPath) {
+  async renamePath(oldPath, newPath, id = null) {
     const files = await this.getFileSystem();
     let found = false;
     const updated = files.map(f => {
-      if (f.path === oldPath) {
+      if ((id && f.id === id) || (!id && f.path === oldPath)) {
         found = true;
         return { ...f, path: newPath };
       }
@@ -208,10 +282,20 @@ export class DisboxAPI {
     return { success: found };
   }
 
-  async bulkMove(paths, destDir) {
+  async bulkMove(pathsOrIds, destDir) {
     const files = await this.getFileSystem();
     const updated = files.map(f => {
-      for (const oldPath of paths) {
+      for (const target of pathsOrIds) {
+        // target could be ID or path
+        const isId = target.includes('-') && target.length > 30; // simple uuid check
+        
+        if (isId && f.id === target) {
+          const name = f.path.split('/').pop();
+          const newPath = destDir ? `${destDir}/${name}` : name;
+          return { ...f, path: newPath };
+        }
+        
+        const oldPath = target;
         const name = oldPath.split('/').pop();
         const newPath = destDir ? `${destDir}/${name}` : name;
         if (f.path === oldPath) {
@@ -227,48 +311,83 @@ export class DisboxAPI {
     return { success: true };
   }
 
-  async copyPath(oldPath, newPath) {
+  async copyPath(oldPath, newPath, id = null) {
+    if (oldPath === newPath) return { success: false, reason: 'same_location' };
+    if (newPath.startsWith(oldPath + '/')) return { success: false, reason: 'into_self' };
+
     const files = await this.getFileSystem();
     const toAdd = [];
     files.forEach(f => {
-      if (f.path === oldPath) {
-        toAdd.push({ ...f, path: newPath, createdAt: Date.now() });
+      if ((id && f.id === id) || (!id && f.path === oldPath)) {
+        toAdd.push({
+          path: newPath,
+          messageIds: [...f.messageIds],
+          size: f.size,
+          createdAt: Date.now(),
+          id: crypto.randomUUID()
+        });
       } else if (f.path.startsWith(oldPath + '/')) {
-        toAdd.push({ ...f, path: f.path.replace(oldPath + '/', newPath + '/'), createdAt: Date.now() });
+        toAdd.push({
+          path: f.path.replace(oldPath + '/', newPath + '/'),
+          messageIds: [...f.messageIds],
+          size: f.size,
+          createdAt: Date.now(),
+          id: crypto.randomUUID()
+        });
       }
     });
     
     if (toAdd.length > 0) {
-      // Filter out existing files at destination to avoid duplicates
-      const newPaths = new Set(toAdd.map(a => a.path));
-      const filteredFiles = files.filter(f => !newPaths.has(f.path));
-      await this._saveFileSystem([...filteredFiles, ...toAdd]);
+      await this._saveFileSystem([...files, ...toAdd]);
     }
     return { success: toAdd.length > 0 };
   }
 
-  async bulkCopy(paths, destDir) {
+  async bulkCopy(pathsOrIds, destDir) {
     const files = await this.getFileSystem();
     const toAdd = [];
-    paths.forEach(oldPath => {
-      const name = oldPath.split('/').pop();
+    pathsOrIds.forEach(target => {
+      const isId = target.includes('-') && target.length > 30;
+      
+      let sourcePath = target;
+      if (isId) {
+        const f = files.find(x => x.id === target);
+        if (f) sourcePath = f.path;
+      }
+
+      const name = sourcePath.split('/').pop();
       const newPath = destDir ? `${destDir}/${name}` : name;
+
+      // Prevent self-copy
+      if (sourcePath === newPath || newPath.startsWith(sourcePath + '/')) return;
+
       files.forEach(f => {
-        if (f.path === oldPath) {
-          toAdd.push({ ...f, path: newPath, createdAt: Date.now() });
-        } else if (f.path.startsWith(oldPath + '/')) {
-          toAdd.push({ ...f, path: f.path.replace(oldPath + '/', newPath + '/'), createdAt: Date.now() });
+        if (f.path === sourcePath) {
+          toAdd.push({
+            path: newPath,
+            messageIds: [...f.messageIds],
+            size: f.size,
+            createdAt: Date.now(),
+            id: crypto.randomUUID()
+          });
+        } else if (f.path.startsWith(sourcePath + '/')) {
+          toAdd.push({
+            path: f.path.replace(sourcePath + '/', newPath + '/'),
+            messageIds: [...f.messageIds],
+            size: f.size,
+            createdAt: Date.now(),
+            id: crypto.randomUUID()
+          });
         }
       });
     });
 
     if (toAdd.length > 0) {
-      const newPaths = new Set(toAdd.map(a => a.path));
-      const filteredFiles = files.filter(f => !newPaths.has(f.path));
-      await this._saveFileSystem([...filteredFiles, ...toAdd]);
+      await this._saveFileSystem([...files, ...toAdd]);
     }
-    return { success: toAdd.length > 0 };
+    return { success: true };
   }
+
 
   // Legacy compatibility
   async deleteFile(filePath) { return this.deletePath(filePath); }
@@ -280,14 +399,16 @@ export class DisboxAPI {
   // Jika dari browser drag-drop (File object) → baca per chunk di renderer.
 
   async uploadFile(file, filePath, onProgress) {
+    const fileId = crypto.randomUUID();
+    
     // file.nativePath tersedia jika file dipilih via Electron dialog
     if (file.nativePath && window.electron?.uploadFileFromPath) {
       const res = await window.electron.uploadFileFromPath(
-        this.webhookUrl, file.nativePath, filePath,
+        this.webhookUrl, file.nativePath, `${fileId}_${filePath.split('/').pop()}`,
         (progress) => onProgress?.(progress)
       );
       if (!res.ok) throw new Error(res.error || 'Upload gagal');
-      await this.createFile(filePath, res.messageIds, res.size);
+      await this.createFile(filePath, res.messageIds, res.size, fileId);
       return res.messageIds;
     }
 
@@ -302,7 +423,8 @@ export class DisboxAPI {
       const chunk = file.buffer.slice(start, end);
 
       const chunkB64 = await _bufferToBase64(chunk);
-      const chunkName = `${file.name}.part${i}`;
+      const fileNameOnly = filePath.split('/').pop();
+      const chunkName = `${fileId}_${fileNameOnly}.part${i}`;
 
       const res = await window.electron.uploadChunk(this.webhookUrl, chunkB64, chunkName);
       if (!res.ok) {
@@ -314,9 +436,10 @@ export class DisboxAPI {
       onProgress?.((i + 1) / numChunks);
     }
 
-    await this.createFile(filePath, messageIds, totalSize);
+    await this.createFile(filePath, messageIds, totalSize, fileId);
     return messageIds;
   }
+
 
   // ─── Download dari Discord ────────────────────────────────────────────────
   // messageIds disimpan lokal → fetch Discord message URL → download binary
