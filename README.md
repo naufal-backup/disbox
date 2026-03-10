@@ -1,99 +1,66 @@
-# Disbox — Linux Desktop App
+Disbox-Linux
+==================================================
 
-> **Discord as unlimited cloud storage** — modern Linux desktop client built with Electron + React
+Disbox-Linux adalah klien penyimpanan file berbasis Command Line Interface (CLI) untuk Linux yang memanfaatkan Discord sebagai media penyimpanan (cloud storage). Dibangun menggunakan Linux Shell Script untuk memastikan performa yang ringan dan integrasi sistem yang mulus.
 
-![Disbox Screenshot](https://disboxapp.github.io/web/)
 
-## Features
+FITUR UTAMA
+--------------------------------------------------
+* Ringan & Native: Ditulis menggunakan Bash, meminimalisir kebutuhan resource berlebih.
+* Integrasi API Discord: Memanfaatkan Webhook atau Bot Discord untuk proses upload dan download file.
+* Otomatisasi Mudah: Sangat mudah diintegrasikan dengan cron jobs atau script backup Linux lainnya.
 
-- **Modern dark UI** — Syne + JetBrains Mono typography, deep navy/indigo palette
-- **Custom frameless titlebar** — minimize / maximize / close with native feel
-- **File browser** — grid and list view, breadcrumb navigation, subdirectory support
-- **Drag & drop upload** — drop files directly onto the window
-- **Upload progress** — live transfer panel with progress bars
-- **Download via native proxy** — bypasses CORS using Electron's `net` module (no third-party proxy needed)
-- **Right-click context menu** — download, rename, delete
-- **Auto-reconnect** — saves webhook in localStorage, reconnects on launch
-- **System tray** — minimize to tray, click to restore
 
-## Stack
+PRASYARAT
+--------------------------------------------------
+Pastikan utilitas berikut telah terpasang di sistem Linux kamu:
+* bash (v4.0+)
+* curl (Untuk komunikasi dengan API Discord)
+* jq (Opsional: Untuk parsing respons JSON dari API)
 
-| Layer | Tech |
-|-------|------|
-| Shell | Electron 29 |
-| UI | React 18 + CSS Modules |
-| Bundler | Vite 5 |
-| Packager | electron-builder (.AppImage, .deb) |
-| Design | Syne (display) + Inter (body) + JetBrains Mono |
 
-## Quick Start
+INSTALASI
+--------------------------------------------------
+Kloning repositori ini dan berikan hak akses eksekusi pada script utama.
 
-### Prerequisites
+1. git clone https://github.com/naufal-backup/disbox-linux.git
+2. cd disbox-linux
+3. chmod +x disbox.sh
 
-- Node.js 18+
-- npm 9+
 
-### Install & Run
+KONFIGURASI
+--------------------------------------------------
+1. Salin contoh file konfigurasi yang tersedia:
+   cp config.example.env config.env
 
-```bash
-chmod +x setup.sh && ./setup.sh
+2. Edit config.env dan masukkan parameter yang diperlukan (seperti URL Webhook atau Token Bot):
+   DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/xxxx/yyyy"
 
-# Dev mode (with hot reload)
-npm run dev
 
-# Build distributable Linux packages
-npm run build
-# Output in: release/
-```
+PENGGUNAAN
+--------------------------------------------------
+Skrip ini dijalankan langsung melalui terminal. Berikut adalah beberapa contoh perintah dasar:
 
-### Manual steps
+* Mengunggah File:
+  ./disbox.sh upload /path/to/local/file.zip
 
-```bash
-npm install
-npm run dev      # opens Electron + Vite in dev mode
-```
+* Mengunduh File:
+  ./disbox.sh download <file_id> /path/to/destination/
 
-## How it Works
+* Melihat Daftar File:
+  ./disbox.sh list
 
-1. You provide a **Discord webhook URL** (hashed client-side with SHA-256 → your identity)
-2. Files are **split into 24 MB chunks** and posted as Discord attachments via the webhook
-3. **Metadata** (path, message IDs) is stored in the Disbox cloud database
-4. On download, Electron fetches attachment URLs and reassembles chunks natively
-5. The virtual file system lets you create folders and navigate like a real drive
 
-## Getting a Discord Webhook
+KONTRIBUSI
+--------------------------------------------------
+Kontribusi, laporan bug, dan pull request sangat dipersilakan. 
+1. Fork repositori ini.
+2. Buat branch fitur baru (git checkout -b fitur-keren).
+3. Lakukan commit (git commit -m 'Menambahkan fitur keren').
+4. Push ke branch (git push origin fitur-keren).
+5. Buat Pull Request.
 
-1. Open Discord → Server Settings → Integrations → Webhooks
-2. Click **New Webhook**, choose a channel (your "drive" channel)
-3. Copy the webhook URL and paste it into Disbox
 
-## Project Structure
-
-```
-disbox-linux/
-├── electron/
-│   ├── main.js         # Electron main process, IPC, window controls
-│   └── preload.js      # Context bridge (secure IPC)
-├── src/
-│   ├── components/
-│   │   ├── TitleBar    # Custom frameless titlebar
-│   │   ├── Sidebar     # Navigation + storage indicator
-│   │   ├── FileGrid    # Main file browser (grid + list)
-│   │   └── TransferPanel # Upload/download progress
-│   ├── pages/
-│   │   ├── LoginPage   # Webhook connect screen
-│   │   └── DrivePage   # Main layout
-│   ├── utils/
-│   │   └── disbox.js   # API client, chunking, tree builder
-│   ├── styles/
-│   │   └── global.css  # CSS variables, reset, utilities
-│   └── AppContext.jsx  # Global state (React Context)
-├── index.html
-├── vite.config.js
-└── package.json
-```
-
-## Credits
-
-Original Disbox project: [DisboxApp/web](https://github.com/DisboxApp/web)  
-This is a modern Linux desktop reimplementation.
+LISENSI
+--------------------------------------------------
+MIT License
