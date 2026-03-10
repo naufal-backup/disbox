@@ -1,11 +1,16 @@
 const { app, BrowserWindow, ipcMain, dialog, shell, Tray, Menu, nativeImage, session, net } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
 let mainWindow;
 let tray;
+
+// ─── Upload cancellation registry ────────────────────────────────────────────
+// Maps transferId → cancelled flag object { cancelled: bool }
+const uploadCancelFlags = new Map();
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -55,7 +60,6 @@ function createTray() {
 }
 
 app.whenReady().then(() => {
-  // Bypass CORS for all renderer requests
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     callback({
       responseHeaders: {
@@ -78,9 +82,7 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
-// ─── Electron net.fetch — handles redirects, TLS, cookies natively ────────────
-// This is the correct way to make HTTP requests in modern Electron (v21+)
-
+// ─── Electron net.fetch ───────────────────────────────────────────────────────
 ipcMain.handle('net-fetch', async (_, url, options = {}) => {
   try {
     const response = await net.fetch(url, {
@@ -99,7 +101,7 @@ ipcMain.handle('net-fetch', async (_, url, options = {}) => {
   }
 });
 
-// Binary download via net.fetch — returns Buffer directly
+// Binary download via net.fetch
 ipcMain.handle('proxy-download', async (_, url) => {
   try {
     const response = await net.fetch(url, {
@@ -136,8 +138,13 @@ ipcMain.handle('dialog-save-file', async (_, filename) => {
 
 // ─── File I/O ─────────────────────────────────────────────────────────────────
 ipcMain.handle('read-file', async (_, filePath) => {
-  const buffer = fs.readFileSync(filePath);
   const stats = fs.statSync(filePath);
+  // Batasi 512MB agar tidak OOM — file besar pakai upload-file-from-path
+  const MAX_READ = 512 * 1024 * 1024;
+  if (stats.size > MAX_READ) {
+    throw new Error(`File terlalu besar (${(stats.size / 1024 / 1024).toFixed(0)} MB)`);
+  }
+  const buffer = fs.readFileSync(filePath);
   return {
     data: buffer.toString('base64'),
     name: path.basename(filePath),
@@ -145,9 +152,18 @@ ipcMain.handle('read-file', async (_, filePath) => {
   };
 });
 
+// Hanya ambil ukuran file — aman untuk file berukuran apapun termasuk >2GB
+ipcMain.handle('stat-file', async (_, filePath) => {
+  try {
+    const stats = fs.statSync(filePath);
+    return { size: stats.size, name: path.basename(filePath) };
+  } catch (e) {
+    return { size: 0, name: path.basename(filePath) };
+  }
+});
+
 ipcMain.handle('save-file', async (_, { savePath, data }) => {
   try {
-    // data can be Uint8Array from renderer or base64 string
     const buffer = (typeof data === 'string') ? Buffer.from(data, 'base64') : Buffer.from(data);
     await fs.promises.writeFile(savePath, buffer);
     return true;
@@ -160,11 +176,9 @@ ipcMain.handle('save-file', async (_, { savePath, data }) => {
 ipcMain.handle('open-path', async (_, filePath) => shell.openPath(filePath));
 ipcMain.handle('get-version', () => app.getVersion());
 
-// ─── IPC: Metadata lokal (menggantikan software.disbox.app) ──────────────────
-const { app: electronApp } = require('electron');
-const METADATA_DIR = require('path').join(require('os').homedir(), '.config', 'disbox');
+// ─── Metadata lokal ───────────────────────────────────────────────────────────
+const METADATA_DIR = path.join(os.homedir(), '.config', 'disbox');
 
-// Watch metadata directory for external changes (manual edits, sync, etc)
 if (!fs.existsSync(METADATA_DIR)) fs.mkdirSync(METADATA_DIR, { recursive: true });
 fs.watch(METADATA_DIR, (eventType, filename) => {
   if (filename && filename.endsWith('.json')) {
@@ -176,7 +190,7 @@ fs.watch(METADATA_DIR, (eventType, filename) => {
 ipcMain.handle('load-metadata', async (_, hash) => {
   try {
     if (!fs.existsSync(METADATA_DIR)) fs.mkdirSync(METADATA_DIR, { recursive: true });
-    const file = require('path').join(METADATA_DIR, `${hash}.json`);
+    const file = path.join(METADATA_DIR, `${hash}.json`);
     if (!fs.existsSync(file)) return [];
     return JSON.parse(fs.readFileSync(file, 'utf8'));
   } catch (e) {
@@ -188,7 +202,7 @@ ipcMain.handle('load-metadata', async (_, hash) => {
 ipcMain.handle('save-metadata', async (_, hash, data) => {
   try {
     if (!fs.existsSync(METADATA_DIR)) fs.mkdirSync(METADATA_DIR, { recursive: true });
-    const file = require('path').join(METADATA_DIR, `${hash}.json`);
+    const file = path.join(METADATA_DIR, `${hash}.json`);
     fs.writeFileSync(file, JSON.stringify(data, null, 2));
     return true;
   } catch (e) {
@@ -197,12 +211,10 @@ ipcMain.handle('save-metadata', async (_, hash, data) => {
   }
 });
 
-// ─── IPC: Upload chunk ke Discord webhook (dari main process, non-blocking) ──
+// ─── Upload chunk (single chunk, dari renderer buffer) ────────────────────────
 ipcMain.handle('upload-chunk', async (_, webhookUrl, chunkB64, filename) => {
   try {
     const buffer = Buffer.from(chunkB64, 'base64');
-
-    // Buat multipart/form-data manual — net.fetch Electron butuh Uint8Array body
     const boundary = '----DisboxBoundary' + Date.now().toString(36);
     const CRLF = Buffer.from('\r\n');
     const bodyParts = [
@@ -216,7 +228,7 @@ ipcMain.handle('upload-chunk', async (_, webhookUrl, chunkB64, filename) => {
     ];
     const bodyBuf = Buffer.concat(bodyParts);
 
-    console.log('[upload-chunk] sending', filename, bodyBuf.length, 'bytes to', webhookUrl.slice(0, 60));
+    console.log('[upload-chunk] sending', filename, bodyBuf.length, 'bytes');
 
     const response = await net.fetch(webhookUrl + '?wait=true', {
       method: 'POST',
@@ -226,7 +238,7 @@ ipcMain.handle('upload-chunk', async (_, webhookUrl, chunkB64, filename) => {
       },
       body: new Uint8Array(bodyBuf),
     });
-    
+
     const text = await response.text();
     return { ok: response.ok, status: response.status, body: text };
   } catch (e) {
@@ -235,14 +247,28 @@ ipcMain.handle('upload-chunk', async (_, webhookUrl, chunkB64, filename) => {
   }
 });
 
-// ─── IPC: Upload file besar langsung dari path (Parallel 8 Chunks with Throttle) ──
-ipcMain.handle('upload-file-from-path', async (event, webhookUrl, nativePath, destName) => {
+// ─── Cancel upload ────────────────────────────────────────────────────────────
+// Renderer memanggil ini sebelum/sesudah minta cancel, main process set flag.
+ipcMain.on('cancel-upload', (_, transferId) => {
+  const flag = uploadCancelFlags.get(transferId);
+  if (flag) {
+    flag.cancelled = true;
+    console.log('[upload] Cancelled by user:', transferId);
+  }
+});
+
+// ─── Upload file dari path (parallel 8 chunks) ───────────────────────────────
+ipcMain.handle('upload-file-from-path', async (event, webhookUrl, nativePath, destName, transferId) => {
+  // Buat flag cancel untuk transfer ini
+  const cancelFlag = { cancelled: false };
+  uploadCancelFlags.set(transferId, cancelFlag);
+
   try {
     const stats = fs.statSync(nativePath);
     const totalSize = stats.size;
     const CHUNK = 8 * 1024 * 1024; // 8MB
     const numChunks = Math.ceil(totalSize / CHUNK) || 1;
-    const filename = destName || require('path').basename(nativePath);
+    const filename = destName || path.basename(nativePath);
     const messageIds = new Array(numChunks);
     const fd = fs.openSync(nativePath, 'r');
 
@@ -251,10 +277,29 @@ ipcMain.handle('upload-file-from-path', async (event, webhookUrl, nativePath, de
     let nextChunkIndex = 0;
 
     return new Promise((resolve, reject) => {
+      // Cek cancel flag secara periodik — jika dicancel, tutup fd dan reject
+      const cancelChecker = setInterval(() => {
+        if (cancelFlag.cancelled) {
+          clearInterval(cancelChecker);
+          try { fs.closeSync(fd); } catch (_) {}
+          uploadCancelFlags.delete(transferId);
+          reject(new Error('UPLOAD_CANCELLED'));
+        }
+      }, 100);
+
+      function finish(result) {
+        clearInterval(cancelChecker);
+        uploadCancelFlags.delete(transferId);
+        result instanceof Error ? reject(result) : resolve(result);
+      }
+
       async function uploadNext() {
+        if (cancelFlag.cancelled) return;
+
         if (completedChunks === numChunks) {
-          fs.closeSync(fd);
-          return resolve({ ok: true, messageIds, size: totalSize });
+          try { fs.closeSync(fd); } catch (_) {}
+          finish({ ok: true, messageIds, size: totalSize });
+          return;
         }
 
         while (activeUploads < 8 && nextChunkIndex < numChunks) {
@@ -265,6 +310,12 @@ ipcMain.handle('upload-file-from-path', async (event, webhookUrl, nativePath, de
       }
 
       async function uploadChunk(index, retryCount = 0) {
+        // Cek cancel sebelum mulai chunk
+        if (cancelFlag.cancelled) {
+          activeUploads--;
+          return;
+        }
+
         try {
           const start = index * CHUNK;
           const size = Math.min(CHUNK, totalSize - start);
@@ -280,6 +331,12 @@ ipcMain.handle('upload-file-from-path', async (event, webhookUrl, nativePath, de
           const footer = Buffer.from('\r\n--' + boundary + '--\r\n');
           const body = new Uint8Array(Buffer.concat([header, buf, footer]));
 
+          // Cek cancel lagi sebelum network call
+          if (cancelFlag.cancelled) {
+            activeUploads--;
+            return;
+          }
+
           const response = await net.fetch(webhookUrl + '?wait=true', {
             method: 'POST',
             headers: {
@@ -289,12 +346,24 @@ ipcMain.handle('upload-file-from-path', async (event, webhookUrl, nativePath, de
             body,
           });
 
+          // Cek cancel setelah network call selesai
+          if (cancelFlag.cancelled) {
+            activeUploads--;
+            return;
+          }
+
           const text = await response.text();
 
           if (response.status === 429) {
             const retryAfter = JSON.parse(text).retry_after || 5;
             console.warn(`[upload] Rate limited on chunk ${index}, retrying in ${retryAfter}s...`);
-            setTimeout(() => uploadChunk(index, retryCount + 1), (retryAfter * 1000) + 500);
+            activeUploads--;
+            setTimeout(() => {
+              if (!cancelFlag.cancelled) {
+                activeUploads++;
+                uploadChunk(index, retryCount + 1);
+              }
+            }, (retryAfter * 1000) + 500);
             return;
           }
 
@@ -304,18 +373,33 @@ ipcMain.handle('upload-file-from-path', async (event, webhookUrl, nativePath, de
 
           const data = JSON.parse(text);
           messageIds[index] = data.id;
-          
+
           activeUploads--;
           completedChunks++;
-          event.sender.send('upload-progress', completedChunks / numChunks);
+
+          if (!cancelFlag.cancelled) {
+            event.sender.send('upload-progress-' + transferId, completedChunks / numChunks);
+          }
+
           uploadNext();
         } catch (e) {
+          if (cancelFlag.cancelled) {
+            activeUploads--;
+            return;
+          }
+
           if (retryCount < 3) {
             console.error(`[upload] Error on chunk ${index}, retry ${retryCount + 1}:`, e.message);
-            setTimeout(() => uploadChunk(index, retryCount + 1), 2000);
+            activeUploads--;
+            setTimeout(() => {
+              if (!cancelFlag.cancelled) {
+                activeUploads++;
+                uploadChunk(index, retryCount + 1);
+              }
+            }, 2000);
           } else {
-            fs.closeSync(fd);
-            reject(new Error(`Gagal upload chunk ${index} setelah 3 kali coba: ${e.message}`));
+            try { fs.closeSync(fd); } catch (_) {}
+            finish(new Error(`Gagal upload chunk ${index} setelah 3 kali coba: ${e.message}`));
           }
         }
       }
@@ -323,6 +407,7 @@ ipcMain.handle('upload-file-from-path', async (event, webhookUrl, nativePath, de
       uploadNext();
     });
   } catch (e) {
+    uploadCancelFlags.delete(transferId);
     console.error('[upload-path] Fatal error:', e.message);
     return { ok: false, error: e.message };
   }

@@ -2,42 +2,49 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('electron', {
   // Window controls
-  minimize: () => ipcRenderer.send('window-minimize'),
-  maximize: () => ipcRenderer.send('window-maximize'),
-  close:    () => ipcRenderer.send('window-close'),
+  minimize:    () => ipcRenderer.send('window-minimize'),
+  maximize:    () => ipcRenderer.send('window-maximize'),
+  close:       () => ipcRenderer.send('window-close'),
   isMaximized: () => ipcRenderer.invoke('window-is-maximized'),
 
   // Network (no CORS — goes through Node.js in main process)
-  fetch: (url, options) => ipcRenderer.invoke('net-fetch', url, options),
-  proxyDownload: (url) => ipcRenderer.invoke('proxy-download', url),
+  fetch:         (url, options) => ipcRenderer.invoke('net-fetch', url, options),
+  proxyDownload: (url)          => ipcRenderer.invoke('proxy-download', url),
 
   // File I/O
-  openFiles:  ()             => ipcRenderer.invoke('dialog-open-files'),
-  saveFile:   (filename)     => ipcRenderer.invoke('dialog-save-file', filename),
-  readFile:   (filePath)     => ipcRenderer.invoke('read-file', filePath),
+  openFiles:  ()               => ipcRenderer.invoke('dialog-open-files'),
+  saveFile:   (filename)       => ipcRenderer.invoke('dialog-save-file', filename),
+  readFile:   (filePath)       => ipcRenderer.invoke('read-file', filePath),
+  statFile:   (filePath)       => ipcRenderer.invoke('stat-file', filePath),
   writeFile:  (savePath, data) => ipcRenderer.invoke('save-file', { savePath, data }),
-  openPath:   (filePath)     => ipcRenderer.invoke('open-path', filePath),
+  openPath:   (filePath)       => ipcRenderer.invoke('open-path', filePath),
 
   getVersion: () => ipcRenderer.invoke('get-version'),
 
-  // Upload chunk via main process (non-blocking, no UI freeze)
+  // Upload single chunk (dari renderer buffer)
   uploadChunk: (webhookUrl, chunkB64, filename) =>
     ipcRenderer.invoke('upload-chunk', webhookUrl, chunkB64, filename),
 
-  // Upload file besar langsung dari path — tidak load ke RAM
-  uploadFileFromPath: (webhookUrl, nativePath, destPath, onProgress) => {
+  // Upload file besar dari path — pakai transferId unik per transfer
+  // sehingga progress channel dan cancel bisa diidentifikasi
+  uploadFileFromPath: (webhookUrl, nativePath, destPath, onProgress, transferId) => {
+    const progressChannel = 'upload-progress-' + transferId;
     const listener = (_, p) => onProgress?.(p);
-    ipcRenderer.on('upload-progress', listener);
-    return ipcRenderer.invoke('upload-file-from-path', webhookUrl, nativePath, destPath)
-      .finally(() => ipcRenderer.removeListener('upload-progress', listener));
+    ipcRenderer.on(progressChannel, listener);
+    return ipcRenderer
+      .invoke('upload-file-from-path', webhookUrl, nativePath, destPath, transferId)
+      .finally(() => ipcRenderer.removeListener(progressChannel, listener));
   },
 
-  // Local metadata storage (replaces software.disbox.app)
-  loadMetadata: (hash) => ipcRenderer.invoke('load-metadata', hash),
-  saveMetadata: (hash, data) => ipcRenderer.invoke('save-metadata', hash, data),
+  // Cancel upload yang sedang berjalan di main process
+  cancelUpload: (transferId) => ipcRenderer.send('cancel-upload', transferId),
+
+  // Local metadata storage
+  loadMetadata: (hash)        => ipcRenderer.invoke('load-metadata', hash),
+  saveMetadata: (hash, data)  => ipcRenderer.invoke('save-metadata', hash, data),
   onMetadataChange: (callback) => {
     const listener = (_, hash) => callback(hash);
     ipcRenderer.on('metadata-external-change', listener);
     return () => ipcRenderer.removeListener('metadata-external-change', listener);
-  }
+  },
 });

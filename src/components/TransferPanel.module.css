@@ -2,11 +2,11 @@
   position: fixed;
   bottom: 20px;
   right: 20px;
-  width: 320px;
+  width: 380px;
   background: var(--bg-elevated);
   border: 1px solid var(--border-bright);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-lg);
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255,255,255,0.04);
   z-index: 200;
   overflow: hidden;
   animation: fadeIn 0.2s ease;
@@ -16,9 +16,16 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 14px;
+  padding: 12px 16px;
   cursor: pointer;
   background: var(--bg-active);
+  user-select: none;
+}
+
+.headerLeft {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .title {
@@ -27,70 +34,255 @@
   color: var(--text-primary);
 }
 
+.headerPct {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--accent-bright);
+  background: var(--accent-dim);
+  padding: 2px 7px;
+  border-radius: 99px;
+}
+
 .headerActions {
+  color: var(--text-muted);
   display: flex;
   align-items: center;
-  gap: 6px;
-  color: var(--text-muted);
+}
+
+.headerProgress {
+  height: 2px;
+  background: var(--bg-hover);
+}
+
+.headerProgressFill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), var(--teal));
+  transition: width 0.4s ease;
 }
 
 .list {
-  padding: 8px;
+  padding: 10px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  max-height: 260px;
+  gap: 6px;
+  max-height: 380px;
   overflow-y: auto;
 }
 
 .item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
-  border-radius: var(--radius-sm);
   background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 12px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  transition: opacity 0.2s, border-color 0.2s;
 }
 
-.itemIcon { flex-shrink: 0; }
+.item:hover {
+  border-color: var(--border-bright);
+}
 
-.itemBody {
+.itemCancelled {
+  opacity: 0.55;
+}
+
+.itemDone {
+  border-color: rgba(59, 165, 93, 0.3);
+}
+
+.itemHeader {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.itemIcon {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.itemMeta {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
 }
 
 .itemName {
   font-size: 12px;
+  font-weight: 600;
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  margin-bottom: 4px;
+  display: block;
+}
+
+.itemSubMeta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.chunkInfo {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  background: var(--bg-elevated);
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+}
+
+.sizeInfo {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+}
+
+.errorText {
+  font-size: 10px;
+  color: var(--red);
+}
+
+.cancelledText {
+  font-size: 10px;
+  color: var(--amber);
+  font-weight: 500;
+}
+
+.doneText {
+  font-size: 10px;
+  color: var(--green);
+  font-weight: 500;
+}
+
+.itemRight {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.pct {
+  font-size: 13px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  letter-spacing: 0;
+  line-height: 1;
+  min-width: 36px;
+  text-align: right;
+}
+
+.pctUpload   { color: var(--accent-bright); }
+.pctDownload { color: var(--teal); }
+
+.progressWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
 }
 
 .progressBar {
-  height: 3px;
+  position: relative;
+  height: 8px;
   background: var(--bg-hover);
   border-radius: 99px;
   overflow: hidden;
 }
 
+.progressUpload  { background: rgba(88, 101, 242, 0.15); }
+.progressDownload{ background: rgba(0, 212, 170, 0.12); }
+.progressDone    { background: rgba(59, 165, 93, 0.15); }
+
 .progressFill {
-  height: 100%;
-  background: linear-gradient(90deg, var(--accent), var(--teal));
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
   border-radius: 99px;
-  transition: width 0.3s ease;
+  transition: width 0.35s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.error {
+.progressUpload .progressFill {
+  background: linear-gradient(90deg, var(--accent), var(--accent-bright));
+  box-shadow: 0 0 8px var(--accent-glow);
+}
+
+.progressDownload .progressFill {
+  background: linear-gradient(90deg, #00b894, var(--teal));
+  box-shadow: 0 0 8px rgba(0, 212, 170, 0.3);
+}
+
+.progressDone .progressFill {
+  background: linear-gradient(90deg, #27ae60, var(--green));
+}
+
+.progressShimmer {
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  border-radius: 99px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.25) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmerSlide 1.5s linear infinite;
+  pointer-events: none;
+}
+
+@keyframes shimmerSlide {
+  0%   { background-position: -200% center; }
+  100% { background-position:  200% center; }
+}
+
+.statsRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.statSpeed {
   font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.statEta {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--text-dim);
+}
+
+.stopBtn {
+  width: 22px;
+  height: 22px;
+  border: 1.5px solid var(--red);
+  background: rgba(237, 66, 69, 0.1);
   color: var(--red);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 5px;
+  transition: all 0.12s;
+  flex-shrink: 0;
+}
+
+.stopBtn:hover {
+  background: var(--red);
+  color: white;
+  transform: scale(1.1);
 }
 
 .removeBtn {
-  flex-shrink: 0;
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
   border: none;
   background: transparent;
   color: var(--text-muted);
@@ -98,8 +290,9 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 3px;
+  border-radius: 4px;
   transition: all 0.1s;
+  flex-shrink: 0;
 }
 
 .removeBtn:hover {

@@ -1,9 +1,8 @@
-import { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import { DisboxAPI, buildTree } from './utils/disbox.js';
 
 const AppContext = createContext(null);
 
-// Simpan daftar webhook yang pernah dipakai
 const SAVED_WEBHOOKS_KEY = 'disbox_saved_webhooks';
 
 function getSavedWebhooks() {
@@ -37,6 +36,9 @@ export function AppProvider({ children }) {
   const [savedWebhooks, setSavedWebhooks] = useState(getSavedWebhooks);
   const [theme, setTheme] = useState(() => localStorage.getItem('disbox_theme') || 'dark');
   const [uiScale, setUiScale] = useState(() => Number(localStorage.getItem('disbox_ui_scale')) || 1);
+
+  // Map of transferId → AbortController
+  const abortControllersRef = useRef(new Map());
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -78,6 +80,10 @@ export function AppProvider({ children }) {
   }, []);
 
   const disconnect = useCallback(() => {
+    // Cancel all active transfers on disconnect
+    abortControllersRef.current.forEach(controller => controller.abort());
+    abortControllersRef.current.clear();
+
     localStorage.removeItem('disbox_webhook');
     setApi(null);
     setWebhookUrl('');
@@ -105,18 +111,16 @@ export function AppProvider({ children }) {
     }
   }, [api]);
 
-  // Listen for external changes to JSON metadata (manual edits etc)
   useEffect(() => {
     if (!window.electron?.onMetadataChange || !api) return;
     const cleanup = window.electron.onMetadataChange((hash) => {
       if (api.hashedWebhook === hash) {
-        refresh(true); // Reload and sync to Discord
+        refresh(true);
       }
     });
     return cleanup;
   }, [api, refresh]);
 
-  // ─── Create folder ──────────────────────────────────────────────────────────
   const createFolder = useCallback(async (folderName) => {
     if (!api || !folderName.trim()) return false;
     const dirPath = currentPath === '/' ? '' : currentPath.slice(1);
@@ -131,7 +135,6 @@ export function AppProvider({ children }) {
     }
   }, [api, currentPath, refresh]);
 
-  // ─── Move path (file/folder) ────────────────────────────────────────────────
   const movePath = useCallback(async (oldPath, destDir, id = null) => {
     if (!api) return false;
     const name = oldPath.split('/').pop();
@@ -146,7 +149,6 @@ export function AppProvider({ children }) {
     }
   }, [api, refresh]);
 
-  // ─── Copy path (file/folder) ────────────────────────────────────────────────
   const copyPath = useCallback(async (oldPath, destDir, id = null) => {
     if (!api) return false;
     const name = oldPath.split('/').pop();
@@ -161,7 +163,6 @@ export function AppProvider({ children }) {
     }
   }, [api, refresh]);
 
-  // ─── Delete path (file/folder) ──────────────────────────────────────────────
   const deletePath = useCallback(async (path, id = null) => {
     if (!api) return false;
     try {
@@ -210,7 +211,6 @@ export function AppProvider({ children }) {
     }
   }, [api, refresh]);
 
-  // ─── Get all directories ────────────────────────────────────────────────────
   const getAllDirs = useCallback(() => {
     const dirs = new Set(['/']);
     files.forEach(f => {
@@ -222,9 +222,46 @@ export function AppProvider({ children }) {
     return [...dirs].sort();
   }, [files]);
 
-  const addTransfer = useCallback((t) => setTransfers(p => [...p, t]), []);
-  const updateTransfer = useCallback((id, u) => setTransfers(p => p.map(t => t.id === id ? { ...t, ...u } : t)), []);
-  const removeTransfer = useCallback((id) => setTransfers(p => p.filter(t => t.id !== id)), []);
+  // ─── Transfer management with AbortController ────────────────────────────
+
+  const addTransfer = useCallback((t) => {
+    // Create an AbortController for each new transfer
+    const controller = new AbortController();
+    abortControllersRef.current.set(t.id, controller);
+    setTransfers(p => [...p, { ...t, signal: controller.signal }]);
+    return controller.signal;
+  }, []);
+
+  const updateTransfer = useCallback((id, u) => {
+    setTransfers(p => p.map(t => t.id === id ? { ...t, ...u } : t));
+  }, []);
+
+  const removeTransfer = useCallback((id) => {
+    // Clean up AbortController when transfer is removed
+    abortControllersRef.current.delete(id);
+    setTransfers(p => p.filter(t => t.id !== id));
+  }, []);
+
+  // Cancel (stop) a specific transfer
+  const cancelTransfer = useCallback((id) => {
+    const controller = abortControllersRef.current.get(id);
+    if (controller) {
+      controller.abort();
+    }
+    setTransfers(p => p.map(t =>
+      t.id === id ? { ...t, status: 'cancelled' } : t
+    ));
+    // Auto-remove after a short delay
+    setTimeout(() => {
+      abortControllersRef.current.delete(id);
+      setTransfers(p => p.filter(t => t.id !== id));
+    }, 2000);
+  }, []);
+
+  // Get the AbortSignal for a given transfer ID
+  const getTransferSignal = useCallback((id) => {
+    return abortControllersRef.current.get(id)?.signal ?? null;
+  }, []);
 
   return (
     <AppContext.Provider value={{
@@ -234,10 +271,11 @@ export function AppProvider({ children }) {
       theme, toggleTheme,
       uiScale, setUiScale,
       connect, disconnect, refresh,
-      createFolder, movePath, copyPath, deletePath, 
+      createFolder, movePath, copyPath, deletePath,
       bulkDelete, bulkMove, bulkCopy,
       getAllDirs,
       addTransfer, updateTransfer, removeTransfer,
+      cancelTransfer, getTransferSignal,
     }}>
       {children}
     </AppContext.Provider>
