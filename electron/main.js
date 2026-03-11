@@ -25,7 +25,10 @@ var uploadCancelFlags = new Map();
 const abortControllers = new Map();
 
 // ─── Metadata lokal ───────────────────────────────────────────────────────────
-const METADATA_DIR = path.join(os.homedir(), '.config', 'disbox-linux');
+const METADATA_DIR = process.platform === 'win32'
+  ? path.join(app.getPath('userData'), 'metadata')
+  : path.join(os.homedir(), '.config', 'disbox-linux');
+
 if (!fs.existsSync(METADATA_DIR)) fs.mkdirSync(METADATA_DIR, { recursive: true });
 
 // Preferensi default
