@@ -2,10 +2,7 @@
   "name": "disbox-linux",
   "version": "2.0.0",
   "description": "Disbox - Discord Cloud Storage - Modern Linux Desktop App",
-  "author": {
-    "name": "naufal-backup",
-    "email": "alamsyahnaufal453@gmail.com"
-  },
+  "author": "naufal-backup <alamsyahnaufal453@gmail.com>",
   "main": "electron/main.js",
   "scripts": {
     "dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
@@ -44,6 +41,7 @@
         "AppImage",
         "deb"
       ],
+      "maintainer": "alamsyahnaufal453@gmail.com",
       "category": "Network",
       "icon": "electron/icon.png",
       "executableName": "disbox",
