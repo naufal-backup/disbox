@@ -35,7 +35,8 @@ Pastikan sistem Anda memiliki komponen berikut:
 *   **npm** atau **yarn**
 
 ## ⚙️ Instalasi
-
+   **Automatic Install**
+    [Releases](https://github.com/naufal-backup/disbox/releases)
 1.  **Kloning repositori ini:**
     ```bash
     git clone https://github.com/naufal-backup/disbox-linux.git
