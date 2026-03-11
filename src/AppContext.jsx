@@ -131,9 +131,9 @@ export function AppProvider({ children }) {
     setTransfers([]);
   }, []);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (silent = false) => {
     if (!api) return;
-    setLoading(true);
+    if (!silent) setLoading(true);
     try {
       // Always sync from cloud first to get the latest metadata from Discord
       await api.syncMetadata();
@@ -143,9 +143,18 @@ export function AppProvider({ children }) {
     } catch (e) {
       console.error('Refresh failed:', e);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [api]);
+
+  // Background polling for changes (every 30 seconds)
+  useEffect(() => {
+    if (!isConnected || !api) return;
+    const interval = setInterval(() => {
+      refresh(true);
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [isConnected, api, refresh]);
 
   // Saat api berubah (connect/reconnect), update main process tentang webhook aktif
   useEffect(() => {

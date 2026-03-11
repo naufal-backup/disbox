@@ -7,8 +7,10 @@ Disbox adalah aplikasi desktop penyimpanan awan (cloud storage) modern yang mema
 ## 🚀 Fitur Utama
 
 *   **Penyimpanan Tak Terbatas:** Manfaatkan Discord Webhook untuk menyimpan file tanpa batasan kuota.
-*   **Virtual File System:** Kelola file Anda dengan struktur folder, layaknya Google Drive atau Dropbox.
+*   **virtual File System:** Kelola file Anda dengan struktur folder, layaknya Google Drive atau Dropbox.
 *   **Sistem Chunking Pintar:** File besar otomatis dipecah menjadi bagian-bagian kecil (10MB - 500MB) untuk stabilitas upload sesuai limit akun Discord Anda.
+*   **Sinkronisasi Antar Perangkat:** Sinkronisasi metadata otomatis yang memungkinkan pengelolaan file secara bersamaan antara versi Desktop dan Mobile.
+*   **Polling Latar Belakang:** Aplikasi secara otomatis mendeteksi perubahan yang dilakukan di perangkat lain setiap 30 detik tanpa perlu refresh manual.
 *   **Multi-Platform:** Dukungan penuh untuk sistem operasi Linux dan Windows.
 *   **Pratinjau File Langsung:**
     *   **Gambar:** PNG, JPG, WebP, SVG.

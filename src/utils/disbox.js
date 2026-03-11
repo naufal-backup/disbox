@@ -148,16 +148,7 @@ export class DisboxAPI {
         }
       }
 
-      // 4. Safeguard: jangan timpa local yang LEBIH BANYAK dengan cloud yang jauh lebih sedikit
-      //    KECUALI jika local kosong/hilang (berarti user hapus file → harus restore dari cloud)
-      const localData = await window.electron.loadMetadata(this.hashedWebhook);
-      const localIsValid = Array.isArray(localData) && localData.length > 0;
-      if (localIsValid && !forceId && localData.length > files.length) {
-        console.warn(`[sync] Cloud (${files.length}) lebih sedikit dari local (${localData.length}), skip untuk cegah data loss.`);
-        return false;
-      }
-
-      // 5. Simpan ke lokal
+      // 4. Simpan ke lokal
       await window.electron.saveMetadata(this.hashedWebhook, files, msgId);
       this.lastSyncedId = msgId;
       localStorage.setItem(`dbx_last_sync_${this.hashedWebhook}`, msgId);
