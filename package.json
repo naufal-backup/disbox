@@ -20,7 +20,7 @@
         "deb"
       ],
       "category": "Network",
-      "icon": "src/assets/icon.png",
+      "icon": "electron/icon.png",
       "executableName": "disbox",
       "desktop": {
         "StartupWMClass": "disbox"

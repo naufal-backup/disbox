@@ -21,6 +21,8 @@ let mainWindow;
 let tray;
 let isQuitting = false;
 
+var uploadCancelFlags = new Map();
+
 // ─── Metadata lokal ───────────────────────────────────────────────────────────
 const METADATA_DIR = path.join(os.homedir(), '.config', 'disbox-linux');
 if (!fs.existsSync(METADATA_DIR)) fs.mkdirSync(METADATA_DIR, { recursive: true });
@@ -45,10 +47,9 @@ function savePrefs() {
   } catch (e) { console.error('Gagal menyimpan preferensi:', e); }
 }
 
-// ... (createWindow remains similar)
-
 function createWindow() {
-  const iconPath = path.join(__dirname, '../src/assets/icon.png');
+  // Path ikon yang akan digunakan di dev maupun prod
+  const iconPath = path.join(__dirname, 'icon.png');
   
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -584,7 +585,8 @@ ipcMain.handle('upload-file-from-path', async (event, webhookUrl, nativePath, de
           return;
         }
 
-        while (activeUploads < 8 && nextChunkIndex < numChunks) {
+        // Batasi maksimal 3 upload paralel untuk file besar agar hemat RAM dan stabil
+        while (activeUploads < 3 && nextChunkIndex < numChunks) {
           const index = nextChunkIndex++;
           activeUploads++;
           uploadChunk(index);
@@ -601,7 +603,7 @@ ipcMain.handle('upload-file-from-path', async (event, webhookUrl, nativePath, de
         try {
           const start = index * CHUNK;
           const size = Math.min(CHUNK, totalSize - start);
-          const buf = Buffer.alloc(size);
+          const buf = Buffer.allocUnsafe(size);
           fs.readSync(fd, buf, 0, size, start);
 
           const boundary = '----DisboxBoundary' + Date.now().toString(36) + index;
@@ -618,6 +620,8 @@ ipcMain.handle('upload-file-from-path', async (event, webhookUrl, nativePath, de
             activeUploads--;
             return;
           }
+
+          console.log(`[upload] Sending chunk ${index+1}/${numChunks} (${(size/1024/1024).toFixed(1)} MB)...`);
 
           const response = await net.fetch(webhookUrl + '?wait=true', {
             method: 'POST',
@@ -637,15 +641,15 @@ ipcMain.handle('upload-file-from-path', async (event, webhookUrl, nativePath, de
           const text = await response.text();
 
           if (response.status === 429) {
-            const retryAfter = JSON.parse(text).retry_after || 5;
+            const retryAfter = (JSON.parse(text).retry_after || 5) + 1;
             console.warn(`[upload] Rate limited on chunk ${index}, retrying in ${retryAfter}s...`);
             activeUploads--;
             setTimeout(() => {
               if (!cancelFlag.cancelled) {
                 activeUploads++;
-                uploadChunk(index, retryCount + 1);
+                uploadChunk(index, retryCount); // Jangan kurangi retry count untuk 429
               }
-            }, (retryAfter * 1000) + 500);
+            }, (retryAfter * 1000));
             return;
           }
 
@@ -670,18 +674,19 @@ ipcMain.handle('upload-file-from-path', async (event, webhookUrl, nativePath, de
             return;
           }
 
-          if (retryCount < 3) {
-            console.error(`[upload] Error on chunk ${index}, retry ${retryCount + 1}:`, e.message);
+          if (retryCount < 10) {
+            console.error(`[upload] Error on chunk ${index}, retry ${retryCount + 1}/10:`, e.message);
             activeUploads--;
+            const backoff = (retryCount + 1) * 2000;
             setTimeout(() => {
               if (!cancelFlag.cancelled) {
                 activeUploads++;
                 uploadChunk(index, retryCount + 1);
               }
-            }, 2000);
+            }, backoff);
           } else {
             try { fs.closeSync(fd); } catch (_) {}
-            finish(new Error(`Gagal upload chunk ${index} setelah 3 kali coba: ${e.message}`));
+            finish(new Error(`Gagal upload chunk ${index} setelah 10 kali coba: ${e.message}`));
           }
         }
       }
