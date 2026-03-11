@@ -1,4 +1,5 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Upload, FolderPlus, Grid3x3, List, Search,
   Download, Trash2, Edit3, Folder,
@@ -342,9 +343,21 @@ export default function FileGrid() {
     setIsSelectionMode(false);
   };
 
-  const handleDragStart = (e, path, id = null) => {
-    if (isSelectionMode) { e.preventDefault(); return; }
-    const dragData = id || path;
+  const handleDragStart = (e, itemPath, id = null) => {
+    // Jika selection mode aktif dan item yang didrag adalah bagian dari selection,
+    // drag semua item yang dipilih sekaligus
+    const itemKey = id || itemPath;
+    if (isSelectionMode && selectedFiles.has(itemKey)) {
+      // Encode semua selected IDs/paths sebagai JSON di dataTransfer
+      const payload = JSON.stringify({ bulk: true, items: [...selectedFiles] });
+      e.dataTransfer.setData('text/plain', payload);
+      e.dataTransfer.effectAllowed = 'move';
+      setDragSource('__bulk__');
+      return;
+    }
+
+    // Single item drag (normal mode atau item bukan bagian dari selection)
+    const dragData = id || itemPath;
     setDragSource(dragData);
     e.dataTransfer.setData('text/plain', dragData);
     e.dataTransfer.effectAllowed = 'move';
@@ -352,11 +365,46 @@ export default function FileGrid() {
 
   const handleDropMove = async (e, destDir) => {
     e.preventDefault();
-    const source = e.dataTransfer.getData('text/plain') || dragSource;
-    if (!source) return;
-    if (source.startsWith('http') || e.dataTransfer.files.length > 0) return;
+    const raw = e.dataTransfer.getData('text/plain') || dragSource;
+    if (!raw) return;
+    if (e.dataTransfer.files.length > 0) return;
 
     const normalizedDest = destDir.startsWith('/') ? destDir.slice(1) : destDir;
+
+    // ── Bulk drag (multi-select) ──────────────────────────────────────────
+    let parsed = null;
+    try { parsed = JSON.parse(raw); } catch (_) {}
+
+    if (parsed?.bulk && Array.isArray(parsed.items)) {
+      const items = parsed.items;
+
+      // Validasi: jangan pindah ke dalam diri sendiri
+      for (const target of items) {
+        const isId = target.includes('-') && target.length > 30;
+        let srcPath = target;
+        if (isId) {
+          const f = files.find(x => x.id === target);
+          if (f) srcPath = f.path;
+        }
+        if (normalizedDest === srcPath || normalizedDest.startsWith(srcPath + '/')) {
+          toast.error('Tidak bisa memindahkan ke dalam folder itu sendiri');
+          setDragSource(null);
+          return;
+        }
+      }
+
+      try {
+        await api.bulkMove(items, normalizedDest);
+        toast.success(`${items.length} item dipindahkan`);
+        clearSelection();
+      } catch (err) { toast.error('Gagal pindah: ' + err.message); }
+      setDragSource(null);
+      return;
+    }
+
+    // ── Single item drag ─────────────────────────────────────────────────
+    const source = raw;
+    if (source.startsWith('http')) return;
 
     const isId = source.includes('-') && source.length > 30;
     let sourcePath = source;
@@ -366,11 +414,7 @@ export default function FileGrid() {
     }
 
     const sourceParent = sourcePath.split('/').slice(0, -1).join('/');
-
-    if (sourceParent === normalizedDest) {
-      setDragSource(null);
-      return;
-    }
+    if (sourceParent === normalizedDest) { setDragSource(null); return; }
 
     if (sourcePath === normalizedDest || normalizedDest.startsWith(sourcePath + '/')) {
       toast.error('Tidak bisa memindahkan ke folder yang sama atau sub-folder');
@@ -385,11 +429,93 @@ export default function FileGrid() {
         await movePath(source, normalizedDest);
       }
       toast.success('Dipindahkan');
-    } catch (e) { toast.error('Gagal pindah'); }
+    } catch (err) { toast.error('Gagal pindah'); }
     setDragSource(null);
   };
 
   const [isDragOver, setIsDragOver] = useState(false);
+
+  // ─── Rubber band selection ────────────────────────────────────────────────
+  // Rubber band di-render fixed di viewport, bukan di dalam scroll container
+  const [rubberBand, setRubberBand] = useState(null); // viewport coords { x, y, w, h }
+  const rubberOrigin = useRef(null);
+  const contentRef = useRef(null);
+  const isRubbering = useRef(false);
+
+  useEffect(() => {
+    const content = contentRef.current;
+    if (!content) return;
+
+    const onMouseDown = (e) => {
+      if (e.button !== 0) return;
+      if (e.target.closest('[data-item-id]')) return;
+      if (e.target.closest('button, input, a, [role="button"]')) return;
+
+      // Cek apakah klik benar-benar di dalam content area (bukan toolbar/sidebar)
+      const rect = content.getBoundingClientRect();
+      if (
+        e.clientX < rect.left || e.clientX > rect.right ||
+        e.clientY < rect.top  || e.clientY > rect.bottom
+      ) return;
+
+      rubberOrigin.current = { x: e.clientX, y: e.clientY };
+      isRubbering.current = false;
+
+      if (!e.ctrlKey) {
+        setSelectedFiles(new Set());
+        setIsSelectionMode(false);
+      }
+
+      const onMouseMove = (me) => {
+        if (!rubberOrigin.current) return;
+        const dx = me.clientX - rubberOrigin.current.x;
+        const dy = me.clientY - rubberOrigin.current.y;
+
+        if (!isRubbering.current && Math.sqrt(dx * dx + dy * dy) < 6) return;
+        isRubbering.current = true;
+
+        // Clamp koordinat rubber band agar tidak keluar dari content rect
+        const cr = content.getBoundingClientRect();
+        const clampedX2 = Math.max(cr.left, Math.min(me.clientX, cr.right));
+        const clampedY2 = Math.max(cr.top,  Math.min(me.clientY, cr.bottom));
+
+        const rb = {
+          x: Math.min(rubberOrigin.current.x, clampedX2),
+          y: Math.min(rubberOrigin.current.y, clampedY2),
+          w: Math.abs(clampedX2 - rubberOrigin.current.x),
+          h: Math.abs(clampedY2 - rubberOrigin.current.y),
+        };
+        setRubberBand(rb);
+
+        // Hit-test pakai viewport coords
+        const newSel = new Set();
+        content.querySelectorAll('[data-item-id]').forEach(el => {
+          const er = el.getBoundingClientRect();
+          const overlaps =
+            rb.x < er.right  && rb.x + rb.w > er.left &&
+            rb.y < er.bottom && rb.y + rb.h > er.top;
+          if (overlaps) newSel.add(el.dataset.itemId);
+        });
+
+        setSelectedFiles(newSel);
+        setIsSelectionMode(newSel.size > 0);
+      };
+
+      const onMouseUp = () => {
+        isRubbering.current = false;
+        setRubberBand(null);
+        rubberOrigin.current = null;
+        window.removeEventListener('mousemove', onMouseMove);
+        window.removeEventListener('mouseup', onMouseUp);
+      };
+
+      window.addEventListener('mousemove', onMouseMove);
+      window.addEventListener('mouseup', onMouseUp);
+    };
+
+    content.addEventListener('mousedown', onMouseDown);
+    return () => content.removeEventListener('mousedown', onMouseDown);
+  }, []);
 
   return (
     <div
@@ -482,8 +608,32 @@ export default function FileGrid() {
         </div>
       </div>
 
+      {/* ── Rubber band overlay — fixed di viewport ── */}
+      {rubberBand && rubberBand.w > 4 && rubberBand.h > 4 && createPortal(
+        <div
+          style={{
+            position: 'fixed',
+            left: rubberBand.x,
+            top: rubberBand.y,
+            width: rubberBand.w,
+            height: rubberBand.h,
+            border: '1.5px solid #5865f2',
+            background: 'rgba(88, 101, 242, 0.12)',
+            borderRadius: '4px',
+            pointerEvents: 'none',
+            zIndex: 9999,
+          }}
+        />,
+        document.body
+      )}
+
       {/* ── Content ── */}
-      <div className={styles.content}>
+      <div
+        className={styles.content}
+        ref={contentRef}
+        style={{ position: 'relative' }}
+      >
+        {/* rubber band dulu dipasang di sini — sudah dipindah ke fixed overlay di atas */}
         {loading && displayedFiles.length === 0 && subDirs.length === 0 ? (
           <div className={styles.loading}>
             {[...Array(6)].map((_, i) => <div key={i} className={`skeleton ${styles.skeletonCard}`} />)}
@@ -498,15 +648,20 @@ export default function FileGrid() {
           <div className={styles.grid}>
             {subDirs.map(({ name: dir, fullPath }) => {
               const folderSize = getFolderSize(fullPath);
+              const isBulkDrag = dragSource === '__bulk__';
+              const isPartOfSelection = selectedFiles.has(fullPath);
+              // Folder ini tidak boleh jadi target jika dia sendiri ada di selection
+              const canBeDropTarget = isBulkDrag ? !isPartOfSelection : (fullPath !== dragSource && !fullPath.startsWith((dragSource || '') + '/'));
               return (
                 <div
                   key={fullPath}
-                  className={`${styles.card} ${selectedFiles.has(fullPath) ? styles.selected : ''} ${dragOverTarget === fullPath ? styles.isDragTarget : ''}`}
-                  draggable={!isSelectionMode}
+                  data-item-id={fullPath}
+                  className={`${styles.card} ${isPartOfSelection ? styles.selected : ''} ${dragOverTarget === fullPath ? styles.isDragTarget : ''}`}
+                  draggable
                   onDragStart={(e) => handleDragStart(e, fullPath)}
                   onDragOver={(e) => {
                     e.preventDefault();
-                    if (fullPath !== dragSource && !fullPath.startsWith(dragSource + '/')) {
+                    if (canBeDropTarget) {
                       e.dataTransfer.dropEffect = 'move';
                       if (dragOverTarget !== fullPath) setDragOverTarget(fullPath);
                     }
@@ -552,8 +707,9 @@ export default function FileGrid() {
               return (
                 <div
                   key={file.id || file.path}
+                  data-item-id={file.id}
                   className={`${styles.card} ${selectedFiles.has(file.id) ? styles.selected : ''}`}
-                  draggable={!isSelectionMode}
+                  draggable
                   onDragStart={(e) => handleDragStart(e, file.path, file.id)}
                   onClick={(e) => toggleSelect(file.id, e)}
                   onContextMenu={(e) => {
@@ -591,15 +747,19 @@ export default function FileGrid() {
             </div>
             {subDirs.map(({ name: dir, fullPath }) => {
               const folderSize = getFolderSize(fullPath);
+              const isBulkDrag = dragSource === '__bulk__';
+              const isPartOfSelection = selectedFiles.has(fullPath);
+              const canBeDropTarget = isBulkDrag ? !isPartOfSelection : (fullPath !== dragSource && !fullPath.startsWith((dragSource || '') + '/'));
               return (
                 <div
                   key={fullPath}
-                  className={`${styles.listRow} ${selectedFiles.has(fullPath) ? styles.selected : ''} ${dragOverTarget === fullPath ? styles.isDragTarget : ''}`}
-                  draggable={!isSelectionMode}
+                  data-item-id={fullPath}
+                  className={`${styles.listRow} ${isPartOfSelection ? styles.selected : ''} ${dragOverTarget === fullPath ? styles.isDragTarget : ''}`}
+                  draggable
                   onDragStart={(e) => handleDragStart(e, fullPath)}
                   onDragOver={(e) => {
                     e.preventDefault();
-                    if (fullPath !== dragSource && !fullPath.startsWith(dragSource + '/')) {
+                    if (canBeDropTarget) {
                       e.dataTransfer.dropEffect = 'move';
                       if (dragOverTarget !== fullPath) setDragOverTarget(fullPath);
                     }
@@ -648,8 +808,9 @@ export default function FileGrid() {
               return (
                 <div
                   key={file.id || file.path}
+                  data-item-id={file.id}
                   className={`${styles.listRow} ${selectedFiles.has(file.id) ? styles.selected : ''}`}
-                  draggable={!isSelectionMode}
+                  draggable
                   onDragStart={(e) => handleDragStart(e, file.path, file.id)}
                   onClick={(e) => toggleSelect(file.id, e)}
                   onContextMenu={(e) => {

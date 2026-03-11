@@ -1,0 +1,8 @@
+/* ── Rubber band selection box ─────────────────────────────────────────────── */
+/* position dan z-index diset via inline style (fixed, z-index 9999) */
+.rubberBand {
+  border: 1.5px solid var(--accent);
+  background: rgba(88, 101, 242, 0.1);
+  border-radius: 4px;
+  pointer-events: none;
+}
