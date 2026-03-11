@@ -23,6 +23,9 @@ contextBridge.exposeInMainWorld('electron', {
 
   confirm: (options) => ipcRenderer.invoke('dialog-confirm', options),
 
+  getPrefs: () => ipcRenderer.invoke('get-prefs'),
+  setPrefs: (prefs) => ipcRenderer.invoke('set-prefs', prefs),
+
   // Upload single chunk (dari renderer buffer)
   uploadChunk: (webhookUrl, chunkB64, filename) =>
     ipcRenderer.invoke('upload-chunk', webhookUrl, chunkB64, filename),

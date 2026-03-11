@@ -32,7 +32,7 @@ function Placeholder({ label, icon }) {
 }
 
 function SettingsPanel() {
-  const { uiScale, setUiScale, chunkSize, setChunkSize } = useApp();
+  const { uiScale, setUiScale, chunkSize, setChunkSize, closeToTray, startMinimized, updatePrefs } = useApp();
 
   const CHUNK_OPTIONS = [
     { label: 'Free (10MB)', value: 10 * 1024 * 1024, desc: 'Batas standar webhook Discord (Free)' },
@@ -43,10 +43,54 @@ function SettingsPanel() {
   const currentOptionIndex = CHUNK_OPTIONS.findIndex(opt => opt.value === chunkSize);
   const safeIndex = currentOptionIndex === -1 ? 1 : currentOptionIndex; // Default ke 25MB jika tidak cocok
 
+  const Toggle = ({ label, value, onChange, description }) => (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+      <div>
+        <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{label}</p>
+        <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{description}</p>
+      </div>
+      <label style={{ position: 'relative', display: 'inline-block', width: 36, height: 20 }}>
+        <input 
+          type="checkbox" 
+          checked={value} 
+          onChange={e => onChange(e.target.checked)}
+          style={{ opacity: 0, width: 0, height: 0 }}
+        />
+        <span style={{
+          position: 'absolute', cursor: 'pointer', inset: 0,
+          backgroundColor: value ? 'var(--accent)' : '#333',
+          transition: '.3s', borderRadius: 20
+        }}>
+          <span style={{
+            position: 'absolute', height: 14, width: 14, left: value ? 19 : 3, bottom: 3,
+            backgroundColor: 'white', transition: '.3s', borderRadius: '50%'
+          }} />
+        </span>
+      </label>
+    </div>
+  );
+
   return (
     <div style={{ padding: 32, maxWidth: 520 }}>
       <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 700, marginBottom: 24 }}>Settings</h2>
       
+      {/* App Behavior Section */}
+      <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 20, marginBottom: 16 }}>
+        <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>App Behavior</h3>
+        <Toggle 
+          label="Close to Tray" 
+          value={closeToTray} 
+          onChange={v => updatePrefs({ closeToTray: v })}
+          description="Sembunyikan ke tray saat menekan tombol close."
+        />
+        <Toggle 
+          label="Start Minimized" 
+          value={startMinimized} 
+          onChange={v => updatePrefs({ startMinimized: v })}
+          description="Jalankan aplikasi dalam keadaan tersembunyi."
+        />
+      </div>
+
       {/* UI Scaling Section */}
       <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 20, marginBottom: 16 }}>
         <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 16, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Interface Zoom</h3>

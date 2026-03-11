@@ -19,12 +19,37 @@ process.on('SIGTERM', () => {
 
 let mainWindow;
 let tray;
+let isQuitting = false;
 
-// ─── Upload cancellation registry ────────────────────────────────────────────
-// Maps transferId → cancelled flag object { cancelled: bool }
-const uploadCancelFlags = new Map();
+// ─── Metadata lokal ───────────────────────────────────────────────────────────
+const METADATA_DIR = path.join(os.homedir(), '.config', 'disbox-linux');
+if (!fs.existsSync(METADATA_DIR)) fs.mkdirSync(METADATA_DIR, { recursive: true });
+
+// Preferensi default
+let prefs = {
+  closeToTray: false,
+  startMinimized: false
+};
+
+// Muat preferensi dari file (jika ada)
+const PREFS_PATH = path.join(METADATA_DIR, 'preferences.json');
+try {
+  if (fs.existsSync(PREFS_PATH)) {
+    prefs = { ...prefs, ...JSON.parse(fs.readFileSync(PREFS_PATH, 'utf8')) };
+  }
+} catch (e) { console.error('Gagal memuat preferensi:', e); }
+
+function savePrefs() {
+  try {
+    fs.writeFileSync(PREFS_PATH, JSON.stringify(prefs, null, 2));
+  } catch (e) { console.error('Gagal menyimpan preferensi:', e); }
+}
+
+// ... (createWindow remains similar)
 
 function createWindow() {
+  const iconPath = path.join(__dirname, '../src/assets/icon.png');
+  
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 820,
@@ -32,6 +57,7 @@ function createWindow() {
     minHeight: 600,
     frame: true,
     backgroundColor: '#0d0d12',
+    icon: fs.existsSync(iconPath) ? iconPath : undefined,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -43,35 +69,68 @@ function createWindow() {
 
   if (isDev) {
     mainWindow.loadURL('http://localhost:5173');
-    mainWindow.webContents.openDevTools({ mode: 'detach' });
   } else {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   }
 
   mainWindow.once('ready-to-show', () => {
-    mainWindow.show();
+    if (!prefs.startMinimized) {
+      mainWindow.show();
+    }
     mainWindow.setAutoHideMenuBar(true);
     mainWindow.setMenuBarVisibility(false);
   });
+
+  mainWindow.on('close', (event) => {
+    if (!isQuitting && prefs.closeToTray) {
+      event.preventDefault();
+      mainWindow.hide();
+      return false;
+    }
+  });
+
   mainWindow.on('closed', () => { mainWindow = null; });
 }
 
 function createTray() {
-  const iconPath = path.join(__dirname, '../src/assets/icon.png');
-  if (fs.existsSync(iconPath)) {
-    tray = new Tray(nativeImage.createFromPath(iconPath).resize({ width: 16 }));
-    const contextMenu = Menu.buildFromTemplate([
-      { label: 'Open Disbox', click: () => mainWindow?.show() },
-      { type: 'separator' },
-      { label: 'Quit', click: () => app.quit() },
-    ]);
-    tray.setContextMenu(contextMenu);
-    tray.setToolTip('Disbox — Discord Cloud Storage');
-    tray.on('click', () => mainWindow?.show());
+  // Cari icon di beberapa lokasi umum
+  const iconPaths = [
+    path.join(__dirname, '../src/assets/icon.png'),
+    path.join(__dirname, 'icon.png'),
+    path.join(__dirname, '../icon.png'),
+    path.join(__dirname, '../public/icon.png')
+  ];
+  
+  let trayIcon = null;
+  for (const p of iconPaths) {
+    if (fs.existsSync(p)) {
+      trayIcon = nativeImage.createFromPath(p).resize({ width: 16 });
+      break;
+    }
   }
+
+  // Jika tidak ketemu, buat icon kosong sederhana (atau gunakan icon bawaan jika ada)
+  if (!trayIcon) {
+    // Buat buffer icon 16x16 warna ungu (brand disbox) sebagai fallback
+    trayIcon = nativeImage.createFromNamedImage('folder', [1, 1, 1]); // Placeholder
+  }
+
+  tray = new Tray(trayIcon || nativeImage.createEmpty());
+  const contextMenu = Menu.buildFromTemplate([
+    { label: 'Open Disbox', click: () => mainWindow?.show() },
+    { type: 'separator' },
+    { label: 'Quit', click: () => { isQuitting = true; app.quit(); } },
+  ]);
+  tray.setContextMenu(contextMenu);
+  tray.setToolTip('Disbox — Discord Cloud Storage');
+  tray.on('click', () => {
+    if (mainWindow?.isVisible()) mainWindow.hide();
+    else mainWindow?.show();
+  });
 }
 
 app.whenReady().then(() => {
+  // ... existing session headers logic
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     callback({
       responseHeaders: {
@@ -87,17 +146,27 @@ app.whenReady().then(() => {
   createTray();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    else mainWindow?.show();
   });
 });
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
+  if (process.platform !== 'darwin' && (!prefs.closeToTray || isQuitting)) {
+    app.quit();
+  }
+});
+
+// IPC untuk preferensi
+ipcMain.handle('get-prefs', () => prefs);
+ipcMain.handle('set-prefs', (_, newPrefs) => {
+  prefs = { ...prefs, ...newPrefs };
+  savePrefs();
+  return prefs;
 });
 
 // ─── Simpan webhookUrl dari renderer untuk dipakai saat quit ─────────────────
 let activeWebhookUrl = null;
 let activeWebhookHash = null;
-let isQuitting = false;
 
 ipcMain.on('set-active-webhook', (_, webhookUrl, hash) => {
   activeWebhookUrl = webhookUrl;
@@ -107,13 +176,14 @@ ipcMain.on('set-active-webhook', (_, webhookUrl, hash) => {
 
 // ─── Flush metadata ke Discord sebelum quit ───────────────────────────────────
 app.on('before-quit', (event) => {
-  if (isQuitting) return;
-  if (!activeWebhookUrl || !activeWebhookHash) return;
+  if (isQuitting && !metadataUploadTimer) return; // Sudah dalam proses quit
+  
+  if (!activeWebhookUrl || !activeWebhookHash || !metadataUploadTimer) {
+    isQuitting = true;
+    return;
+  }
 
-  // Jika tidak ada upload pending, langsung quit
-  if (!metadataUploadTimer) return;
-
-  // Ada upload yang belum jalan (debounce belum selesai) → jalankan sekarang
+  // Ada upload yang belum jalan
   clearTimeout(metadataUploadTimer);
   metadataUploadTimer = null;
 
@@ -261,11 +331,6 @@ ipcMain.handle('save-file', async (_, { savePath, data }) => {
 
 ipcMain.handle('open-path', async (_, filePath) => shell.openPath(filePath));
 ipcMain.handle('get-version', () => app.getVersion());
-
-// ─── Metadata lokal ───────────────────────────────────────────────────────────
-const METADATA_DIR = path.join(os.homedir(), '.config', 'disbox-linux');
-
-if (!fs.existsSync(METADATA_DIR)) fs.mkdirSync(METADATA_DIR, { recursive: true });
 
 // ─── Helper: cari file metadata terbaru untuk hash tertentu ──────────────────
 // Format nama file: <hash>.<msgId>.json  (msgId = Discord Snowflake, terbesar = terbaru)

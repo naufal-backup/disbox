@@ -38,9 +38,29 @@ export function AppProvider({ children }) {
   const [uiScale, setUiScale] = useState(() => Number(localStorage.getItem('disbox_ui_scale')) || 1);
   const [chunkSize, setChunkSize] = useState(() => Number(localStorage.getItem('disbox_chunk_size')) || 8 * 1024 * 1024);
   const [metadataStatus, setMetadataStatus] = useState({ status: 'synced', items: 0 });
+  const [closeToTray, setCloseToTray] = useState(true);
+  const [startMinimized, setStartMinimized] = useState(false);
 
   // Map of transferId → AbortController
   const abortControllersRef = useRef(new Map());
+
+  useEffect(() => {
+    if (window.electron?.getPrefs) {
+      window.electron.getPrefs().then(p => {
+        setCloseToTray(p.closeToTray);
+        setStartMinimized(p.startMinimized);
+      });
+    }
+  }, []);
+
+  const updatePrefs = useCallback((newPrefs) => {
+    if (window.electron?.setPrefs) {
+      window.electron.setPrefs(newPrefs).then(p => {
+        if (p.closeToTray !== undefined) setCloseToTray(p.closeToTray);
+        if (p.startMinimized !== undefined) setStartMinimized(p.startMinimized);
+      });
+    }
+  }, []);
 
   useEffect(() => {
     if (!window.electron?.onMetadataStatus) return;
@@ -296,6 +316,7 @@ export function AppProvider({ children }) {
       uiScale, setUiScale,
       chunkSize, setChunkSize,
       metadataStatus,
+      closeToTray, startMinimized, updatePrefs,
       connect, disconnect, refresh,
       createFolder, movePath, copyPath, deletePath,
       bulkDelete, bulkMove, bulkCopy,
