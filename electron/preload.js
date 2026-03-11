@@ -41,10 +41,16 @@ contextBridge.exposeInMainWorld('electron', {
 
   // Local metadata storage
   loadMetadata: (hash)        => ipcRenderer.invoke('load-metadata', hash),
-  saveMetadata: (hash, data)  => ipcRenderer.invoke('save-metadata', hash, data),
+  saveMetadata: (hash, data, msgId = null) => ipcRenderer.invoke('save-metadata', hash, data, msgId),
+  getLatestMetadataMsgId: (hash) => ipcRenderer.invoke('get-latest-metadata-msgid', hash),
+  flushMetadata: (webhookUrl, hash) => ipcRenderer.invoke('flush-metadata', webhookUrl, hash),
+  setActiveWebhook: (webhookUrl, hash) => ipcRenderer.send('set-active-webhook', webhookUrl, hash),
+  loadSyncId: (hash)          => ipcRenderer.invoke('load-syncid', hash),
+  saveSyncId: (hash, msgId)   => ipcRenderer.invoke('save-syncid', hash, msgId),
   onMetadataChange: (callback) => {
     const listener = (_, hash) => callback(hash);
     ipcRenderer.on('metadata-external-change', listener);
     return () => ipcRenderer.removeListener('metadata-external-change', listener);
   },
+
 });

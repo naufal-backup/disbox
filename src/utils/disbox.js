@@ -14,7 +14,6 @@ function _bufferToBase64(buffer) {
   });
 }
 
-// Throw a consistent AbortError so callers can detect it
 function throwIfAborted(signal) {
   if (signal && signal.aborted) {
     const err = new DOMException('Transfer dibatalkan oleh pengguna', 'AbortError');
@@ -26,6 +25,7 @@ export class DisboxAPI {
   constructor(webhookUrl) {
     this.webhookUrl = webhookUrl.split('?')[0];
     this.hashedWebhook = null;
+    this.lastSyncedId = null;
   }
 
   async hashWebhook(url) {
@@ -39,126 +39,142 @@ export class DisboxAPI {
 
   async init(forceSyncId = null) {
     this.hashedWebhook = await this.hashWebhook(this.webhookUrl);
-    this.lastSyncedId = localStorage.getItem(`dbx_last_sync_${this.hashedWebhook}`);
-    console.log('[disbox] Initialized with webhook hash:', this.hashedWebhook);
+    console.log('[disbox] Init | hash:', this.hashedWebhook);
     await this.syncMetadata(forceSyncId);
     return this.hashedWebhook;
   }
 
   // ─── Metadata Sync ────────────────────────────────────────────────────────
 
-  async syncMetadata(forceId = null) {
+  // ─── Metadata Sync ────────────────────────────────────────────────────────
+
+  async _getMsgIdFromDiscovery() {
+    // Sumber 1: file lokal — cari msgId terbesar dari nama file <hash>.<msgId>.json
+    // atau 'pending' jika ada perubahan lokal yang belum diupload
+    const localRes = await window.electron.getLatestMetadataMsgId?.(this.hashedWebhook);
+    if (localRes === 'pending') return 'pending';
+    const localMsgId = localRes;
+
+    // Sumber 2: webhook name di Discord
+    let webhookMsgId = null;
     try {
-      let msgId = forceId;
-
-      if (!msgId) {
-        console.log('[sync] Checking Discord for metadata discovery...');
-        const res = await window.electron.fetch(this.webhookUrl);
-        if (!res.ok) {
-          console.error('[sync] Failed to fetch webhook info:', res.status);
-          return;
-        }
-
+      const res = await window.electron.fetch(this.webhookUrl);
+      if (res.ok) {
         const info = JSON.parse(res.body);
         const match = info.name?.match(/dbx[:\s]+(\d+)/);
-        if (!match) {
-          console.log('[sync] No metadata ID found in webhook name:', info.name);
-          if (this.lastSyncedId) {
-            console.log('[sync] Falling back to last known synced ID:', this.lastSyncedId);
-            msgId = this.lastSyncedId;
-          } else {
-            return;
+        webhookMsgId = match?.[1] || null;
+      }
+    } catch (_) {}
+
+    const candidates = [localMsgId, webhookMsgId].filter(Boolean);
+    if (candidates.length === 0) {
+      console.log('[sync] Discovery: tidak ada msgId');
+      return null;
+    }
+    const best = candidates.reduce((a, b) => BigInt(a) >= BigInt(b) ? a : b);
+    console.log(`[sync] Discovery: local=${localMsgId}, webhook=${webhookMsgId} → pakai: ${best}`);
+    return best;
+  }
+
+  async _downloadMetadataFromMsg(msgId) {
+    const msgUrl = `${this.webhookUrl}/messages/${msgId}`;
+    const msgRes = await window.electron.fetch(msgUrl);
+    if (!msgRes.ok) throw new Error(`Message ${msgId} tidak bisa diakses: ${msgRes.status}`);
+
+    const msg = JSON.parse(msgRes.body);
+    const attachment = msg.attachments?.find(a => a.filename.includes('metadata.json'));
+    const attachmentUrl = attachment?.url || msg.attachments?.[0]?.url;
+    if (!attachmentUrl) throw new Error('Tidak ada attachment di message ' + msgId);
+
+    const bytes = await window.electron.proxyDownload(attachmentUrl);
+    const jsonStr = new TextDecoder().decode(bytes);
+    const files = JSON.parse(jsonStr);
+    if (!Array.isArray(files)) throw new Error('Format metadata tidak valid');
+    return files;
+  }
+
+  async syncMetadata(forceId = null) {
+    // Cegah multiple sync berjalan paralel
+    if (this._syncing) {
+      console.log('[sync] Sync sudah berjalan, skip.');
+      return false;
+    }
+    this._syncing = true;
+    try {
+      // 1. Tentukan msgId yang akan digunakan
+      const msgId = forceId || await this._getMsgIdFromDiscovery();
+      if (!msgId) {
+        console.log('[sync] Tidak ada msgId ditemukan, skip sync.');
+        return false;
+      }
+
+      if (msgId === 'pending') {
+        console.log('[sync] Local has pending changes, skipping sync to avoid data loss.');
+        return true;
+      }
+
+      // 2. Cek apakah perlu download atau bisa pakai local
+      //    Hanya skip download jika: msgId sama dengan lastSyncedId DAN local valid
+      if (!forceId && msgId === this.lastSyncedId) {
+        const local = await window.electron.loadMetadata(this.hashedWebhook);
+        if (Array.isArray(local) && local.length > 0) {
+          console.log('[sync] Local up-to-date, skip download. msgId:', msgId, 'items:', local.length);
+          return true;
+        }
+        // Local hilang/kosong meski ID sama → tetap download
+        console.log('[sync] ID sama tapi local kosong/hilang → force download dari Discord');
+      }
+
+      // 3. Download dari Discord
+      console.log('[sync] Downloading metadata dari Discord, msgId:', msgId);
+      let files;
+      try {
+        files = await this._downloadMetadataFromMsg(msgId);
+      } catch (e) {
+        console.error('[sync] Download gagal:', e.message);
+        // Coba fallback ke lastSyncedId jika berbeda
+        if (this.lastSyncedId && this.lastSyncedId !== msgId) {
+          console.log('[sync] Fallback ke lastSyncedId:', this.lastSyncedId);
+          try {
+            files = await this._downloadMetadataFromMsg(this.lastSyncedId);
+            // jika berhasil, lanjut dengan files dari fallback
+          } catch (e2) {
+            console.error('[sync] Fallback juga gagal:', e2.message);
+            return false;
           }
         } else {
-          msgId = match[1];
+          return false;
         }
       }
 
-      console.log('[sync] Target metadata message ID:', msgId);
-
-      if (msgId === this.lastSyncedId && !forceId) {
-        console.log('[sync] Local metadata is up to date.');
-        const local = await window.electron.loadMetadata(this.hashedWebhook);
-        if (local && local.length > 0) return;
-        console.log('[sync] Local metadata missing, re-downloading...');
+      // 4. Safeguard: jangan timpa local yang LEBIH BANYAK dengan cloud yang jauh lebih sedikit
+      //    KECUALI jika local kosong/hilang (berarti user hapus file → harus restore dari cloud)
+      const localData = await window.electron.loadMetadata(this.hashedWebhook);
+      const localIsValid = Array.isArray(localData) && localData.length > 0;
+      if (localIsValid && !forceId && localData.length > files.length) {
+        console.warn(`[sync] Cloud (${files.length}) lebih sedikit dari local (${localData.length}), skip untuk cegah data loss.`);
+        return false;
       }
 
-      const msgUrl = `${this.webhookUrl}/messages/${msgId}`;
-      const msgRes = await window.electron.fetch(msgUrl);
-      if (!msgRes.ok) {
-        console.error('[sync] Failed to fetch metadata message:', msgRes.status);
-        return;
-      }
-
-      const msg = JSON.parse(msgRes.body);
-      const attachment = msg.attachments?.find(a => a.filename.includes('metadata.json'));
-      const attachmentUrl = attachment?.url || msg.attachments?.[0]?.url;
-
-      if (!attachmentUrl) {
-        console.error('[sync] No attachment found in metadata message.');
-        return;
-      }
-
-      console.log('[sync] Downloading updated metadata from Discord...');
-      const bytes = await window.electron.proxyDownload(attachmentUrl);
-
-      const jsonStr = new TextDecoder().decode(bytes);
-      const files = JSON.parse(jsonStr);
-
-      if (Array.isArray(files)) {
-        await window.electron.saveMetadata(this.hashedWebhook, files);
-        this.lastSyncedId = msgId;
-        localStorage.setItem(`dbx_last_sync_${this.hashedWebhook}`, msgId);
-        console.log('[sync] Metadata updated from Discord. Items:', files.length);
-      }
+      // 5. Simpan ke lokal
+      await window.electron.saveMetadata(this.hashedWebhook, files, msgId);
+      this.lastSyncedId = msgId;
+      localStorage.setItem(`dbx_last_sync_${this.hashedWebhook}`, msgId);
+      console.log('[sync] ✓ Berhasil sync. msgId:', msgId, '| items:', files.length);
+      return true;
     } catch (e) {
-      console.error('[sync] Sync-from-Discord failed:', e.message);
+      console.error('[sync] Fatal error:', e.message);
+      return false;
+    } finally {
+      this._syncing = false;
     }
   }
 
-  async uploadMetadataToDiscord(files) {
-    if (this._syncTimeout) clearTimeout(this._syncTimeout);
-
-    this._syncTimeout = setTimeout(async () => {
-      try {
-        console.log('[sync] Uploading metadata to Discord...');
-        const jsonStr = JSON.stringify(files);
-        const encoder = new TextEncoder();
-        const buffer = encoder.encode(jsonStr).buffer;
-        const b64 = await _bufferToBase64(buffer);
-        const filename = `disbox_metadata.json`;
-
-        const res = await window.electron.uploadChunk(this.webhookUrl, b64, filename);
-        if (!res.ok) throw new Error(`Upload failed with status ${res.status}`);
-
-        const data = JSON.parse(res.body);
-        const msgId = data.id;
-
-        const infoRes = await window.electron.fetch(this.webhookUrl);
-        if (infoRes.ok) {
-          const info = JSON.parse(infoRes.body);
-          let baseName = (info.name || 'Disbox').split(/[|:-] dbx:/)[0].trim();
-          const newName = `${baseName} | dbx:${msgId}`;
-
-          console.log('[sync] Updating webhook name to:', newName);
-          const patchRes = await window.electron.fetch(this.webhookUrl, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name: newName })
-          });
-
-          if (!patchRes.ok) {
-            console.warn('[sync] Failed to update webhook name.', patchRes.status);
-          }
-
-          this.lastSyncedId = msgId;
-          localStorage.setItem(`dbx_last_sync_${this.hashedWebhook}`, msgId);
-          console.log('[sync] Metadata synced to Discord. Discovery ID:', msgId);
-        }
-      } catch (e) {
-        console.error('[sync] Sync-to-Discord failed:', e.message);
-      }
-    }, 4000);
+  async uploadMetadataToDiscord(_files) {
+    // Upload ke Discord sekarang ditangani oleh main process via before-quit flush.
+    // Fungsi ini sengaja dikosongkan untuk menghindari race condition antara
+    // debounce upload renderer dan FLUSH di main process.
+    // File lokal sudah disimpan oleh _saveFileSystem — itu sudah cukup.
   }
 
   async validateWebhook() {
@@ -168,7 +184,6 @@ export class DisboxAPI {
       const data = JSON.parse(res.body);
       return !!data?.id;
     } catch (e) {
-      console.error('[disbox] validateWebhook:', e.message);
       return false;
     }
   }
@@ -177,20 +192,25 @@ export class DisboxAPI {
 
   async getFileSystem() {
     try {
-      const data = await window.electron.loadMetadata(this.hashedWebhook);
-      let files = Array.isArray(data) ? data : [];
+      let data = await window.electron.loadMetadata(this.hashedWebhook);
 
+      // Jika lokal kosong/hilang AND ini adalah pertama kali (lastSyncedId null) 
+      // → paksa sync dari Discord
+      if ((!Array.isArray(data) || data.length === 0) && !this.lastSyncedId) {
+        console.log('[disbox] Local kosong dan belum pernah sync, fetch dari Discord...');
+        const ok = await this.syncMetadata();
+        if (ok) {
+          data = await window.electron.loadMetadata(this.hashedWebhook);
+        }
+      }
+
+      let files = Array.isArray(data) ? data : [];
       let changed = false;
+
       files = files.map(f => {
-        if (!f.id || Object.keys(f)[0] !== 'path') {
+        if (!f.id) {
           changed = true;
-          return {
-            path: f.path,
-            messageIds: f.messageIds || [],
-            size: f.size || 0,
-            createdAt: f.createdAt || Date.now(),
-            id: f.id || crypto.randomUUID()
-          };
+          return { ...f, id: crypto.randomUUID() };
         }
         return f;
       });
@@ -200,12 +220,14 @@ export class DisboxAPI {
       }
 
       return files;
-    } catch {
+    } catch (e) {
+      console.error('[disbox] getFileSystem error:', e.message);
       return [];
     }
   }
 
   async _saveFileSystem(files) {
+    if (!files || !Array.isArray(files)) return;
     await window.electron.saveMetadata(this.hashedWebhook, files);
     await this.uploadMetadataToDiscord(files);
   }
@@ -213,19 +235,10 @@ export class DisboxAPI {
   async createFile(filePath, messageIds, size = 0, id = null) {
     const files = await this.getFileSystem();
     const fileId = id || crypto.randomUUID();
-
-    const entry = {
-      path: filePath,
-      messageIds,
-      size,
-      createdAt: Date.now(),
-      id: fileId
-    };
-
+    const entry = { path: filePath, messageIds, size, createdAt: Date.now(), id: fileId };
     const existing = files.findIndex(f => f.id === fileId);
     if (existing >= 0) files[existing] = entry;
     else files.push(entry);
-
     await this._saveFileSystem(files);
     return entry;
   }
@@ -274,13 +287,10 @@ export class DisboxAPI {
     const updated = files.map(f => {
       for (const target of pathsOrIds) {
         const isId = target.includes('-') && target.length > 30;
-
         if (isId && f.id === target) {
           const name = f.path.split('/').pop();
-          const newPath = destDir ? `${destDir}/${name}` : name;
-          return { ...f, path: newPath };
+          return { ...f, path: destDir ? `${destDir}/${name}` : name };
         }
-
         const oldPath = target;
         const name = oldPath.split('/').pop();
         const newPath = destDir ? `${destDir}/${name}` : name;
@@ -298,7 +308,6 @@ export class DisboxAPI {
   async copyPath(oldPath, newPath, id = null) {
     if (oldPath === newPath) return { success: false, reason: 'same_location' };
     if (newPath.startsWith(oldPath + '/')) return { success: false, reason: 'into_self' };
-
     const files = await this.getFileSystem();
     const toAdd = [];
     files.forEach(f => {
@@ -308,7 +317,6 @@ export class DisboxAPI {
         toAdd.push({ path: f.path.replace(oldPath + '/', newPath + '/'), messageIds: [...f.messageIds], size: f.size, createdAt: Date.now(), id: crypto.randomUUID() });
       }
     });
-
     if (toAdd.length > 0) await this._saveFileSystem([...files, ...toAdd]);
     return { success: toAdd.length > 0 };
   }
@@ -318,18 +326,14 @@ export class DisboxAPI {
     const toAdd = [];
     pathsOrIds.forEach(target => {
       const isId = target.includes('-') && target.length > 30;
-
       let sourcePath = target;
       if (isId) {
         const f = files.find(x => x.id === target);
         if (f) sourcePath = f.path;
       }
-
       const name = sourcePath.split('/').pop();
       const newPath = destDir ? `${destDir}/${name}` : name;
-
       if (sourcePath === newPath || newPath.startsWith(sourcePath + '/')) return;
-
       files.forEach(f => {
         if (f.path === sourcePath) {
           toAdd.push({ path: newPath, messageIds: [...f.messageIds], size: f.size, createdAt: Date.now(), id: crypto.randomUUID() });
@@ -338,7 +342,6 @@ export class DisboxAPI {
         }
       });
     });
-
     if (toAdd.length > 0) await this._saveFileSystem([...files, ...toAdd]);
     return { success: true };
   }
@@ -346,42 +349,25 @@ export class DisboxAPI {
   async deleteFile(filePath) { return this.deletePath(filePath); }
   async renameFile(oldPath, newPath) { return this.renamePath(oldPath, newPath); }
 
-  // ─── Upload ke Discord — with AbortSignal support ─────────────────────────
-  //
-  // signal (AbortSignal) diterima sebagai parameter ke-4.
-  // Setiap operasi async dicek sebelum & sesudah — begitu signal.aborted = true,
-  // loop dihentikan dan DOMException('AbortError') dilempar.
+  // ─── Upload ───────────────────────────────────────────────────────────────
 
   async uploadFile(file, filePath, onProgress, signal = null, transferId = null) {
     const fileId = crypto.randomUUID();
-
     throwIfAborted(signal);
 
     if (file.nativePath && window.electron?.uploadFileFromPath) {
-      // ── Native path (Electron file dialog) ──────────────────────────────
-      // Kirim transferId ke main process supaya bisa dicancel via IPC.
       const tid = transferId || fileId;
-
-      // Saat signal abort, langsung kirim pesan cancel ke main process
-      const abortListener = () => {
-        window.electron.cancelUpload(tid);
-      };
+      const abortListener = () => window.electron.cancelUpload(tid);
       signal?.addEventListener('abort', abortListener);
-
       try {
         const res = await window.electron.uploadFileFromPath(
           this.webhookUrl,
           file.nativePath,
           `${fileId}_${filePath.split('/').pop()}`,
-          (progress) => {
-            if (!signal?.aborted) onProgress?.(progress);
-          },
+          (progress) => { if (!signal?.aborted) onProgress?.(progress); },
           tid,
         );
-
         throwIfAborted(signal);
-
-        // Main process reject dengan 'UPLOAD_CANCELLED' saat dicancel
         if (!res.ok) {
           if (res.error === 'UPLOAD_CANCELLED') throw new DOMException('Transfer dibatalkan', 'AbortError');
           throw new Error(res.error || 'Upload gagal');
@@ -389,7 +375,6 @@ export class DisboxAPI {
         await this.createFile(filePath, res.messageIds, res.size, fileId);
         return res.messageIds;
       } catch (e) {
-        // Wrap rejection dari main process juga sebagai AbortError
         if (e.message === 'UPLOAD_CANCELLED') throw new DOMException('Transfer dibatalkan', 'AbortError');
         throw e;
       } finally {
@@ -397,74 +382,47 @@ export class DisboxAPI {
       }
     }
 
-    // ── Browser buffer (drag-drop) ───────────────────────────────────────
     const totalSize = file.buffer.byteLength;
     const numChunks = Math.ceil(totalSize / CHUNK_SIZE) || 1;
     const messageIds = [];
-
     for (let i = 0; i < numChunks; i++) {
-      // Check before starting each chunk
       throwIfAborted(signal);
-
       const start = i * CHUNK_SIZE;
-      const end = Math.min(start + CHUNK_SIZE, totalSize);
-      const chunk = file.buffer.slice(start, end);
-
+      const chunk = file.buffer.slice(start, Math.min(start + CHUNK_SIZE, totalSize));
       const chunkB64 = await _bufferToBase64(chunk);
-      throwIfAborted(signal); // check again after async base64 encoding
-
-      const fileNameOnly = filePath.split('/').pop();
-      const chunkName = `${fileId}_${fileNameOnly}.part${i}`;
-
+      throwIfAborted(signal);
+      const chunkName = `${fileId}_${filePath.split('/').pop()}.part${i}`;
       const res = await window.electron.uploadChunk(this.webhookUrl, chunkB64, chunkName);
-      throwIfAborted(signal); // check after the network call
-
-      if (!res.ok) {
-        throw new Error(`Upload chunk ${i} gagal (${res.status}): ${res.body?.slice(0, 200)}`);
-      }
-
+      throwIfAborted(signal);
+      if (!res.ok) throw new Error(`Upload chunk ${i} gagal (${res.status}): ${res.body?.slice(0, 200)}`);
       const data = JSON.parse(res.body);
       messageIds.push(data.id);
       onProgress?.((i + 1) / numChunks);
     }
-
     throwIfAborted(signal);
-
     await this.createFile(filePath, messageIds, totalSize, fileId);
     return messageIds;
   }
 
-  // ─── Download dari Discord — with AbortSignal support ────────────────────
+  // ─── Download ─────────────────────────────────────────────────────────────
 
   async downloadFile(file, onProgress, signal = null) {
     const messageIds = file.messageIds || [];
     const chunks = [];
-    const webhookBase = this.webhookUrl;
-
     for (let i = 0; i < messageIds.length; i++) {
-      // Check before each chunk
       throwIfAborted(signal);
-
-      const msgUrl = `${webhookBase}/messages/${messageIds[i]}`;
+      const msgUrl = `${this.webhookUrl}/messages/${messageIds[i]}`;
       const msgRes = await window.electron.fetch(msgUrl);
-
-      throwIfAborted(signal); // check after network call
-
+      throwIfAborted(signal);
       if (!msgRes.ok) throw new Error(`Gagal fetch message ${messageIds[i]}: ${msgRes.status}`);
       const msg = JSON.parse(msgRes.body);
-
       const attachmentUrl = msg.attachments?.[0]?.url;
       if (!attachmentUrl) throw new Error('Attachment URL tidak ditemukan');
-
       const chunkData = await window.electron.proxyDownload(attachmentUrl);
-
-      throwIfAborted(signal); // check after download
-
+      throwIfAborted(signal);
       chunks.push(chunkData);
       onProgress?.((i + 1) / messageIds.length);
     }
-
-    // Merge chunks
     const totalSize = chunks.reduce((sum, c) => sum + c.byteLength, 0);
     const merged = new Uint8Array(totalSize);
     let offset = 0;

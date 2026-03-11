@@ -65,6 +65,9 @@ export function AppProvider({ children }) {
       saveWebhookToList(url);
       setSavedWebhooks(getSavedWebhooks());
 
+      // Beritahu main process webhook aktif untuk before-quit flush
+      window.electron?.setActiveWebhook(url, instance.hashedWebhook);
+
       setWebhookUrl(url);
       setApi(instance);
       setFiles(fs);
@@ -94,16 +97,15 @@ export function AppProvider({ children }) {
     setTransfers([]);
   }, []);
 
-  const refresh = useCallback(async (syncToDiscord = false) => {
+  const refresh = useCallback(async () => {
     if (!api) return;
     setLoading(true);
     try {
+      // Always sync from cloud first to get the latest metadata from Discord
+      await api.syncMetadata();
       const fs = await api.getFileSystem();
       setFiles(fs);
       setFileTree(buildTree(fs));
-      if (syncToDiscord) {
-        await api.uploadMetadataToDiscord(fs);
-      }
     } catch (e) {
       console.error('Refresh failed:', e);
     } finally {
@@ -111,11 +113,19 @@ export function AppProvider({ children }) {
     }
   }, [api]);
 
+  // Saat api berubah (connect/reconnect), update main process tentang webhook aktif
+  useEffect(() => {
+    if (!api || !webhookUrl) return;
+    window.electron?.setActiveWebhook(webhookUrl, api.hashedWebhook);
+  }, [api, webhookUrl]);
+
+
+
   useEffect(() => {
     if (!window.electron?.onMetadataChange || !api) return;
     const cleanup = window.electron.onMetadataChange((hash) => {
       if (api.hashedWebhook === hash) {
-        refresh(true);
+        refresh();
       }
     });
     return cleanup;

@@ -5,6 +5,18 @@ const os = require('os');
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
+// ─── Tangkap SIGINT/SIGTERM agar before-quit terpicu ─────────────────────────
+// Ctrl+C di terminal mengirim SIGINT yang bypass before-quit Electron.
+// Dengan menangkapnya dan memanggil app.quit(), before-quit akan terpicu.
+process.on('SIGINT', () => {
+  console.log('[main] SIGINT received, calling app.quit() untuk trigger before-quit...');
+  app.quit();
+});
+process.on('SIGTERM', () => {
+  console.log('[main] SIGTERM received, calling app.quit()...');
+  app.quit();
+});
+
 let mainWindow;
 let tray;
 
@@ -81,6 +93,66 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
+
+// ─── Simpan webhookUrl dari renderer untuk dipakai saat quit ─────────────────
+let activeWebhookUrl = null;
+let activeWebhookHash = null;
+let isQuitting = false;
+
+ipcMain.on('set-active-webhook', (_, webhookUrl, hash) => {
+  activeWebhookUrl = webhookUrl;
+  activeWebhookHash = hash;
+  console.log('[metadata] Active webhook set:', hash?.slice(-8));
+});
+
+// ─── Flush metadata ke Discord sebelum quit ───────────────────────────────────
+app.on('before-quit', (event) => {
+  if (isQuitting) return;
+  if (!activeWebhookUrl || !activeWebhookHash) return;
+
+  // Jika tidak ada upload pending, langsung quit
+  if (!metadataUploadTimer) return;
+
+  // Ada upload yang belum jalan (debounce belum selesai) → jalankan sekarang
+  clearTimeout(metadataUploadTimer);
+  metadataUploadTimer = null;
+
+  event.preventDefault();
+  isQuitting = true;
+  console.log(`[metadata] before-quit: menyelesaikan upload yang pending...`);
+
+  uploadMetadataToDiscord(activeWebhookHash)
+    .then(() => {
+      console.log('[metadata] Final upload complete, quitting.');
+      app.quit();
+    })
+    .catch(e => {
+      console.error('[metadata] Final upload failed:', e.message);
+      app.quit();
+    });
+});
+
+// ─── flush-metadata IPC (update activeWebhook saja) ──────────────────────────
+ipcMain.handle('flush-metadata', async (_, webhookUrl, hash) => {
+  activeWebhookUrl = webhookUrl;
+  activeWebhookHash = hash;
+  return true;
+});
+
+function buildMetadataFormData(contentBuffer, filename) {
+  const boundary = '----DisboxFlushBoundary';
+  const CRLF = Buffer.from('\r\n');
+  const parts = [
+    Buffer.from('--' + boundary + '\r\n'),
+    Buffer.from(`Content-Disposition: form-data; name="file"; filename="${filename}"\r\n`),
+    Buffer.from('Content-Type: application/json\r\n'),
+    CRLF,
+    contentBuffer,
+    CRLF,
+    Buffer.from('--' + boundary + '--\r\n'),
+  ];
+  return Buffer.concat(parts);
+}
 
 // ─── Electron net.fetch ───────────────────────────────────────────────────────
 ipcMain.handle('net-fetch', async (_, url, options = {}) => {
@@ -180,30 +252,174 @@ ipcMain.handle('get-version', () => app.getVersion());
 const METADATA_DIR = path.join(os.homedir(), '.config', 'disbox');
 
 if (!fs.existsSync(METADATA_DIR)) fs.mkdirSync(METADATA_DIR, { recursive: true });
+
+// ─── Helper: cari file metadata terbaru untuk hash tertentu ──────────────────
+// Format nama file: <hash>.<msgId>.json  (msgId = Discord Snowflake, terbesar = terbaru)
+function findLatestMetadataFile(hash) {
+  try {
+    const pendingPath = path.join(METADATA_DIR, `${hash}.pending.json`);
+    if (fs.existsSync(pendingPath)) {
+      const stats = fs.statSync(pendingPath);
+      return { file: `${hash}.pending.json`, isPending: true, mtime: stats.mtimeMs };
+    }
+    const finalPath = path.join(METADATA_DIR, `${hash}.json`);
+    if (fs.existsSync(finalPath)) {
+      const stats = fs.statSync(finalPath);
+      return { file: `${hash}.json`, isPending: false, mtime: stats.mtimeMs };
+    }
+    return null;
+  } catch { return null; }
+}
+
 fs.watch(METADATA_DIR, (eventType, filename) => {
   if (filename && filename.endsWith('.json')) {
-    const hash = filename.replace('.json', '');
-    mainWindow?.webContents.send('metadata-external-change', hash);
+    // Format: <hash>.<msgId>.json — extract hash
+    const parts = filename.split('.');
+    if (parts.length < 3) return; // bukan format kita
+    const hash = parts[0];
+    const filePath = path.join(METADATA_DIR, filename);
+    if (fs.existsSync(filePath)) {
+      try {
+        const raw = fs.readFileSync(filePath, 'utf8').trim();
+        if (raw && raw !== '[]' && raw !== 'null') {
+          mainWindow?.webContents.send('metadata-external-change', hash);
+        }
+      } catch (_) {}
+    }
   }
+});
+
+// load-syncid / save-syncid / load-flush-registry-id dihapus —
+// digantikan oleh skema penamaan file <hash>.<msgId>.json
+
+ipcMain.handle('get-latest-metadata-msgid', async (_, hash) => {
+  const latest = findLatestMetadataFile(hash);
+  if (latest) {
+    if (latest.isPending) return 'pending';
+    return latest.msgId;
+  }
+  return null;
 });
 
 ipcMain.handle('load-metadata', async (_, hash) => {
   try {
     if (!fs.existsSync(METADATA_DIR)) fs.mkdirSync(METADATA_DIR, { recursive: true });
-    const file = path.join(METADATA_DIR, `${hash}.json`);
-    if (!fs.existsSync(file)) return [];
-    return JSON.parse(fs.readFileSync(file, 'utf8'));
+    const latest = findLatestMetadataFile(hash);
+    if (!latest) {
+      console.log(`[metadata] LOAD …${hash.slice(-8)} → TIDAK ADA FILE → null`);
+      return null;
+    }
+    const filePath = path.join(METADATA_DIR, latest.file);
+    const raw = fs.readFileSync(filePath, 'utf8').trim();
+    if (!raw || raw === '[]' || raw === 'null') {
+      console.log(`[metadata] LOAD …${hash.slice(-8)} → KOSONG → null`);
+      return null;
+    }
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed) || parsed.length === 0) {
+      console.log(`[metadata] LOAD …${hash.slice(-8)} → ARRAY KOSONG → null`);
+      return null;
+    }
+    console.log(`[metadata] LOAD …${hash.slice(-8)} [${latest.msgId}] → OK, ${parsed.length} items`);
+    return parsed;
   } catch (e) {
     console.error('[metadata] load error:', e.message);
-    return [];
+    return null;
   }
 });
 
-ipcMain.handle('save-metadata', async (_, hash, data) => {
+// ─── Upload metadata ke Discord ──────────────────────────────────────────────
+// Setelah upload berhasil, simpan dengan nama <hash>.<msgId>.json
+// File lama dengan msgId lebih kecil dibiarkan (bisa dibersihkan manual)
+let metadataUploadTimer = null;
+
+async function uploadMetadataToDiscord(hash) {
+  if (!activeWebhookUrl || activeWebhookHash !== hash) return;
+  const latest = findLatestMetadataFile(hash);
+  if (!latest) return;
+  const filePath = path.join(METADATA_DIR, latest.file);
+  let files;
+  try {
+    const raw = fs.readFileSync(filePath, 'utf8').trim();
+    if (!raw || raw === '[]') return;
+    files = JSON.parse(raw);
+    if (!Array.isArray(files) || files.length === 0) return;
+  } catch { return; }
+
+  console.log(`[metadata] UPLOAD ${files.length} items ke Discord...`);
+  try {
+    const bodyBuf = buildMetadataFormData(Buffer.from(JSON.stringify(files)), 'disbox_metadata.json');
+    const response = await net.fetch(activeWebhookUrl + '?wait=true', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'multipart/form-data; boundary=----DisboxFlushBoundary',
+        'User-Agent': 'Mozilla/5.0 Disbox/2.0',
+      },
+      body: new Uint8Array(bodyBuf),
+    });
+    if (!response.ok) {
+      console.error('[metadata] UPLOAD gagal:', response.status);
+      return;
+    }
+    const data = JSON.parse(await response.text());
+    const newMsgId = data.id;
+
+    // Replace file utama <hash>.json dengan konten terbaru
+    const finalPath = path.join(METADATA_DIR, `${hash}.json`);
+    fs.writeFileSync(finalPath, JSON.stringify(files, null, 2));
+    
+    // Hapus file source (terutama .pending jika itu yang tadi dibaca)
+    if (filePath !== finalPath && fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+    
+    console.log(`[metadata] UPLOAD ✓ ${files.length} items → ...${hash.slice(-8)}.json (msgId: ${newMsgId})`);
+
+    // UPDATE WEBHOOK NAME agar discovery sinkron
+    try {
+      await net.fetch(activeWebhookUrl, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: `dbx: ${newMsgId}` }),
+      });
+      console.log(`[metadata] Webhook name updated to dbx: ${newMsgId}`);
+    } catch (e) {
+      console.warn('[metadata] Gagal update webhook name:', e.message);
+    }
+  } catch (e) {
+    console.error('[metadata] UPLOAD error:', e.message);
+  }
+}
+
+ipcMain.handle('save-metadata', async (_, hash, data, msgId = null) => {
   try {
     if (!fs.existsSync(METADATA_DIR)) fs.mkdirSync(METADATA_DIR, { recursive: true });
-    const file = path.join(METADATA_DIR, `${hash}.json`);
-    fs.writeFileSync(file, JSON.stringify(data, null, 2));
+
+    if (msgId) {
+      // Hasil sync dari cloud: replace file utama <hash>.json
+      const finalFile = path.join(METADATA_DIR, `${hash}.json`);
+      fs.writeFileSync(finalFile, JSON.stringify(data, null, 2));
+      
+      // Hapus .pending lama jika ada karena data cloud sudah terbaru
+      const pendingFile = path.join(METADATA_DIR, `${hash}.pending.json`);
+      if (fs.existsSync(pendingFile)) fs.unlinkSync(pendingFile);
+
+      console.log(`[metadata] REPLACE (sync) …${hash.slice(-8)} → ${data.length} items`);
+      return true;
+    }
+
+    // Perubahan lokal: simpan ke .pending.json agar tidak menimpa data utama sebelum upload
+    const pendingFile = path.join(METADATA_DIR, `${hash}.pending.json`);
+    fs.writeFileSync(pendingFile, JSON.stringify(data, null, 2));
+    
+    console.log(`[metadata] SAVE (pending) …${hash.slice(-8)} → ${data.length} items`);
+
+    if (metadataUploadTimer) clearTimeout(metadataUploadTimer);
+    metadataUploadTimer = setTimeout(() => {
+      metadataUploadTimer = null;
+      uploadMetadataToDiscord(hash);
+    }, 2000);
+
     return true;
   } catch (e) {
     console.error('[metadata] save error:', e.message);
