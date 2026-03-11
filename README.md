@@ -1,6 +1,6 @@
-# Disbox Linux ⬡
+# Disbox ⬡
 
-Disbox-Linux adalah aplikasi desktop penyimpanan awan (cloud storage) modern untuk Linux yang memanfaatkan Discord sebagai media penyimpanan. Aplikasi ini dibangun menggunakan **Electron** dan **React** untuk memberikan pengalaman pengguna yang mulus, ringan, dan canggih.
+Disbox adalah aplikasi desktop penyimpanan awan (cloud storage) modern yang memanfaatkan Discord sebagai media penyimpanan tak terbatas. Dibangun dengan **Electron** dan **React**, Disbox menawarkan pengalaman pengelolaan file yang ringan, aman, dan tersedia untuk **Linux** maupun **Windows**.
 
 ![Main UI](preview/file_explorer.png)
 
@@ -8,19 +8,15 @@ Disbox-Linux adalah aplikasi desktop penyimpanan awan (cloud storage) modern unt
 
 *   **Penyimpanan Tak Terbatas:** Manfaatkan Discord Webhook untuk menyimpan file tanpa batasan kuota.
 *   **Virtual File System:** Kelola file Anda dengan struktur folder, layaknya Google Drive atau Dropbox.
-*   **Sistem Chunking Pintar:** File besar otomatis dipecah menjadi bagian-bagian kecil (8MB) untuk stabilitas upload.
+*   **Sistem Chunking Pintar:** File besar otomatis dipecah menjadi bagian-bagian kecil (8MB - 500MB) untuk stabilitas upload sesuai limit akun Discord Anda.
+*   **Multi-Platform:** Dukungan penuh untuk sistem operasi Linux dan Windows.
 *   **Pratinjau File Langsung:**
     *   **Gambar:** PNG, JPG, WebP, SVG.
     *   **Media:** Pemutar Video dan Audio bawaan.
     *   **Dokumen:** Viewer PDF terintegrasi.
     *   **Kode:** *Syntax Highlighting* untuk berbagai bahasa pemrograman (JS, Python, Rust, dll).
 *   **Sinkronisasi Metadata:** Metadata disimpan secara lokal dan disinkronkan ke Discord untuk akses antar perangkat.
-*   **Manajemen File:** Mendukung multi-select untuk hapus massal, pindah folder, dan salin file.
 *   **Mode Gelap/Terang:** Antarmuka modern yang dapat disesuaikan dengan preferensi Anda.
-## 🚀 Fitur Mendatang
-*   **Cloud Save Games**
-*   **Sharing Link Folder/File**
-
 
 ## 📸 Cuplikan Layar
 
@@ -40,19 +36,22 @@ Pastikan sistem Anda memiliki komponen berikut:
 
 ## ⚙️ Instalasi
 
-1.  Kloning repositori ini:
+1.  **Kloning repositori ini:**
     ```bash
     git clone https://github.com/naufal-backup/disbox-linux.git
     cd disbox-linux
     ```
 
-2.  Jalankan script setup atau install dependensi secara manual:
-    ```bash
-    chmod +x setup.sh
-    ./setup.sh
-    # ATAU
-    npm install
-    ```
+2.  **Instal dependensi:**
+    *   **Linux:**
+        ```bash
+        chmod +x setup.sh
+        ./setup.sh
+        ```
+    *   **Windows / Umum:**
+        ```bash
+        npm install
+        ```
 
 ## 🖥 Penggunaan
 
@@ -62,12 +61,14 @@ Jalankan aplikasi dalam mode pengembangan dengan fitur *hot-reload*:
 npm run dev
 ```
 
-### Build Aplikasi
-Untuk membuat paket aplikasi (`.AppImage` atau `.deb`):
+### Build Aplikasi (Produksi)
+Untuk membuat paket aplikasi siap pakai:
 ```bash
 npm run build
 ```
-Hasil build akan tersedia di folder `release/`.
+Hasil build akan tersedia di folder `release/`:
+*   **Linux:** `.AppImage` dan `.deb`
+*   **Windows:** `.exe` (Setup), Portable, dan `.zip`
 
 ## 🔒 Keamanan & Privasi
 
