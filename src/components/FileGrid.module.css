@@ -27,26 +27,32 @@
 .breadcrumb {
   display: flex;
   align-items: center;
+  justify-content: flex-start;
   gap: 2px;
   flex: 1;
   min-width: 0;
+  flex-wrap: nowrap;
+  margin-right: 24px; /* Meningkatkan jarak dari searchbar */
 }
 
 .breadcrumbRow {
   display: flex;
   align-items: center;
   gap: 2px;
+  flex-shrink: 1;
+  min-width: 0;
 }
 
 .breadcrumbSep {
   color: var(--text-dim);
+  opacity: 0.5;
+  flex-shrink: 0;
+  margin: 0 6px; /* Memberi jarak seimbang di kedua sisi arrow */
 }
 
 .breadcrumbItem {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  padding: 4px 8px;
+  display: block;
+  padding: 4px 6px;
   border: none;
   background: transparent;
   color: var(--text-secondary);
@@ -55,9 +61,106 @@
   font-size: 13px;
   font-family: var(--font-body);
   transition: all 0.15s;
+
+  /* Reset default behavior */
+  max-width: none;
+  white-space: nowrap;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+.breadcrumbActive {
+  font-weight: 700;
+  color: var(--accent-bright) !important;
+  background: var(--accent-dim) !important;
+
+  /* Batasi hanya folder aktif paling kanan yang punya limit titik-titik (diperlebar ke 600px) */
+  max-width: 600px; 
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.breadcrumbEllipsis {
+  padding: 0 6px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 13px;
+  letter-spacing: 1.5px;
+  color: var(--text-muted);
+  background: transparent !important;
+  border: none !important;
+  flex-shrink: 0;
+  line-height: 1;
+  margin-left: -2px;
+  margin-right: 0px; /* Merapatkan arrow di sisi kanan titik tiga */
+}
+
+.breadcrumbEllipsis:hover {
+  background: var(--bg-hover) !important;
+  color: var(--text-primary);
 }
 
 .breadcrumbItem:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.breadcrumbBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+}
+
+.breadcrumbMenu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-bright);
+  border-radius: var(--radius);
+  padding: 4px;
+  z-index: 1000;
+  min-width: 180px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  animation: slideDown 0.15s ease;
+}
+
+.breadcrumbMenuItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-family: var(--font-body);
+  cursor: pointer;
+  border-radius: 6px;
+  transition: all 0.1s;
+  text-align: left;
+  position: relative;
+}
+
+.menuBranch {
+  position: absolute;
+  top: 0;
+  bottom: 50%;
+  width: 8px;
+  border-left: 1px solid var(--border-bright);
+  border-bottom: 1px solid var(--border-bright);
+  border-bottom-left-radius: 4px;
+  opacity: 0.4;
+}
+
+.breadcrumbMenuItem:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
 }
@@ -463,14 +566,14 @@
 .list { 
   display: flex; 
   flex-direction: column; 
-  font-size: calc(13px * var(--zoom));
+  font-size: calc(11.5px * var(--zoom));
 }
 
 .listHeader {
   display: flex;
   align-items: center;
   padding: 6px 12px;
-  font-size: calc(11px * var(--zoom));
+  font-size: calc(9.5px * var(--zoom));
   font-weight: 600;
   color: var(--text-muted);
   text-transform: uppercase;
@@ -482,7 +585,7 @@
 .listRow {
   display: flex;
   align-items: center;
-  padding: calc(8px * var(--zoom)) 12px;
+  padding: calc(6px * var(--zoom)) 12px;
   border-radius: var(--radius-sm);
   cursor: pointer;
   gap: 10px;
@@ -507,18 +610,18 @@
 }
 
 .listIcon { 
-  width: calc(24px * var(--zoom)); 
+  width: calc(22px * var(--zoom)); 
   text-align: center; 
   flex-shrink: 0; 
-  font-size: calc(16px * var(--zoom)); 
+  font-size: calc(14px * var(--zoom)); 
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
 .listIcon svg {
-  width: calc(16px * var(--zoom)) !important;
-  height: calc(16px * var(--zoom)) !important;
+  width: calc(14px * var(--zoom)) !important;
+  height: calc(14px * var(--zoom)) !important;
 }
 
 .listName { flex: 1; min-width: 0; }

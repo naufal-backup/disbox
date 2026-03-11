@@ -7,11 +7,12 @@ import { getMimeType, formatSize } from '../utils/disbox.js';
 import styles from './FilePreview.module.css';
 
 export default function FilePreview({ file, onClose }) {
-  const { api, addTransfer, updateTransfer } = useApp();
+  const { api, addTransfer, updateTransfer, cancelTransfer, removeTransfer } = useApp();
   const [loading, setLoading] = useState(true);
   const [content, setContent] = useState(null); // { type, url, text }
   const [error, setError] = useState('');
   const [isFull, setIsFull] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState(0);
 
   const name = file.path.split('/').pop();
   const ext = name.split('.').pop().toLowerCase();
@@ -19,15 +20,31 @@ export default function FilePreview({ file, onClose }) {
 
   useEffect(() => {
     let objectUrl = null;
+    const transferId = `preview-${file.id || crypto.randomUUID()}`;
+    
+    // Register as a transfer to get consistent behavior (cancellation support)
+    // We set hidden: true because we don't want preview progress in the bottom panel
+    const signal = addTransfer({
+      id: transferId,
+      name: `Preview: ${name}`,
+      progress: 0,
+      type: 'download',
+      status: 'active',
+      hidden: true
+    });
 
     const load = async () => {
       try {
         setLoading(true);
         setError('');
+        setDownloadProgress(0);
 
         const buffer = await api.downloadFile(file, (p) => {
-          // Progress can be shown inside preview if needed
-        });
+          setDownloadProgress(Math.round(p * 100));
+          updateTransfer(transferId, { progress: p });
+        }, signal, transferId);
+
+        if (signal.aborted) return;
 
         const blob = new Blob([buffer], { type: mime });
         objectUrl = URL.createObjectURL(blob);
@@ -51,17 +68,30 @@ export default function FilePreview({ file, onClose }) {
         } else {
           setContent({ type: 'unsupported' });
         }
+
+        updateTransfer(transferId, { status: 'done', progress: 1 });
+        // Auto remove from panel after a short delay on success
+        setTimeout(() => removeTransfer(transferId), 1000);
       } catch (e) {
+        if (e.name === 'AbortError' || signal.aborted) {
+          console.log('[preview] Download load aborted');
+          return;
+        }
         console.error('Preview failed:', e);
         setError('Gagal memuat pratinjau: ' + e.message);
+        updateTransfer(transferId, { status: 'error', error: e.message });
       } finally {
-        setLoading(false);
+        if (!signal.aborted) {
+          setLoading(false);
+        }
       }
     };
 
     load();
 
     return () => {
+      // Behavior: closing preview stops the download
+      cancelTransfer(transferId);
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [file]);
@@ -72,11 +102,11 @@ export default function FilePreview({ file, onClose }) {
 
   const handleDownload = async () => {
     const transferId = crypto.randomUUID();
-    addTransfer({ id: transferId, name, progress: 0, type: 'download', status: 'active' });
+    const signal = addTransfer({ id: transferId, name, progress: 0, type: 'download', status: 'active' });
     try {
-      // Re-use download logic? Actually we already have the buffer if we wanted to,
-      // but to keep it simple and consistent with the existing flow:
-      const buffer = await api.downloadFile(file, (p) => updateTransfer(transferId, { progress: p }));
+      const buffer = await api.downloadFile(file, (p) => updateTransfer(transferId, { progress: p }), signal, transferId);
+      if (signal.aborted) return;
+
       if (window.electron) {
         const savePath = await window.electron.saveFile(name);
         if (savePath) {
@@ -91,7 +121,9 @@ export default function FilePreview({ file, onClose }) {
       }
       updateTransfer(transferId, { status: 'done', progress: 1 });
     } catch (e) {
-      updateTransfer(transferId, { status: 'error', error: e.message });
+      if (e.name !== 'AbortError') {
+        updateTransfer(transferId, { status: 'error', error: e.message });
+      }
     }
   };
 
@@ -121,7 +153,7 @@ export default function FilePreview({ file, onClose }) {
           {loading ? (
             <div className={styles.state}>
               <Loader2 size={32} className="spin" style={{ color: 'var(--accent)' }} />
-              <p>Mendownload dari Discord...</p>
+              <p>Mendownload dari Discord... {downloadProgress > 0 ? `${downloadProgress}%` : ''}</p>
             </div>
           ) : error ? (
             <div className={styles.state}>

@@ -134,13 +134,16 @@ export default function TransferPanel() {
   const { transfers, removeTransfer, cancelTransfer } = useApp();
   const [collapsed, setCollapsed] = useState(false);
 
-  if (transfers.length === 0) return null;
+  // Filter out hidden transfers (like previews) from the UI
+  const visibleTransfers = transfers.filter(t => !t.hidden);
 
-  const active = transfers.filter(t => t.status === 'active').length;
-  const done   = transfers.filter(t => t.status === 'done').length;
+  if (visibleTransfers.length === 0) return null;
+
+  const active = visibleTransfers.filter(t => t.status === 'active').length;
+  const done   = visibleTransfers.filter(t => t.status === 'done').length;
 
   const overallPct = active > 0
-    ? Math.round(transfers.filter(t => t.status === 'active').reduce((s, t) => s + (t.progress || 0), 0) / active * 100)
+    ? Math.round(visibleTransfers.filter(t => t.status === 'active').reduce((s, t) => s + (t.progress || 0), 0) / active * 100)
     : 100;
 
   return (
@@ -165,7 +168,7 @@ export default function TransferPanel() {
 
       {!collapsed && (
         <div className={styles.list}>
-          {transfers.map(t => (
+          {visibleTransfers.map(t => (
             <TransferItem key={t.id} t={t} onCancel={cancelTransfer} onRemove={removeTransfer} />
           ))}
         </div>

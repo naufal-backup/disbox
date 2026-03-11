@@ -292,6 +292,12 @@ export function AppProvider({ children }) {
     if (controller) {
       controller.abort();
     }
+
+    // Beritahu main process untuk batalkan fetch/upload terkait
+    if (window.electron?.cancelUpload) {
+      window.electron.cancelUpload(id);
+    }
+
     setTransfers(p => p.map(t =>
       t.id === id ? { ...t, status: 'cancelled' } : t
     ));

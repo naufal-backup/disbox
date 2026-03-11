@@ -408,19 +408,22 @@ export class DisboxAPI {
 
   // ─── Download ─────────────────────────────────────────────────────────────
 
-  async downloadFile(file, onProgress, signal = null) {
+  async downloadFile(file, onProgress, signal = null, transferId = null) {
     const messageIds = file.messageIds || [];
     const chunks = [];
     for (let i = 0; i < messageIds.length; i++) {
       throwIfAborted(signal);
       const msgUrl = `${this.webhookUrl}/messages/${messageIds[i]}`;
-      const msgRes = await window.electron.fetch(msgUrl);
+      const msgRes = await window.electron.fetch(msgUrl, { transferId });
       throwIfAborted(signal);
-      if (!msgRes.ok) throw new Error(`Gagal fetch message ${messageIds[i]}: ${msgRes.status}`);
+      if (!msgRes.ok) {
+        if (msgRes.error === 'ABORTED') throw new DOMException('Transfer dibatalkan', 'AbortError');
+        throw new Error(`Gagal fetch message ${messageIds[i]}: ${msgRes.status}`);
+      }
       const msg = JSON.parse(msgRes.body);
       const attachmentUrl = msg.attachments?.[0]?.url;
       if (!attachmentUrl) throw new Error('Attachment URL tidak ditemukan');
-      const chunkData = await window.electron.proxyDownload(attachmentUrl);
+      const chunkData = await window.electron.proxyDownload(attachmentUrl, transferId);
       throwIfAborted(signal);
       chunks.push(chunkData);
       onProgress?.((i + 1) / messageIds.length);

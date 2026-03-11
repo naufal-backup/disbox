@@ -9,7 +9,7 @@ contextBridge.exposeInMainWorld('electron', {
 
   // Network (no CORS — goes through Node.js in main process)
   fetch:         (url, options) => ipcRenderer.invoke('net-fetch', url, options),
-  proxyDownload: (url)          => ipcRenderer.invoke('proxy-download', url),
+  proxyDownload: (url, transferId) => ipcRenderer.invoke('proxy-download', url, transferId),
 
   // File I/O
   openFiles:  ()               => ipcRenderer.invoke('dialog-open-files'),

@@ -88,6 +88,17 @@ export default function FileGrid() {
   const [confirmAction, setConfirmAction] = useState(null);
   const [dragOverTarget, setDragOverTarget] = useState(null);
   const [previewFile, setPreviewFile] = useState(null);
+  const [showBreadcrumbMenu, setShowBreadcrumbMenu] = useState(false);
+  const [isLastPartTruncated, setIsLastPartTruncated] = useState(false);
+  const activeFolderRef = useRef(null);
+
+  // Deteksi jika teks folder aktif terpotong (ada titik-titik)
+  useEffect(() => {
+    if (activeFolderRef.current) {
+      const el = activeFolderRef.current;
+      setIsLastPartTruncated(el.scrollWidth > el.clientWidth);
+    }
+  }, [currentPath, files]);
 
   const getFolderSize = (path) => {
     return files
@@ -340,6 +351,7 @@ export default function FileGrid() {
           }
         },
         signal,
+        transferId,
       );
 
       if (signal.aborted) return;
@@ -606,32 +618,95 @@ export default function FileGrid() {
     >
       {/* ── Toolbar ── */}
       <div className={styles.toolbar}>
-        <div className={styles.breadcrumb}>
-          <button
-            className={styles.breadcrumbItem}
-            onClick={() => navigate('/')}
-            onDragOver={e => e.preventDefault()}
-            onDrop={e => handleDropMove(e, '')}
-          >
-            <Home size={13} />
-          </button>
-          {pathParts.map((part, i) => {
-            const targetPath = '/' + pathParts.slice(0, i + 1).join('/');
-            return (
-              <span key={i} className={styles.breadcrumbRow}>
-                <ChevronRight size={12} className={styles.breadcrumbSep} />
-                <button
-                  className={styles.breadcrumbItem}
-                  onClick={() => navigate(targetPath)}
-                  onDragOver={e => e.preventDefault()}
-                  onDrop={e => handleDropMove(e, targetPath === '/' ? '' : targetPath.slice(1))}
-                >
-                  {part}
-                </button>
-              </span>
-            );
-          })}
-        </div>
+        {(() => {
+          const totalChars = pathParts.join('').length + (pathParts.length * 3);
+          const isCompact = totalChars > 60 && pathParts.length > 1;
+          const lastPart = pathParts[pathParts.length - 1] || '';
+          
+          // Hitung panjang visual yang ditampilkan
+          const displayLen = isCompact ? (10 + lastPart.length) : totalChars;
+          const isShort = displayLen < 160;
+
+          return (
+            <div 
+              className={styles.breadcrumb}
+              style={{ marginRight: isShort ? 24 : 124 }}
+            >
+              <button
+                className={styles.breadcrumbItem}
+                onClick={() => navigate('/')}
+                onDragOver={e => e.preventDefault()}
+                onDrop={e => handleDropMove(e, '')}
+              >
+                <Home size={13} />
+              </button>
+
+              {!isCompact ? (
+                pathParts.map((part, i) => {
+                  const targetPath = '/' + pathParts.slice(0, i + 1).join('/');
+                  const isLast = i === pathParts.length - 1;
+                  return (
+                    <span key={i} className={styles.breadcrumbRow}>
+                      <ChevronRight size={12} className={styles.breadcrumbSep} />
+                      <button
+                        className={`${styles.breadcrumbItem} ${isLast ? styles.breadcrumbActive : ''}`}
+                        onClick={() => navigate(targetPath)}
+                      >
+                        {part}
+                      </button>
+                    </span>
+                  );
+                })
+              ) : (
+                <>
+                  {/* Home > ... > ActiveFolder */}
+                  <ChevronRight size={12} className={styles.breadcrumbSep} />
+                  
+                  <div style={{ position: 'relative', display: 'flex', alignItems: 'center', zIndex: showBreadcrumbMenu ? 1001 : 'auto' }}>
+                    <button
+                      className={`${styles.breadcrumbItem} ${styles.breadcrumbEllipsis}`}
+                      onClick={(e) => { e.stopPropagation(); setShowBreadcrumbMenu(!showBreadcrumbMenu); }}
+                    >
+                      ...
+                    </button>
+                    {showBreadcrumbMenu && (
+                      <>
+                        <div className={styles.breadcrumbBackdrop} onClick={() => setShowBreadcrumbMenu(false)} />
+                        <div className={styles.breadcrumbMenu}>
+                          {pathParts.slice(0, -1).map((part, i) => {
+                            const targetPath = '/' + pathParts.slice(0, i + 1).join('/');
+                            return (
+                              <button
+                                key={i}
+                                className={styles.breadcrumbMenuItem}
+                                style={{ paddingLeft: 12 + (i * 12) }}
+                                onClick={() => { navigate(targetPath); setShowBreadcrumbMenu(false); }}
+                              >
+                                <div className={styles.menuBranch} style={{ left: 8 + (i * 12) }} />
+                                <Folder size={12} style={{ color: 'var(--amber)', flexShrink: 0 }} />
+                                <span className="truncate">{part}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                  
+                  <ChevronRight size={12} className={styles.breadcrumbSep} />
+                  
+                  <button
+                    ref={activeFolderRef}
+                    className={`${styles.breadcrumbItem} ${styles.breadcrumbActive}`}
+                    onClick={() => navigate('/' + pathParts.join('/'))}
+                  >
+                    {lastPart}
+                  </button>
+                </>
+              )}
+            </div>
+          );
+        })()}
 
         <div className={styles.toolbarRight}>
           <div className={styles.searchBox}>

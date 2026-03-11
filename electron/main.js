@@ -22,6 +22,7 @@ let tray;
 let isQuitting = false;
 
 var uploadCancelFlags = new Map();
+const abortControllers = new Map();
 
 // ─── Metadata lokal ───────────────────────────────────────────────────────────
 const METADATA_DIR = path.join(os.homedir(), '.config', 'disbox-linux');
@@ -227,6 +228,10 @@ function buildMetadataFormData(contentBuffer, filename) {
 
 // ─── Electron net.fetch ───────────────────────────────────────────────────────
 ipcMain.handle('net-fetch', async (_, url, options = {}) => {
+  const transferId = options.transferId;
+  const controller = new AbortController();
+  if (transferId) abortControllers.set(transferId, controller);
+
   try {
     const response = await net.fetch(url, {
       method: options.method || 'GET',
@@ -235,25 +240,38 @@ ipcMain.handle('net-fetch', async (_, url, options = {}) => {
         ...(options.headers || {}),
       },
       body: options.body || undefined,
+      signal: controller.signal,
     });
     const body = await response.text();
     return { status: response.status, body, ok: response.ok };
   } catch (e) {
+    if (e.name === 'AbortError') {
+      return { status: 0, body: '', ok: false, error: 'ABORTED' };
+    }
     console.error('[net-fetch] error:', url, e.message);
     return { status: 0, body: '', ok: false, error: e.message };
+  } finally {
+    if (transferId) abortControllers.delete(transferId);
   }
 });
 
 // Binary download via net.fetch
-ipcMain.handle('proxy-download', async (_, url) => {
+ipcMain.handle('proxy-download', async (_, url, transferId = null) => {
+  const controller = new AbortController();
+  if (transferId) abortControllers.set(transferId, controller);
+
   try {
     const response = await net.fetch(url, {
       headers: { 'User-Agent': 'Mozilla/5.0 Disbox/2.0' },
+      signal: controller.signal,
     });
     const arrayBuffer = await response.arrayBuffer();
     return Buffer.from(arrayBuffer);
   } catch (e) {
+    if (e.name === 'AbortError') throw new Error('ABORTED');
     throw new Error(`Download failed: ${e.message}`);
+  } finally {
+    if (transferId) abortControllers.delete(transferId);
   }
 });
 
@@ -530,13 +548,21 @@ ipcMain.handle('upload-chunk', async (_, webhookUrl, chunkB64, filename) => {
   }
 });
 
-// ─── Cancel upload ────────────────────────────────────────────────────────────
+// ─── Cancel upload / transfer ──────────────────────────────────────────────────
 // Renderer memanggil ini sebelum/sesudah minta cancel, main process set flag.
 ipcMain.on('cancel-upload', (_, transferId) => {
+  // Batalkan upload-file-from-path flag
   const flag = uploadCancelFlags.get(transferId);
   if (flag) {
     flag.cancelled = true;
-    console.log('[upload] Cancelled by user:', transferId);
+    console.log('[upload] Cancelled by user (flag):', transferId);
+  }
+
+  // Batalkan active net.fetch jika ada
+  const controller = abortControllers.get(transferId);
+  if (controller) {
+    controller.abort();
+    console.log('[transfer] Fetch aborted by user:', transferId);
   }
 });
 
