@@ -32,13 +32,17 @@
         "portable",
         "zip"
       ],
-      "icon": "electron/icon.png"
+      "icon": "electron/icon.png",
+      "artifactName": "Disbox-Windows.${ext}"
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "shortcutName": "Disbox",
-      "artifactName": "${productName}-Setup-${version}.${ext}"
+      "artifactName": "Disbox-Windows-Setup.${ext}"
+    },
+    "portable": {
+      "artifactName": "Disbox-Windows-Portable.${ext}"
     },
     "linux": {
       "target": [
@@ -49,6 +53,7 @@
       "category": "Network",
       "icon": "electron/icon.png",
       "executableName": "disbox",
+      "artifactName": "Disbox-Linux-x64.${ext}",
       "desktop": {
         "StartupWMClass": "disbox"
       }
@@ -70,6 +75,9 @@
     "wait-on": "^7.2.0"
   },
   "dependencies": {
+    "@fontsource/inter": "^5.2.8",
+    "@fontsource/jetbrains-mono": "^5.2.8",
+    "@fontsource/syne": "^5.2.7",
     "axios": "^1.6.7",
     "framer-motion": "^11.0.8",
     "lucide-react": "^0.344.0",
