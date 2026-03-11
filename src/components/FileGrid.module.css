@@ -260,7 +260,6 @@
 .card:hover {
   background: var(--bg-hover);
   border-color: var(--border-bright);
-  transform: translateY(-2px) scale(1.01);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
   z-index: 5;
 }
@@ -493,7 +492,6 @@
 
 .listRow:hover { 
   background: var(--bg-hover);
-  transform: translateX(4px);
   box-shadow: -4px 0 0 var(--accent);
 }
 

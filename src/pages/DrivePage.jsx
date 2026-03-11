@@ -2,6 +2,7 @@ import Sidebar from '../components/Sidebar.jsx';
 import FileGrid from '../components/FileGrid.jsx';
 import TransferPanel from '../components/TransferPanel.jsx';
 import { useApp } from '../AppContext.jsx';
+import { CheckCircle, Cloud, Clock, AlertCircle, RefreshCw } from 'lucide-react';
 import styles from './DrivePage.module.css';
 
 export default function DrivePage({ activePage, onNavigate }) {

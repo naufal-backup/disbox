@@ -37,9 +37,17 @@ export function AppProvider({ children }) {
   const [theme, setTheme] = useState(() => localStorage.getItem('disbox_theme') || 'dark');
   const [uiScale, setUiScale] = useState(() => Number(localStorage.getItem('disbox_ui_scale')) || 1);
   const [chunkSize, setChunkSize] = useState(() => Number(localStorage.getItem('disbox_chunk_size')) || 8 * 1024 * 1024);
+  const [metadataStatus, setMetadataStatus] = useState({ status: 'synced', items: 0 });
 
   // Map of transferId → AbortController
   const abortControllersRef = useRef(new Map());
+
+  useEffect(() => {
+    if (!window.electron?.onMetadataStatus) return;
+    return window.electron.onMetadataStatus((data) => {
+      setMetadataStatus(data);
+    });
+  }, []);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -287,6 +295,7 @@ export function AppProvider({ children }) {
       theme, toggleTheme,
       uiScale, setUiScale,
       chunkSize, setChunkSize,
+      metadataStatus,
       connect, disconnect, refresh,
       createFolder, movePath, copyPath, deletePath,
       bulkDelete, bulkMove, bulkCopy,

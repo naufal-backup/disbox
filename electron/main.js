@@ -263,7 +263,7 @@ ipcMain.handle('open-path', async (_, filePath) => shell.openPath(filePath));
 ipcMain.handle('get-version', () => app.getVersion());
 
 // ─── Metadata lokal ───────────────────────────────────────────────────────────
-const METADATA_DIR = path.join(os.homedir(), '.config', 'disbox');
+const METADATA_DIR = path.join(os.homedir(), '.config', 'disbox-linux');
 
 if (!fs.existsSync(METADATA_DIR)) fs.mkdirSync(METADATA_DIR, { recursive: true });
 
@@ -271,15 +271,10 @@ if (!fs.existsSync(METADATA_DIR)) fs.mkdirSync(METADATA_DIR, { recursive: true }
 // Format nama file: <hash>.<msgId>.json  (msgId = Discord Snowflake, terbesar = terbaru)
 function findLatestMetadataFile(hash) {
   try {
-    const pendingPath = path.join(METADATA_DIR, `${hash}.pending.json`);
-    if (fs.existsSync(pendingPath)) {
-      const stats = fs.statSync(pendingPath);
-      return { file: `${hash}.pending.json`, isPending: true, mtime: stats.mtimeMs };
-    }
     const finalPath = path.join(METADATA_DIR, `${hash}.json`);
     if (fs.existsSync(finalPath)) {
       const stats = fs.statSync(finalPath);
-      return { file: `${hash}.json`, isPending: false, mtime: stats.mtimeMs };
+      return { file: `${hash}.json`, mtime: stats.mtimeMs };
     }
     return null;
   } catch { return null; }
@@ -287,10 +282,7 @@ function findLatestMetadataFile(hash) {
 
 fs.watch(METADATA_DIR, (eventType, filename) => {
   if (filename && filename.endsWith('.json')) {
-    // Format: <hash>.<msgId>.json — extract hash
-    const parts = filename.split('.');
-    if (parts.length < 3) return; // bukan format kita
-    const hash = parts[0];
+    const hash = filename.split('.')[0];
     const filePath = path.join(METADATA_DIR, filename);
     if (fs.existsSync(filePath)) {
       try {
@@ -303,64 +295,64 @@ fs.watch(METADATA_DIR, (eventType, filename) => {
   }
 });
 
-// load-syncid / save-syncid / load-flush-registry-id dihapus —
-// digantikan oleh skema penamaan file <hash>.<msgId>.json
-
 ipcMain.handle('get-latest-metadata-msgid', async (_, hash) => {
   const latest = findLatestMetadataFile(hash);
-  if (latest) {
-    if (latest.isPending) return 'pending';
-    return latest.msgId;
+  if (!latest) return null;
+  
+  try {
+    const filePath = path.join(METADATA_DIR, latest.file);
+    const raw = fs.readFileSync(filePath, 'utf8');
+    const parsed = JSON.parse(raw);
+    
+    // Jika ada perubahan lokal yang belum diupload, anggap sebagai 'pending'
+    if (parsed && parsed.isDirty) return 'pending';
+    
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed.lastMsgId || null;
+    }
+  } catch (e) {
+    console.error('[metadata] get-latest-msgid error:', e.message);
   }
   return null;
 });
 
 ipcMain.handle('load-metadata', async (_, hash) => {
   try {
-    if (!fs.existsSync(METADATA_DIR)) fs.mkdirSync(METADATA_DIR, { recursive: true });
     const latest = findLatestMetadataFile(hash);
-    if (!latest) {
-      console.log(`[metadata] LOAD …${hash.slice(-8)} → TIDAK ADA FILE → null`);
-      return null;
-    }
+    if (!latest) return null;
+
     const filePath = path.join(METADATA_DIR, latest.file);
     const raw = fs.readFileSync(filePath, 'utf8').trim();
-    if (!raw || raw === '[]' || raw === 'null') {
-      console.log(`[metadata] LOAD …${hash.slice(-8)} → KOSONG → null`);
-      return null;
-    }
+    if (!raw) return null;
     const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed) || parsed.length === 0) {
-      console.log(`[metadata] LOAD …${hash.slice(-8)} → ARRAY KOSONG → null`);
-      return null;
-    }
-    console.log(`[metadata] LOAD …${hash.slice(-8)} [${latest.msgId}] → OK, ${parsed.length} items`);
-    return parsed;
+    
+    let files = [];
+    if (Array.isArray(parsed)) files = parsed;
+    else if (parsed && typeof parsed === 'object') files = parsed.files || [];
+
+    return files.length > 0 ? files : null;
   } catch (e) {
-    console.error('[metadata] load error:', e.message);
     return null;
   }
 });
 
 // ─── Upload metadata ke Discord ──────────────────────────────────────────────
-// Setelah upload berhasil, simpan dengan nama <hash>.<msgId>.json
-// File lama dengan msgId lebih kecil dibiarkan (bisa dibersihkan manual)
 let metadataUploadTimer = null;
 
 async function uploadMetadataToDiscord(hash) {
   if (!activeWebhookUrl || activeWebhookHash !== hash) return;
-  const latest = findLatestMetadataFile(hash);
-  if (!latest) return;
-  const filePath = path.join(METADATA_DIR, latest.file);
+  const finalFile = path.join(METADATA_DIR, `${hash}.json`);
+  if (!fs.existsSync(finalFile)) return;
+
   let files;
   try {
-    const raw = fs.readFileSync(filePath, 'utf8').trim();
-    if (!raw || raw === '[]') return;
-    files = JSON.parse(raw);
+    const parsed = JSON.parse(fs.readFileSync(finalFile, 'utf8'));
+    files = Array.isArray(parsed) ? parsed : parsed.files;
     if (!Array.isArray(files) || files.length === 0) return;
   } catch { return; }
 
-  console.log(`[metadata] UPLOAD ${files.length} items ke Discord...`);
+  console.log(`[metadata] UPLOADING …${hash.slice(-8)} (${files.length} items)`);
+  mainWindow?.webContents.send('metadata-status', { hash, status: 'uploading', items: files.length });
   try {
     const bodyBuf = buildMetadataFormData(Buffer.from(JSON.stringify(files)), 'disbox_metadata.json');
     const response = await net.fetch(activeWebhookUrl + '?wait=true', {
@@ -371,35 +363,26 @@ async function uploadMetadataToDiscord(hash) {
       },
       body: new Uint8Array(bodyBuf),
     });
+
     if (!response.ok) {
-      console.error('[metadata] UPLOAD gagal:', response.status);
+      mainWindow?.webContents.send('metadata-status', { hash, status: 'error' });
       return;
     }
     const data = JSON.parse(await response.text());
     const newMsgId = data.id;
 
-    // Replace file utama <hash>.json dengan konten terbaru
-    const finalPath = path.join(METADATA_DIR, `${hash}.json`);
-    fs.writeFileSync(finalPath, JSON.stringify(files, null, 2));
-    
-    // Hapus file source (terutama .pending jika itu yang tadi dibaca)
-    if (filePath !== finalPath && fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
-    }
-    
-    console.log(`[metadata] UPLOAD ✓ ${files.length} items → ...${hash.slice(-8)}.json (msgId: ${newMsgId})`);
+    // Update file yang sama: set isDirty = false dan update lastMsgId
+    const content = { lastMsgId: newMsgId, files: files, isDirty: false, updatedAt: Date.now() };
+    fs.writeFileSync(finalFile, JSON.stringify(content, null, 2));
+    console.log(`[metadata] UPLOAD DONE ✓ ID: ${newMsgId}`);
+    mainWindow?.webContents.send('metadata-status', { hash, status: 'synced', items: files.length });
 
-    // UPDATE WEBHOOK NAME agar discovery sinkron
-    try {
-      await net.fetch(activeWebhookUrl, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: `dbx: ${newMsgId}` }),
-      });
-      console.log(`[metadata] Webhook name updated to dbx: ${newMsgId}`);
-    } catch (e) {
-      console.warn('[metadata] Gagal update webhook name:', e.message);
-    }
+    // Update Webhook Name untuk discovery
+    await net.fetch(activeWebhookUrl, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: `dbx: ${newMsgId}` }),
+    }).catch(() => {});
   } catch (e) {
     console.error('[metadata] UPLOAD error:', e.message);
   }
@@ -408,25 +391,30 @@ async function uploadMetadataToDiscord(hash) {
 ipcMain.handle('save-metadata', async (_, hash, data, msgId = null) => {
   try {
     if (!fs.existsSync(METADATA_DIR)) fs.mkdirSync(METADATA_DIR, { recursive: true });
+    const finalFile = path.join(METADATA_DIR, `${hash}.json`);
 
     if (msgId) {
-      // Hasil sync dari cloud: replace file utama <hash>.json
-      const finalFile = path.join(METADATA_DIR, `${hash}.json`);
-      fs.writeFileSync(finalFile, JSON.stringify(data, null, 2));
-      
-      // Hapus .pending lama jika ada karena data cloud sudah terbaru
-      const pendingFile = path.join(METADATA_DIR, `${hash}.pending.json`);
-      if (fs.existsSync(pendingFile)) fs.unlinkSync(pendingFile);
-
-      console.log(`[metadata] REPLACE (sync) …${hash.slice(-8)} → ${data.length} items`);
+      // Hasil sync dari cloud: replace file utama
+      const content = { lastMsgId: msgId, files: data, isDirty: false, updatedAt: Date.now() };
+      fs.writeFileSync(finalFile, JSON.stringify(content, null, 2));
+      console.log(`[metadata] SYNCED & RESTORED …${hash.slice(-8)} → ${data.length} items`);
+      mainWindow?.webContents.send('metadata-status', { hash, status: 'synced', items: data.length });
       return true;
     }
 
-    // Perubahan lokal: simpan ke .pending.json agar tidak menimpa data utama sebelum upload
-    const pendingFile = path.join(METADATA_DIR, `${hash}.pending.json`);
-    fs.writeFileSync(pendingFile, JSON.stringify(data, null, 2));
-    
-    console.log(`[metadata] SAVE (pending) …${hash.slice(-8)} → ${data.length} items`);
+    // Perubahan lokal: simpan dengan flag isDirty = true
+    let lastId = null;
+    if (fs.existsSync(finalFile)) {
+      try {
+        const existing = JSON.parse(fs.readFileSync(finalFile, 'utf8'));
+        lastId = existing.lastMsgId;
+      } catch (_) {}
+    }
+
+    const content = { lastMsgId: lastId, files: data, isDirty: true, updatedAt: Date.now() };
+    fs.writeFileSync(finalFile, JSON.stringify(content, null, 2));
+    console.log(`[metadata] LOCAL SAVE …${hash.slice(-8)} → ${data.length} items (dirty)`);
+    mainWindow?.webContents.send('metadata-status', { hash, status: 'dirty', items: data.length });
 
     if (metadataUploadTimer) clearTimeout(metadataUploadTimer);
     metadataUploadTimer = setTimeout(() => {
@@ -436,7 +424,6 @@ ipcMain.handle('save-metadata', async (_, hash, data, msgId = null) => {
 
     return true;
   } catch (e) {
-    console.error('[metadata] save error:', e.message);
     return false;
   }
 });

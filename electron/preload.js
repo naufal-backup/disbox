@@ -54,5 +54,10 @@ contextBridge.exposeInMainWorld('electron', {
     ipcRenderer.on('metadata-external-change', listener);
     return () => ipcRenderer.removeListener('metadata-external-change', listener);
   },
+  onMetadataStatus: (callback) => {
+    const listener = (_, data) => callback(data);
+    ipcRenderer.on('metadata-status', listener);
+    return () => ipcRenderer.removeListener('metadata-status', listener);
+  },
 
 });

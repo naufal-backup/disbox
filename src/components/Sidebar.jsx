@@ -56,22 +56,30 @@ export default function Sidebar({ activePage, onNavigate }) {
       {/* Actions */}
       <div className={styles.actions}>
         <button className={styles.actionBtn} onClick={toggleTheme}>
-          {theme === 'dark' ? <Sun size={13} /> : <Moon size={13} />}
+          <div className={styles.navIcon}>
+            {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
+          </div>
           <span>{theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>
         </button>
         <button className={styles.actionBtn} onClick={refresh} disabled={loading}>
-          <RefreshCw size={13} className={loading ? 'spin' : ''} />
+          <div className={styles.navIcon}>
+            <RefreshCw size={15} className={loading ? 'spin' : ''} />
+          </div>
           <span>Refresh</span>
         </button>
         <button className={styles.actionBtn} onClick={() => onNavigate('settings')}>
-          <Settings size={13} />
+          <div className={styles.navIcon}>
+            <Settings size={15} />
+          </div>
           <span>Settings</span>
         </button>
         <button 
           className={`${styles.actionBtn} ${styles.danger}`} 
           onClick={() => setShowDisconnectConfirm(true)}
         >
-          <LogOut size={13} />
+          <div className={styles.navIcon}>
+            <LogOut size={15} />
+          </div>
           <span>Disconnect</span>
         </button>
       </div>

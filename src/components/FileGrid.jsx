@@ -3,7 +3,8 @@ import { createPortal } from 'react-dom';
 import {
   Upload, FolderPlus, Grid3x3, List, Search,
   Download, Trash2, Edit3, Folder,
-  ChevronRight, Home, Move, Copy, Check, AlertCircle, ZoomIn
+  ChevronRight, Home, Move, Copy, Check, AlertCircle, ZoomIn,
+  CheckCircle, RefreshCw, Clock
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useApp } from '../AppContext.jsx';
@@ -11,6 +12,51 @@ import { formatSize, getFileIcon, getMimeType } from '../utils/disbox.js';
 import { CreateFolderModal, MoveModal, ConfirmModal } from './FolderModal.jsx';
 import FilePreview from './FilePreview.jsx';
 import styles from './FileGrid.module.css';
+
+function MetadataStatusIndicator() {
+  const { metadataStatus } = useApp();
+  
+  const getIcon = () => {
+    switch (metadataStatus?.status) {
+      case 'synced': return <CheckCircle size={14} style={{ color: 'var(--teal)' }} />;
+      case 'uploading': return <RefreshCw size={14} className="spin" style={{ color: 'var(--accent-bright)' }} />;
+      case 'dirty': return <Clock size={14} style={{ color: 'var(--amber)' }} />;
+      case 'error': return <AlertCircle size={14} style={{ color: 'var(--red)' }} />;
+      default: return null;
+    }
+  };
+
+  const getLabel = () => {
+    switch (metadataStatus?.status) {
+      case 'synced': return 'Synced';
+      case 'uploading': return 'Uploading...';
+      case 'dirty': return 'Pending';
+      case 'error': return 'Sync Error';
+      default: return '';
+    }
+  };
+
+  if (!metadataStatus?.status) return null;
+
+  return (
+    <div style={{
+      display: 'flex',
+      alignItems: 'center',
+      gap: 6,
+      background: 'var(--bg-elevated)',
+      border: '1px solid var(--border)',
+      padding: '0 10px',
+      borderRadius: 'var(--radius-sm)',
+      height: 32,
+      marginRight: 4
+    }}>
+      {getIcon()}
+      <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+        {getLabel()} {metadataStatus.items ? `(${metadataStatus.items})` : ''}
+      </span>
+    </div>
+  );
+}
 
 export default function FileGrid() {
   const {
@@ -551,6 +597,12 @@ export default function FileGrid() {
         if (e.dataTransfer.files.length > 0) handleDropZone(e);
       }}
       onClick={() => { setContextMenu(null); if (!isSelectionMode) clearSelection(); }}
+      onContextMenu={(e) => {
+        if (e.target === e.currentTarget || e.target.classList.contains(styles.content) || e.target.classList.contains(styles.grid)) {
+          e.preventDefault();
+          setContextMenu({ x: e.clientX / uiScale, y: e.clientY / uiScale, type: 'empty' });
+        }
+      }}
     >
       {/* ── Toolbar ── */}
       <div className={styles.toolbar}>
@@ -618,6 +670,8 @@ export default function FileGrid() {
           <button className={styles.folderBtn} onClick={() => setShowCreateFolder(true)} title="Folder Baru">
             <FolderPlus size={14} />
           </button>
+
+          <MetadataStatusIndicator />
 
           <button className={styles.uploadBtn} onClick={handlePickFiles} disabled={uploading}>
             <Upload size={14} />
@@ -880,7 +934,20 @@ export default function FileGrid() {
           style={{ top: contextMenu.y, left: contextMenu.x }}
           onClick={e => e.stopPropagation()}
         >
-          {selectedFiles.size > 1 && selectedFiles.has(contextMenu.isFolder ? contextMenu.path : contextMenu.file?.id) ? (
+          {contextMenu.type === 'empty' ? (
+            <>
+              <button onClick={() => { setShowCreateFolder(true); setContextMenu(null); }}>
+                <FolderPlus size={13} /> Folder Baru
+              </button>
+              <button onClick={() => { handlePickFiles(); setContextMenu(null); }}>
+                <Upload size={13} /> Upload File
+              </button>
+              <div className={styles.contextDivider} />
+              <button onClick={() => { refresh(); setContextMenu(null); }}>
+                <RefreshCw size={13} /> Refresh
+              </button>
+            </>
+          ) : selectedFiles.size > 1 && selectedFiles.has(contextMenu.isFolder ? contextMenu.path : contextMenu.file?.id) ? (
             <>
               <button onClick={() => { handleBulkMove('move'); setContextMenu(null); }}><Move size={13} /> Pindah {selectedFiles.size} item…</button>
               <button onClick={() => { handleBulkMove('copy'); setContextMenu(null); }}><Copy size={13} /> Salin {selectedFiles.size} item…</button>
