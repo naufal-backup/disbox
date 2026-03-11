@@ -186,6 +186,20 @@ ipcMain.handle('proxy-download', async (_, url) => {
   }
 });
 
+ipcMain.handle('dialog-confirm', async (_, { title, message, detail, type = 'question' }) => {
+  const result = await dialog.showMessageBox(mainWindow, {
+    type,
+    buttons: ['Cancel', 'Confirm'],
+    defaultId: 1,
+    title: title || 'Confirmation',
+    message: message || 'Are you sure?',
+    detail: detail || '',
+    cancelId: 0,
+    noLink: true
+  });
+  return result.response === 1;
+});
+
 // ─── Window controls ──────────────────────────────────────────────────────────
 ipcMain.on('window-minimize', () => mainWindow?.minimize());
 ipcMain.on('window-maximize', () => {
@@ -474,7 +488,7 @@ ipcMain.on('cancel-upload', (_, transferId) => {
 });
 
 // ─── Upload file dari path (parallel 8 chunks) ───────────────────────────────
-ipcMain.handle('upload-file-from-path', async (event, webhookUrl, nativePath, destName, transferId) => {
+ipcMain.handle('upload-file-from-path', async (event, webhookUrl, nativePath, destName, transferId, chunkSize) => {
   // Buat flag cancel untuk transfer ini
   const cancelFlag = { cancelled: false };
   uploadCancelFlags.set(transferId, cancelFlag);
@@ -482,7 +496,7 @@ ipcMain.handle('upload-file-from-path', async (event, webhookUrl, nativePath, de
   try {
     const stats = fs.statSync(nativePath);
     const totalSize = stats.size;
-    const CHUNK = 8 * 1024 * 1024; // 8MB
+    const CHUNK = chunkSize || 8 * 1024 * 1024;
     const numChunks = Math.ceil(totalSize / CHUNK) || 1;
     const filename = destName || path.basename(nativePath);
     const messageIds = new Array(numChunks);

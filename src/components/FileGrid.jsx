@@ -517,6 +517,24 @@ export default function FileGrid() {
     return () => content.removeEventListener('mousedown', onMouseDown);
   }, []);
 
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Delete') {
+        // Jangan trigger jika sedang mengetik di input (rename, search, dll)
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+        
+        if (selectedFiles.size > 0) {
+          handleBulkDelete();
+        } else if (contextMenu) {
+          handleDelete(contextMenu.path, contextMenu.file?.id);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedFiles, contextMenu]);
+
   return (
     <div
       className={`${styles.container} ${isDragOver ? styles.dragOver : ''} ${isSelectionMode ? styles.isSelectionMode : ''}`}

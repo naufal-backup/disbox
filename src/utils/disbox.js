@@ -26,6 +26,7 @@ export class DisboxAPI {
     this.webhookUrl = webhookUrl.split('?')[0];
     this.hashedWebhook = null;
     this.lastSyncedId = null;
+    this.chunkSize = Number(localStorage.getItem('disbox_chunk_size')) || 8 * 1024 * 1024;
   }
 
   async hashWebhook(url) {
@@ -366,6 +367,7 @@ export class DisboxAPI {
           `${fileId}_${filePath.split('/').pop()}`,
           (progress) => { if (!signal?.aborted) onProgress?.(progress); },
           tid,
+          this.chunkSize
         );
         throwIfAborted(signal);
         if (!res.ok) {
@@ -383,12 +385,12 @@ export class DisboxAPI {
     }
 
     const totalSize = file.buffer.byteLength;
-    const numChunks = Math.ceil(totalSize / CHUNK_SIZE) || 1;
+    const numChunks = Math.ceil(totalSize / this.chunkSize) || 1;
     const messageIds = [];
     for (let i = 0; i < numChunks; i++) {
       throwIfAborted(signal);
-      const start = i * CHUNK_SIZE;
-      const chunk = file.buffer.slice(start, Math.min(start + CHUNK_SIZE, totalSize));
+      const start = i * this.chunkSize;
+      const chunk = file.buffer.slice(start, Math.min(start + this.chunkSize, totalSize));
       const chunkB64 = await _bufferToBase64(chunk);
       throwIfAborted(signal);
       const chunkName = `${fileId}_${filePath.split('/').pop()}.part${i}`;

@@ -36,6 +36,7 @@ export function AppProvider({ children }) {
   const [savedWebhooks, setSavedWebhooks] = useState(getSavedWebhooks);
   const [theme, setTheme] = useState(() => localStorage.getItem('disbox_theme') || 'dark');
   const [uiScale, setUiScale] = useState(() => Number(localStorage.getItem('disbox_ui_scale')) || 1);
+  const [chunkSize, setChunkSize] = useState(() => Number(localStorage.getItem('disbox_chunk_size')) || 8 * 1024 * 1024);
 
   // Map of transferId → AbortController
   const abortControllersRef = useRef(new Map());
@@ -49,6 +50,11 @@ export function AppProvider({ children }) {
     document.body.style.zoom = uiScale;
     localStorage.setItem('disbox_ui_scale', uiScale.toString());
   }, [uiScale]);
+
+  useEffect(() => {
+    localStorage.setItem('disbox_chunk_size', chunkSize.toString());
+    if (api) api.chunkSize = chunkSize;
+  }, [chunkSize, api]);
 
   const toggleTheme = useCallback(() => {
     setTheme(prev => prev === 'dark' ? 'light' : 'dark');
@@ -280,6 +286,7 @@ export function AppProvider({ children }) {
       loading, transfers, savedWebhooks,
       theme, toggleTheme,
       uiScale, setUiScale,
+      chunkSize, setChunkSize,
       connect, disconnect, refresh,
       createFolder, movePath, copyPath, deletePath,
       bulkDelete, bulkMove, bulkCopy,

@@ -21,18 +21,20 @@ contextBridge.exposeInMainWorld('electron', {
 
   getVersion: () => ipcRenderer.invoke('get-version'),
 
+  confirm: (options) => ipcRenderer.invoke('dialog-confirm', options),
+
   // Upload single chunk (dari renderer buffer)
   uploadChunk: (webhookUrl, chunkB64, filename) =>
     ipcRenderer.invoke('upload-chunk', webhookUrl, chunkB64, filename),
 
   // Upload file besar dari path — pakai transferId unik per transfer
   // sehingga progress channel dan cancel bisa diidentifikasi
-  uploadFileFromPath: (webhookUrl, nativePath, destPath, onProgress, transferId) => {
+  uploadFileFromPath: (webhookUrl, nativePath, destPath, onProgress, transferId, chunkSize) => {
     const progressChannel = 'upload-progress-' + transferId;
     const listener = (_, p) => onProgress?.(p);
     ipcRenderer.on(progressChannel, listener);
     return ipcRenderer
-      .invoke('upload-file-from-path', webhookUrl, nativePath, destPath, transferId)
+      .invoke('upload-file-from-path', webhookUrl, nativePath, destPath, transferId, chunkSize)
       .finally(() => ipcRenderer.removeListener(progressChannel, listener));
   },
 

@@ -1,5 +1,7 @@
 import { HardDrive, Upload, Clock, Star, Trash2, Settings, RefreshCw, LogOut, Sun, Moon } from 'lucide-react';
+import { useState } from 'react';
 import { useApp } from '../AppContext.jsx';
+import { ConfirmModal } from './FolderModal.jsx';
 import styles from './Sidebar.module.css';
 
 const navItems = [
@@ -11,6 +13,7 @@ const navItems = [
 
 export default function Sidebar({ activePage, onNavigate }) {
   const { disconnect, refresh, loading, files, theme, toggleTheme } = useApp();
+  const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
 
   const totalSize = files.reduce((sum, f) => sum + (f.size || 0), 0);
   const formatSizeGB = (bytes) => {
@@ -64,11 +67,24 @@ export default function Sidebar({ activePage, onNavigate }) {
           <Settings size={13} />
           <span>Settings</span>
         </button>
-        <button className={`${styles.actionBtn} ${styles.danger}`} onClick={disconnect}>
+        <button 
+          className={`${styles.actionBtn} ${styles.danger}`} 
+          onClick={() => setShowDisconnectConfirm(true)}
+        >
           <LogOut size={13} />
           <span>Disconnect</span>
         </button>
       </div>
+
+      {showDisconnectConfirm && (
+        <ConfirmModal
+          title="Disconnect Session"
+          message="Apakah Anda yakin ingin memutus sesi? Semua perubahan metadata yang belum terunggah akan hilang."
+          danger={true}
+          onConfirm={disconnect}
+          onClose={() => setShowDisconnectConfirm(false)}
+        />
+      )}
     </aside>
   );
 }
