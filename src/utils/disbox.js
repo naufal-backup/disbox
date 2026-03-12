@@ -25,6 +25,8 @@ export class DisboxAPI {
   constructor(webhookUrl) {
     this.webhookUrl = webhookUrl.split('?')[0];
     this.hashedWebhook = null;
+    this.encryptionKey = null;
+    this.MAGIC_HEADER = new TextEncoder().encode('DBX_ENC:'); // 8 bytes
     // [FIX] lastSyncedId = null pada setiap instance baru
     // Ini memastikan instance baru (ganti webhook) selalu download dari Discord
     this.lastSyncedId = null;
@@ -40,11 +42,69 @@ export class DisboxAPI {
       .join('');
   }
 
+  async deriveKey(url) {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(url);
+    const hash = await crypto.subtle.digest('SHA-256', data);
+    return await crypto.subtle.importKey(
+      'raw',
+      hash,
+      { name: 'AES-GCM' },
+      false,
+      ['encrypt', 'decrypt']
+    );
+  }
+
   async init(forceSyncId = null) {
     this.hashedWebhook = await this.hashWebhook(this.webhookUrl);
+    this.encryptionKey = await this.deriveKey(this.webhookUrl);
     console.log('[disbox] Init | hash:', this.hashedWebhook);
     await this.syncMetadata(forceSyncId);
     return this.hashedWebhook;
+  }
+
+  // ─── Encryption Helpers ──────────────────────────────────────────────────
+
+  async encrypt(data) {
+    if (!this.encryptionKey) return data;
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const encrypted = await crypto.subtle.encrypt(
+      { name: 'AES-GCM', iv },
+      this.encryptionKey,
+      data
+    );
+    const result = new Uint8Array(this.MAGIC_HEADER.length + iv.length + encrypted.byteLength);
+    result.set(this.MAGIC_HEADER, 0);
+    result.set(iv, this.MAGIC_HEADER.length);
+    result.set(new Uint8Array(encrypted), this.MAGIC_HEADER.length + iv.length);
+    return result.buffer;
+  }
+
+  async decrypt(data) {
+    if (!this.encryptionKey) return data;
+    const uint8 = new Uint8Array(data);
+    
+    // Cek magic header
+    for (let i = 0; i < this.MAGIC_HEADER.length; i++) {
+      if (uint8[i] !== this.MAGIC_HEADER[i]) {
+        console.log('[crypto] No magic header, assuming unencrypted data');
+        return data; // Backward compatibility
+      }
+    }
+
+    try {
+      const iv = uint8.slice(this.MAGIC_HEADER.length, this.MAGIC_HEADER.length + 12);
+      const ciphertext = uint8.slice(this.MAGIC_HEADER.length + 12);
+      const decrypted = await crypto.subtle.decrypt(
+        { name: 'AES-GCM', iv },
+        this.encryptionKey,
+        ciphertext
+      );
+      return decrypted;
+    } catch (e) {
+      console.error('[crypto] Decryption failed:', e);
+      return data; 
+    }
   }
 
   // ─── Metadata Sync ────────────────────────────────────────────────────────
@@ -88,7 +148,8 @@ export class DisboxAPI {
     if (!attachmentUrl) throw new Error('Tidak ada attachment di message ' + msgId);
 
     const bytes = await window.electron.proxyDownload(attachmentUrl);
-    const jsonStr = new TextDecoder().decode(bytes);
+    const decryptedBytes = await this.decrypt(bytes);
+    const jsonStr = new TextDecoder().decode(decryptedBytes);
     const files = JSON.parse(jsonStr);
     if (!Array.isArray(files)) throw new Error('Format metadata tidak valid');
     return files;
@@ -125,7 +186,6 @@ export class DisboxAPI {
 
       console.log('[sync] Downloading metadata dari Discord, msgId:', msgId);
       let files;
-      // [FIX] resolvedMsgId melacak msgId yang benar-benar berhasil didownload
       let resolvedMsgId = msgId;
       try {
         files = await this._downloadMetadataFromMsg(msgId);
@@ -142,7 +202,6 @@ export class DisboxAPI {
           console.log('[sync] Fallback: mencoba download dari msgId:', fallbackId);
           try {
             files = await this._downloadMetadataFromMsg(fallbackId);
-            // [FIX] Simpan fallbackId yang berhasil, jangan override dengan msgId asli
             resolvedMsgId = fallbackId;
             console.log('[sync] Fallback BERHASIL menggunakan msgId:', fallbackId);
             success = true;
@@ -158,7 +217,6 @@ export class DisboxAPI {
         }
       }
 
-      // [FIX] Gunakan resolvedMsgId yang konsisten (bukan campuran this.lastSyncedId || msgId)
       await window.electron.saveMetadata(this.hashedWebhook, files, resolvedMsgId);
       this.lastSyncedId = resolvedMsgId;
       localStorage.setItem(`dbx_last_sync_${this.hashedWebhook}`, this.lastSyncedId);
@@ -173,7 +231,7 @@ export class DisboxAPI {
   }
 
   async uploadMetadataToDiscord(_files) {
-    // Upload ke Discord sekarang ditangani oleh main process via before-quit flush.
+    // Upload ke Discord ditangani oleh main process.
   }
 
   async validateWebhook() {
@@ -387,7 +445,9 @@ export class DisboxAPI {
       throwIfAborted(signal);
       const start = i * this.chunkSize;
       const chunk = file.buffer.slice(start, Math.min(start + this.chunkSize, totalSize));
-      const chunkB64 = await _bufferToBase64(chunk);
+      // [ENCRYPT] Encrypt chunk sebelum upload
+      const encryptedChunk = await this.encrypt(chunk);
+      const chunkB64 = await _bufferToBase64(encryptedChunk);
       throwIfAborted(signal);
       const chunkName = `${fileId}_${filePath.split('/').pop()}.part${i}`;
       const res = await window.electron.uploadChunk(this.webhookUrl, chunkB64, chunkName);
@@ -409,19 +469,26 @@ export class DisboxAPI {
     const chunks = [];
     for (let i = 0; i < messageIds.length; i++) {
       throwIfAborted(signal);
-      const msgUrl = `${this.webhookUrl}/messages/${messageIds[i]}`;
+      
+      const item = messageIds[i];
+      const msgId = typeof item === 'string' ? item : item.msgId;
+
+      const msgUrl = `${this.webhookUrl}/messages/${msgId}`;
       const msgRes = await window.electron.fetch(msgUrl, { transferId });
       throwIfAborted(signal);
       if (!msgRes.ok) {
         if (msgRes.error === 'ABORTED') throw new DOMException('Transfer dibatalkan', 'AbortError');
-        throw new Error(`Gagal fetch message ${messageIds[i]}: ${msgRes.status}`);
+        throw new Error(`Gagal fetch message ${msgId}: ${msgRes.status}`);
       }
       const msg = JSON.parse(msgRes.body);
       const attachmentUrl = msg.attachments?.[0]?.url;
       if (!attachmentUrl) throw new Error('Attachment URL tidak ditemukan');
       const chunkData = await window.electron.proxyDownload(attachmentUrl, transferId);
       throwIfAborted(signal);
-      chunks.push(chunkData);
+      
+      // [DECRYPT] Decrypt chunk setelah download
+      const decryptedChunk = await this.decrypt(chunkData);
+      chunks.push(decryptedChunk);
       onProgress?.((i + 1) / messageIds.length);
     }
     const totalSize = chunks.reduce((sum, c) => sum + c.byteLength, 0);

@@ -138,11 +138,11 @@ export default function FileGrid() {
     const dirsMap = new Map();
     files.forEach(f => {
       const parts = f.path.split('/').filter(Boolean);
-      let currentPath = '';
+      let currentAcc = '';
       for (let i = 0; i < parts.length - 1; i++) {
-        currentPath = currentPath ? currentPath + '/' + parts[i] : parts[i];
-        if (!dirsMap.has(currentPath)) {
-          dirsMap.set(currentPath, parts[i]);
+        currentAcc = currentAcc ? `${currentAcc}/${parts[i]}` : parts[i];
+        if (!dirsMap.has(currentAcc)) {
+          dirsMap.set(currentAcc, parts[i]);
         }
       }
     });
@@ -163,6 +163,18 @@ export default function FileGrid() {
     }
     return results;
   })();
+
+  const handleFolderClick = (fullPath) => {
+    navigate('/' + fullPath);
+  };
+
+  const handleFileClick = (file) => {
+    setPreviewFile(file);
+  };
+
+  const handleDownloadClick = (file) => {
+    downloadFile(file);
+  };
 
   // ─── Delete ───────────────────────────────────────────────────────────────
   const handleDelete = async (targetPath, id = null) => {
@@ -823,7 +835,7 @@ export default function FileGrid() {
                     }
                   }}
                   onDrop={(e) => { setDragOverTarget(null); handleDropMove(e, fullPath); }}
-                  onDoubleClick={() => navigate('/' + fullPath)}
+                  onDoubleClick={() => handleFolderClick(fullPath)}
                   onClick={(e) => toggleSelect(fullPath, e)}
                   onContextMenu={(e) => {
                     e.preventDefault(); e.stopPropagation();
@@ -863,7 +875,7 @@ export default function FileGrid() {
                     e.preventDefault(); e.stopPropagation();
                     setContextMenu({ x: e.clientX / uiScale, y: e.clientY / uiScale, path: file.path, file, isFolder: false });
                   }}
-                  onDoubleClick={() => setPreviewFile(file)}
+                  onDoubleClick={() => handleFileClick(file)}
                 >
                   <div className={styles.checkbox}><Check size={12} strokeWidth={3} /></div>
                   <div className={styles.cardIcon}><span style={{ fontSize: 32 }}>{getFileIcon(name)}</span></div>
@@ -919,7 +931,7 @@ export default function FileGrid() {
                     ) { setDragOverTarget(null); }
                   }}
                   onDrop={(e) => { setDragOverTarget(null); handleDropMove(e, fullPath); }}
-                  onDoubleClick={() => navigate('/' + fullPath)}
+                  onDoubleClick={() => handleFolderClick(fullPath)}
                   onClick={(e) => toggleSelect(fullPath, e)}
                   onContextMenu={(e) => {
                     e.preventDefault(); e.stopPropagation();
@@ -964,7 +976,7 @@ export default function FileGrid() {
                     e.preventDefault(); e.stopPropagation();
                     setContextMenu({ x: e.clientX / uiScale, y: e.clientY / uiScale, path: file.path, file, isFolder: false });
                   }}
-                  onDoubleClick={() => setPreviewFile(file)}
+                  onDoubleClick={() => handleFileClick(file)}
                 >
                   <div className={styles.listCheckbox}>{selectedFiles.has(file.id) && <Check size={10} strokeWidth={4} />}</div>
                   <div className={styles.listIcon}>{getFileIcon(name)}</div>
@@ -982,7 +994,7 @@ export default function FileGrid() {
                   </span>
                   <span className={styles.listSize}>{formatSize(file.size || 0)}</span>
                   <div className={styles.listActions} onClick={e => e.stopPropagation()}>
-                    <button className={styles.iconBtn} onClick={() => downloadFile(file)} title="Download"><Download size={13} /></button>
+                    <button className={styles.iconBtn} onClick={() => handleDownloadClick(file)} title="Download"><Download size={13} /></button>
                     <button className={styles.iconBtn} onClick={() => setMoveModal({ id: file.id, path: file.path, mode: 'move' })} title="Pindah"><Move size={13} /></button>
                     <button className={styles.iconBtn} onClick={() => setMoveModal({ id: file.id, path: file.path, mode: 'copy' })} title="Salin"><Copy size={13} /></button>
                     <button className={styles.iconBtn} onClick={() => startRename(file.path, false, file.id)} title="Rename"><Edit3 size={13} /></button>

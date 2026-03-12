@@ -27,12 +27,17 @@ function extractWebhookLabel(url) {
 export function AppProvider({ children }) {
   const [api, setApi] = useState(null);
   const [webhookUrl, setWebhookUrl] = useState(() => localStorage.getItem('disbox_webhook') || '');
+  
   const [isConnected, setIsConnected] = useState(false);
   const [files, setFiles] = useState([]);
   const [fileTree, setFileTree] = useState(null);
   const [currentPath, setCurrentPath] = useState('/');
   const [loading, setLoading] = useState(false);
   const [transfers, setTransfers] = useState([]);
+  
+  // Helper to check if any transfer is active
+  const isTransferring = transfers.some(t => t.status === 'active');
+
   const [savedWebhooks, setSavedWebhooks] = useState(getSavedWebhooks);
   const [theme, setTheme] = useState(() => localStorage.getItem('disbox_theme') || 'dark');
   const [uiScale, setUiScale] = useState(() => Number(localStorage.getItem('disbox_ui_scale')) || 1);
@@ -89,9 +94,6 @@ export function AppProvider({ children }) {
 
   const connect = useCallback(async (url, metadataId = null) => {
     setLoading(true);
-
-    // [FIX] Reset state UI dulu sebelum load webhook baru
-    // Ini mencegah data lama tampil saat ganti webhook
     setIsConnected(false);
     setFiles([]);
     setFileTree(null);
@@ -99,14 +101,11 @@ export function AppProvider({ children }) {
     setTransfers([]);
     setMetadataStatus({ status: 'synced', items: 0 });
 
-    // Cancel semua transfer yang sedang berjalan
     abortControllersRef.current.forEach(controller => controller.abort());
     abortControllersRef.current.clear();
 
     try {
       const instance = new DisboxAPI(url);
-      // [FIX] instance.init() akan otomatis generate hash baru dan sync dari Discord
-      // karena lastSyncedId = null pada instance baru
       await instance.init(metadataId);
       const fs = await instance.getFileSystem();
 
@@ -333,6 +332,7 @@ export function AppProvider({ children }) {
       chunkSize, setChunkSize,
       metadataStatus,
       closeToTray, startMinimized, updatePrefs,
+      isTransferring,
       connect, disconnect, refresh,
       createFolder, movePath, copyPath, deletePath,
       bulkDelete, bulkMove, bulkCopy,

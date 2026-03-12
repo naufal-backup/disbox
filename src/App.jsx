@@ -12,10 +12,18 @@ function AppInner() {
 
   // Auto-reconnect if saved webhook exists
   useEffect(() => {
+    let isMounted = true;
     if (webhookUrl && !isConnected && !loading) {
       setAutoConnecting(true);
-      connect(webhookUrl).finally(() => setAutoConnecting(false));
+      connect(webhookUrl)
+        .catch(err => {
+          console.error('[App] Auto-connect failed:', err);
+        })
+        .finally(() => {
+          if (isMounted) setAutoConnecting(false);
+        });
     }
+    return () => { isMounted = false; };
   }, []);
 
   return (

@@ -22,6 +22,42 @@ let isQuitting = false;
 var uploadCancelFlags = new Map();
 const abortControllers = new Map();
 
+const cryptoNode = require('crypto');
+const MAGIC_HEADER = Buffer.from('DBX_ENC:');
+
+function getEncryptionKey(url) {
+  if (!url) return null;
+  const baseUrl = url.split('?')[0];
+  return cryptoNode.createHash('sha256').update(baseUrl).digest();
+}
+
+function encrypt(data, key) {
+  if (!key) return data;
+  const iv = cryptoNode.randomBytes(12);
+  const cipher = cryptoNode.createCipheriv('aes-256-gcm', key, iv);
+  const encrypted = Buffer.concat([cipher.update(data), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  // Web Crypto format: [MAGIC][IV][CIPHERTEXT][TAG]
+  return Buffer.concat([MAGIC_HEADER, iv, encrypted, tag]);
+}
+
+function decrypt(data, key) {
+  if (!key || data.length < MAGIC_HEADER.length + 12 + 16) return data;
+  if (!data.slice(0, MAGIC_HEADER.length).equals(MAGIC_HEADER)) return data;
+
+  try {
+    const iv = data.slice(MAGIC_HEADER.length, MAGIC_HEADER.length + 12);
+    const tag = data.slice(data.length - 16);
+    const ciphertext = data.slice(MAGIC_HEADER.length + 12, data.length - 16);
+    const decipher = cryptoNode.createDecipheriv('aes-256-gcm', key, iv);
+    decipher.setAuthTag(tag);
+    return Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+  } catch (e) {
+    console.error('[crypto] Decryption failed:', e.message);
+    return data;
+  }
+}
+
 // ─── Metadata lokal ───────────────────────────────────────────────────────────
 const METADATA_DIR = process.platform === 'win32'
   ? path.join(app.getPath('userData'), 'metadata')
@@ -560,7 +596,10 @@ async function uploadMetadataToDiscord(hash) {
   console.log(`[metadata] UPLOADING …${hash.slice(-8)} (${files.length} items)`);
   mainWindow?.webContents.send('metadata-status', { hash, status: 'uploading', items: files.length });
   try {
-    const bodyBuf = buildMetadataFormData(Buffer.from(JSON.stringify(files)), 'disbox_metadata.json');
+    const key = getEncryptionKey(activeWebhookUrl);
+    const jsonBuf = Buffer.from(JSON.stringify(files));
+    const encryptedBuf = encrypt(jsonBuf, key);
+    const bodyBuf = buildMetadataFormData(encryptedBuf, 'disbox_metadata.json');
     const response = await net.fetch(activeWebhookUrl + '?wait=true', {
       method: 'POST',
       headers: {
@@ -816,6 +855,10 @@ ipcMain.handle('upload-file-from-path', async (event, webhookUrl, nativePath, de
           const buf = Buffer.allocUnsafe(size);
           fs.readSync(fd, buf, 0, size, start);
 
+          // [ENCRYPT] Encrypt chunk sebelum upload
+          const key = getEncryptionKey(webhookUrl);
+          const encryptedBuf = encrypt(buf, key);
+
           const boundary = '----DisboxBoundary' + Date.now().toString(36) + index;
           const header = Buffer.from(
             '--' + boundary + '\r\n' +
@@ -823,7 +866,7 @@ ipcMain.handle('upload-file-from-path', async (event, webhookUrl, nativePath, de
             'Content-Type: application/octet-stream\r\n\r\n'
           );
           const footer = Buffer.from('\r\n--' + boundary + '--\r\n');
-          const body = new Uint8Array(Buffer.concat([header, buf, footer]));
+          const body = new Uint8Array(Buffer.concat([header, encryptedBuf, footer]));
 
           if (cancelFlag.cancelled) {
             activeUploads--;
