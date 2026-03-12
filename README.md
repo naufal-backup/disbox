@@ -8,6 +8,8 @@ Disbox adalah aplikasi desktop penyimpanan awan (cloud storage) modern yang mema
 
 *   **Penyimpanan Tak Terbatas:** Manfaatkan Discord Webhook untuk menyimpan file tanpa batasan kuota.
 *   **virtual File System:** Kelola file Anda dengan struktur folder, layaknya Google Drive atau Dropbox.
+*   **SQLite Engine:** [BARU] Metadata kini dikelola menggunakan SQLite untuk pencarian dan navigasi folder yang jauh lebih cepat (hingga 80% lebih efisien dibanding JSON).
+*   **Multi-Snapshot Rolling:** [BARU] Sistem cadangan otomatis yang menyimpan 3 snapshot metadata terakhir di Discord. Jika satu pesan metadata terhapus, data Anda tetap aman.
 *   **Sistem Chunking Pintar:** File besar otomatis dipecah menjadi bagian-bagian kecil (10MB - 500MB) untuk stabilitas upload sesuai limit akun Discord Anda.
 *   **Sinkronisasi Antar Perangkat:** Sinkronisasi metadata otomatis yang memungkinkan pengelolaan file secara bersamaan antara versi Desktop dan Mobile.
 *   **Polling Latar Belakang:** Aplikasi secara otomatis mendeteksi perubahan yang dilakukan di perangkat lain setiap 30 detik tanpa perlu refresh manual.
@@ -75,7 +77,12 @@ Hasil build akan tersedia di folder `release/`:
 
 ## 🔒 Keamanan & Privasi
 
-Disbox menggunakan **Discord Webhook** sebagai endpoint penyimpanan. Data Anda aman karena tidak ada server perantara (serverless). Metadata file Anda dienkripsi secara ringan dan hanya Anda yang memiliki akses melalui URL Webhook pribadi Anda.
+Disbox menggunakan **Discord Webhook** sebagai endpoint penyimpanan. Data Anda aman karena tidak ada server perantara (serverless). 
+
+**Penyimpanan Lokal (v2.1+):**
+Aplikasi kini bermigrasi secara otomatis dari file JSON datar ke **SQLite Database** (`disbox.db`) untuk integritas data yang lebih baik. File JSON lama akan diubah menjadi `.bak` secara otomatis saat pertama kali dijalankan.
+
+Metadata file Anda dienkripsi secara ringan dan hanya Anda yang memiliki akses melalui URL Webhook pribadi Anda.
 
 ## 🤝 Kontribusi
 
