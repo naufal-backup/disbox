@@ -42,6 +42,7 @@ export function AppProvider({ children }) {
   const [theme, setTheme] = useState(() => localStorage.getItem('disbox_theme') || 'dark');
   const [uiScale, setUiScale] = useState(() => Number(localStorage.getItem('disbox_ui_scale')) || 1);
   const [chunkSize, setChunkSize] = useState(() => Number(localStorage.getItem('disbox_chunk_size')) || 8 * 1024 * 1024);
+  const [showPreviews, setShowPreviews] = useState(() => localStorage.getItem('disbox_show_previews') !== 'false');
   const [metadataStatus, setMetadataStatus] = useState({ status: 'synced', items: 0 });
   const [closeToTray, setCloseToTray] = useState(true);
   const [startMinimized, setStartMinimized] = useState(false);
@@ -87,6 +88,10 @@ export function AppProvider({ children }) {
     localStorage.setItem('disbox_chunk_size', chunkSize.toString());
     if (api) api.chunkSize = chunkSize;
   }, [chunkSize, api]);
+
+  useEffect(() => {
+    localStorage.setItem('disbox_show_previews', showPreviews.toString());
+  }, [showPreviews]);
 
   const toggleTheme = useCallback(() => {
     setTheme(prev => prev === 'dark' ? 'light' : 'dark');
@@ -330,6 +335,7 @@ export function AppProvider({ children }) {
       theme, toggleTheme,
       uiScale, setUiScale,
       chunkSize, setChunkSize,
+      showPreviews, setShowPreviews,
       metadataStatus,
       closeToTray, startMinimized, updatePrefs,
       isTransferring,

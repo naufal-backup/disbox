@@ -32,7 +32,11 @@ function Placeholder({ label, icon }) {
 }
 
 function SettingsPanel() {
-  const { uiScale, setUiScale, chunkSize, setChunkSize, closeToTray, startMinimized, updatePrefs } = useApp();
+  const { 
+    uiScale, setUiScale, chunkSize, setChunkSize, 
+    showPreviews, setShowPreviews,
+    closeToTray, startMinimized, updatePrefs 
+  } = useApp();
 
   const CHUNK_OPTIONS = [
     { label: 'Free (10MB)', value: 10 * 1024 * 1024, desc: 'Batas standar webhook Discord (Free)' },
@@ -96,6 +100,12 @@ function SettingsPanel() {
               value={startMinimized} 
               onChange={v => updatePrefs({ startMinimized: v })}
               description="Jalankan aplikasi dalam keadaan tersembunyi."
+            />
+            <Toggle 
+              label="Live File Previews" 
+              value={showPreviews} 
+              onChange={setShowPreviews}
+              description="Tampilkan isi file (gambar) sebagai ikon di grid."
             />
           </div>
 

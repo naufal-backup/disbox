@@ -13,6 +13,131 @@ import { CreateFolderModal, MoveModal, ConfirmModal } from './FolderModal.jsx';
 import FilePreview from './FilePreview.jsx';
 import styles from './FileGrid.module.css';
 
+function FileThumbnail({ file }) {
+  const { api, showPreviews, addTransfer, updateTransfer, removeTransfer } = useApp();
+  const [thumbUrl, setThumbUrl] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const name = file.path.split('/').pop();
+  const ext = name.split('.').pop().toLowerCase();
+  const isImage = ['png', 'jpg', 'jpeg', 'webp', 'svg'].includes(ext);
+
+  useEffect(() => {
+    if (!showPreviews || !isImage) {
+      if (thumbUrl) {
+        URL.revokeObjectURL(thumbUrl);
+        setThumbUrl(null);
+      }
+      return;
+    }
+
+    let isMounted = true;
+    let objectUrl = null;
+    const transferId = `thumb-${file.id}`;
+
+    // Fungsi untuk kompresi gambar lokal
+    const compressImage = (blob) => {
+      return new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const MAX_SIZE = 256; // Ukuran max thumbnail agar ringan
+          let width = img.width;
+          let height = img.height;
+
+          if (width > height) {
+            if (width > MAX_SIZE) {
+              height *= MAX_SIZE / width;
+              width = MAX_SIZE;
+            }
+          } else {
+            if (height > MAX_SIZE) {
+              width *= MAX_SIZE / height;
+              height = MAX_SIZE;
+            }
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+          
+          canvas.toBlob((resultBlob) => {
+            resolve(resultBlob);
+          }, 'image/webp', 0.7); // Simpan sebagai WebP dengan kualitas 70%
+        };
+        img.src = URL.createObjectURL(blob);
+      });
+    };
+
+    const loadThumb = async () => {
+      setLoading(true);
+      try {
+        const signal = addTransfer({
+          id: transferId,
+          name: `Thumbnail: ${name}`,
+          progress: 0,
+          type: 'download',
+          status: 'active',
+          hidden: true
+        });
+
+        const buffer = await api.downloadFile(file, (p) => {
+          updateTransfer(transferId, { progress: p });
+        }, signal, transferId);
+
+        if (isMounted && !signal.aborted) {
+          const originalBlob = new Blob([buffer], { type: getMimeType(name) });
+          // Kompresi sebelum ditampilkan
+          const compressedBlob = await compressImage(originalBlob);
+          
+          objectUrl = URL.createObjectURL(compressedBlob);
+          setThumbUrl(objectUrl);
+          updateTransfer(transferId, { status: 'done', progress: 1 });
+          setTimeout(() => removeTransfer(transferId), 500);
+        }
+      } catch (e) {
+        console.error('Thumb failed:', e);
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    };
+
+    loadThumb();
+
+    return () => {
+      isMounted = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      window.electron?.cancelUpload?.(transferId);
+      removeTransfer(transferId);
+    };
+  }, [file.id, showPreviews, isImage]);
+
+  if (showPreviews && isImage) {
+    if (thumbUrl) {
+      return (
+        <div style={{ 
+          width: '100%',
+          height: '100%',
+          overflow: 'hidden', 
+          borderRadius: 6,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: 'var(--bg-elevated)',
+          flexShrink: 0
+        }}>
+          <img src={thumbUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+        </div>
+      );
+    }
+    if (loading) {
+      return <div className="skeleton" style={{ width: '100%', height: '100%', borderRadius: 6 }} />;
+    }
+  }
+
+  return <span style={{ fontSize: 32 }}>{getFileIcon(name)}</span>;
+}
+
 function MetadataStatusIndicator() {
   const { metadataStatus } = useApp();
   
@@ -878,7 +1003,9 @@ export default function FileGrid() {
                   onDoubleClick={() => handleFileClick(file)}
                 >
                   <div className={styles.checkbox}><Check size={12} strokeWidth={3} /></div>
-                  <div className={styles.cardIcon}><span style={{ fontSize: 32 }}>{getFileIcon(name)}</span></div>
+                  <div className={styles.cardIcon} style={{ padding: 4 }}>
+                    <FileThumbnail file={file} />
+                  </div>
                   <div className={styles.cardName} title={name}>
                     {renameTarget?.path === file.path && renameTarget?.id === file.id ? (
                       <input
@@ -979,7 +1106,17 @@ export default function FileGrid() {
                   onDoubleClick={() => handleFileClick(file)}
                 >
                   <div className={styles.listCheckbox}>{selectedFiles.has(file.id) && <Check size={10} strokeWidth={4} />}</div>
-                  <div className={styles.listIcon}>{getFileIcon(name)}</div>
+                  <div className={styles.listIcon} style={{ 
+                    width: 'calc(24px * var(--zoom))', 
+                    height: 'calc(24px * var(--zoom))', 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    justifyContent: 'center',
+                    marginRight: 4,
+                    flexShrink: 0
+                  }}>
+                    <FileThumbnail file={file} />
+                  </div>
                   <span className={`${styles.listName} truncate`}>
                     {renameTarget?.path === file.path && renameTarget?.id === file.id ? (
                       <input
