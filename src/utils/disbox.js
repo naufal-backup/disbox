@@ -54,7 +54,10 @@ export class DisboxAPI {
     // atau 'pending' jika ada perubahan lokal yang belum diupload
     const localRes = await window.electron.getLatestMetadataMsgId?.(this.hashedWebhook);
     if (localRes === 'pending') return 'pending';
-    const localMsgId = localRes;
+    
+    // [REFACTOR] localRes sekarang bisa berupa objek { lastMsgId, snapshotHistory }
+    const localMsgId = typeof localRes === 'object' ? localRes?.lastMsgId : localRes;
+    const snapshotHistory = localRes?.snapshotHistory || [];
 
     // Sumber 2: webhook name di Discord
     let webhookMsgId = null;
@@ -74,7 +77,9 @@ export class DisboxAPI {
     }
     const best = candidates.reduce((a, b) => BigInt(a) >= BigInt(b) ? a : b);
     console.log(`[sync] Discovery: local=${localMsgId}, webhook=${webhookMsgId} → pakai: ${best}`);
-    return best;
+    
+    // Kembalikan objek untuk fallback jika diperlukan
+    return { best, snapshotHistory };
   }
 
   async _downloadMetadataFromMsg(msgId) {
@@ -103,16 +108,18 @@ export class DisboxAPI {
     this._syncing = true;
     try {
       // 1. Tentukan msgId yang akan digunakan
-      const msgId = forceId || await this._getMsgIdFromDiscovery();
-      if (!msgId) {
+      const discovery = forceId ? { best: forceId, snapshotHistory: [] } : await this._getMsgIdFromDiscovery();
+      if (!discovery) {
         console.log('[sync] Tidak ada msgId ditemukan, skip sync.');
         return false;
       }
 
-      if (msgId === 'pending') {
+      if (discovery === 'pending') {
         console.log('[sync] Local has pending changes, skipping sync to avoid data loss.');
         return true;
       }
+
+      const { best: msgId, snapshotHistory } = discovery;
 
       // 2. Cek apakah perlu download atau bisa pakai local
       //    Hanya skip download jika: msgId sama dengan lastSyncedId DAN local valid
@@ -132,27 +139,39 @@ export class DisboxAPI {
       try {
         files = await this._downloadMetadataFromMsg(msgId);
       } catch (e) {
-        console.error('[sync] Download gagal:', e.message);
-        // Coba fallback ke lastSyncedId jika berbeda
-        if (this.lastSyncedId && this.lastSyncedId !== msgId) {
-          console.log('[sync] Fallback ke lastSyncedId:', this.lastSyncedId);
+        console.error('[sync] Download gagal untuk msgId:', msgId, e.message);
+        
+        // [REFACTOR] Fallback rolling snapshot: coba history dari terbaru ke terlama
+        const fallbackCandidates = [...snapshotHistory].reverse().filter(id => id !== msgId);
+        if (this.lastSyncedId && !fallbackCandidates.includes(this.lastSyncedId) && this.lastSyncedId !== msgId) {
+          fallbackCandidates.push(this.lastSyncedId);
+        }
+
+        let success = false;
+        for (const fallbackId of fallbackCandidates) {
+          console.log('[sync] Fallback: mencoba download dari msgId:', fallbackId);
           try {
-            files = await this._downloadMetadataFromMsg(this.lastSyncedId);
-            // jika berhasil, lanjut dengan files dari fallback
-          } catch (e2) {
-            console.error('[sync] Fallback juga gagal:', e2.message);
-            return false;
+            files = await this._downloadMetadataFromMsg(fallbackId);
+            console.log('[sync] Fallback BERHASIL menggunakan msgId:', fallbackId);
+            this.lastSyncedId = fallbackId; // Update ID yang berhasil
+            success = true;
+            break;
+          } catch (err) {
+            console.error('[sync] Fallback gagal untuk msgId:', fallbackId, err.message);
           }
-        } else {
+        }
+
+        if (!success) {
+          console.error('[sync] Semua upaya download (termasuk fallback) gagal.');
           return false;
         }
       }
 
       // 4. Simpan ke lokal
-      await window.electron.saveMetadata(this.hashedWebhook, files, msgId);
-      this.lastSyncedId = msgId;
-      localStorage.setItem(`dbx_last_sync_${this.hashedWebhook}`, msgId);
-      console.log('[sync] ✓ Berhasil sync. msgId:', msgId, '| items:', files.length);
+      await window.electron.saveMetadata(this.hashedWebhook, files, this.lastSyncedId || msgId);
+      this.lastSyncedId = this.lastSyncedId || msgId;
+      localStorage.setItem(`dbx_last_sync_${this.hashedWebhook}`, this.lastSyncedId);
+      console.log('[sync] ✓ Berhasil sync. msgId:', this.lastSyncedId, '| items:', files.length);
       return true;
     } catch (e) {
       console.error('[sync] Fatal error:', e.message);

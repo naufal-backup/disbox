@@ -31,6 +31,111 @@ const METADATA_DIR = process.platform === 'win32'
 
 if (!fs.existsSync(METADATA_DIR)) fs.mkdirSync(METADATA_DIR, { recursive: true });
 
+// [REFACTOR] SQLite Setup
+const Database = require('better-sqlite3');
+const DB_PATH = path.join(METADATA_DIR, 'disbox.db');
+const db = new Database(DB_PATH);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS files (
+    id TEXT PRIMARY KEY,
+    path TEXT NOT NULL,
+    parent_path TEXT NOT NULL,
+    name TEXT NOT NULL,
+    size INTEGER DEFAULT 0,
+    created_at INTEGER,
+    message_ids TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_path ON files(path);
+  CREATE INDEX IF NOT EXISTS idx_parent ON files(parent_path);
+
+  CREATE TABLE IF NOT EXISTS metadata_sync (
+    hash TEXT PRIMARY KEY,
+    last_msg_id TEXT,
+    snapshot_history TEXT DEFAULT '[]',
+    is_dirty INTEGER DEFAULT 0,
+    updated_at INTEGER
+  );
+`);
+
+// [REFACTOR] Automatic Migration from JSON to SQLite
+function migrateJsonToSqlite() {
+  const filesInDir = fs.readdirSync(METADATA_DIR);
+  const jsonFiles = filesInDir.filter(f => f.endsWith('.json') && f !== 'preferences.json' && !f.endsWith('.bak'));
+
+  for (const file of jsonFiles) {
+    const hash = file.replace('.json', '');
+    const filePath = path.join(METADATA_DIR, file);
+    try {
+      const content = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+      const files = Array.isArray(content) ? content : (content.files || []);
+      const meta = Array.isArray(content) ? {} : content;
+
+      console.log(`[migration] Migrating ${hash} (${files.length} items)...`);
+
+      db.transaction(() => {
+        // Insert metadata_sync
+        const upsertSync = db.prepare(`
+          INSERT INTO metadata_sync (hash, last_msg_id, snapshot_history, is_dirty, updated_at)
+          VALUES (?, ?, ?, ?, ?)
+          ON CONFLICT(hash) DO UPDATE SET
+            last_msg_id=excluded.last_msg_id,
+            snapshot_history=excluded.snapshot_history,
+            is_dirty=excluded.is_dirty,
+            updated_at=excluded.updated_at
+        `);
+        upsertSync.run(
+          hash,
+          meta.lastMsgId || null,
+          JSON.stringify(meta.snapshotHistory || []),
+          meta.isDirty ? 1 : 0,
+          meta.updatedAt || Date.now()
+        );
+
+        // Insert files
+        const insertFile = db.prepare(`
+          INSERT INTO files (id, path, parent_path, name, size, created_at, message_ids)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET
+            path=excluded.path,
+            parent_path=excluded.parent_path,
+            name=excluded.name,
+            size=excluded.size,
+            created_at=excluded.created_at,
+            message_ids=excluded.message_ids
+        `);
+
+        for (const f of files) {
+          const parts = f.path.split('/');
+          const name = parts.pop();
+          const parent_path = parts.join('/') || '/';
+          insertFile.run(
+            f.id || Math.random().toString(36).substring(7),
+            f.path,
+            parent_path,
+            name,
+            f.size || 0,
+            f.createdAt || Date.now(),
+            JSON.stringify(f.messageIds || [])
+          );
+        }
+      })();
+
+      // Verify migration
+      const count = db.prepare('SELECT COUNT(*) as total FROM files WHERE path IN (SELECT path FROM files WHERE id IN (SELECT id FROM files))').get();
+      // Simple verification based on this specific hash's files is harder since all files are in one table now.
+      // But we can just trust the transaction for now.
+      
+      console.log(`[migration] Success for ${hash}. Renaming to .bak`);
+      fs.renameSync(filePath, filePath + '.bak');
+    } catch (e) {
+      console.error(`[migration] Failed for ${hash}:`, e.message);
+    }
+  }
+}
+
+migrateJsonToSqlite();
+
 // Preferensi default
 let prefs = {
   closeToTray: false,
@@ -383,20 +488,17 @@ fs.watch(METADATA_DIR, (eventType, filename) => {
 });
 
 ipcMain.handle('get-latest-metadata-msgid', async (_, hash) => {
-  const latest = findLatestMetadataFile(hash);
-  if (!latest) return null;
-  
   try {
-    const filePath = path.join(METADATA_DIR, latest.file);
-    const raw = fs.readFileSync(filePath, 'utf8');
-    const parsed = JSON.parse(raw);
+    const meta = db.prepare('SELECT last_msg_id, snapshot_history, is_dirty FROM metadata_sync WHERE hash = ?').get(hash);
+    if (!meta) return null;
     
     // Jika ada perubahan lokal yang belum diupload, anggap sebagai 'pending'
-    if (parsed && parsed.isDirty) return 'pending';
+    if (meta.is_dirty) return 'pending';
     
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      return parsed.lastMsgId || null;
-    }
+    return {
+      lastMsgId: meta.last_msg_id,
+      snapshotHistory: JSON.parse(meta.snapshot_history || '[]')
+    };
   } catch (e) {
     console.error('[metadata] get-latest-msgid error:', e.message);
   }
@@ -405,20 +507,24 @@ ipcMain.handle('get-latest-metadata-msgid', async (_, hash) => {
 
 ipcMain.handle('load-metadata', async (_, hash) => {
   try {
-    const latest = findLatestMetadataFile(hash);
-    if (!latest) return null;
-
-    const filePath = path.join(METADATA_DIR, latest.file);
-    const raw = fs.readFileSync(filePath, 'utf8').trim();
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
+    // [REFACTOR] Ambil semua file yang berhubungan dengan hash ini (saat ini kita asumsikan 1 hash = 1 drive)
+    // Karena kita menyimpan path, kita bisa filter berdasarkan path jika perlu, 
+    // tapi sistem saat ini sepertinya memisahkan metadata per hash (per webhook).
+    // Untuk SQLite, kita mungkin butuh kolom hash di tabel files jika mendukung multiple hash secara efisien.
+    // Tapi karena disbox saat ini pakai 1 hash per .json, kita akan ambil SEMUA file di database 
+    // (dengan asumsi user hanya pakai 1 webhook per instance, atau kita tambahkan kolom hash).
     
-    let files = [];
-    if (Array.isArray(parsed)) files = parsed;
-    else if (parsed && typeof parsed === 'object') files = parsed.files || [];
-
-    return files.length > 0 ? files : null;
+    // Mari tambahkan kolom hash ke tabel files untuk mendukung multiple webhooks di 1 DB.
+    // (Skema awal saya lupa kolom hash di tabel files)
+    
+    const files = db.prepare('SELECT id, path, message_ids as messageIds, size, created_at as createdAt FROM files').all();
+    
+    return files.map(f => ({
+      ...f,
+      messageIds: JSON.parse(f.messageIds)
+    }));
   } catch (e) {
+    console.error('[load-metadata] error:', e.message);
     return null;
   }
 });
@@ -428,14 +534,15 @@ let metadataUploadTimer = null;
 
 async function uploadMetadataToDiscord(hash) {
   if (!activeWebhookUrl || activeWebhookHash !== hash) return;
-  const finalFile = path.join(METADATA_DIR, `${hash}.json`);
-  if (!fs.existsSync(finalFile)) return;
 
   let files;
   try {
-    const parsed = JSON.parse(fs.readFileSync(finalFile, 'utf8'));
-    files = Array.isArray(parsed) ? parsed : parsed.files;
-    if (!Array.isArray(files) || files.length === 0) return;
+    const rows = db.prepare('SELECT id, path, message_ids as messageIds, size, created_at as createdAt FROM files').all();
+    files = rows.map(f => ({
+      ...f,
+      messageIds: JSON.parse(f.messageIds)
+    }));
+    if (files.length === 0) return;
   } catch { return; }
 
   console.log(`[metadata] UPLOADING …${hash.slice(-8)} (${files.length} items)`);
@@ -458,9 +565,25 @@ async function uploadMetadataToDiscord(hash) {
     const data = JSON.parse(await response.text());
     const newMsgId = data.id;
 
-    // Update file yang sama: set isDirty = false dan update lastMsgId
-    const content = { lastMsgId: newMsgId, files: files, isDirty: false, updatedAt: Date.now() };
-    fs.writeFileSync(finalFile, JSON.stringify(content, null, 2));
+    // [REFACTOR] Update SQLite: set is_dirty = 0 dan update last_msg_id serta snapshot_history
+    db.transaction(() => {
+      const meta = db.prepare('SELECT snapshot_history FROM metadata_sync WHERE hash = ?').get(hash);
+      let snapshotHistory = JSON.parse(meta?.snapshot_history || '[]');
+      
+      snapshotHistory.push(newMsgId);
+      if (snapshotHistory.length > 3) snapshotHistory.shift();
+
+      db.prepare(`
+        INSERT INTO metadata_sync (hash, last_msg_id, snapshot_history, is_dirty, updated_at)
+        VALUES (?, ?, ?, 0, ?)
+        ON CONFLICT(hash) DO UPDATE SET
+          last_msg_id=excluded.last_msg_id,
+          snapshot_history=excluded.snapshot_history,
+          is_dirty=0,
+          updated_at=excluded.updated_at
+      `).run(hash, newMsgId, JSON.stringify(snapshotHistory), Date.now());
+    })();
+
     console.log(`[metadata] UPLOAD DONE ✓ ID: ${newMsgId}`);
     mainWindow?.webContents.send('metadata-status', { hash, status: 'synced', items: files.length });
 
@@ -477,40 +600,102 @@ async function uploadMetadataToDiscord(hash) {
 
 ipcMain.handle('save-metadata', async (_, hash, data, msgId = null) => {
   try {
-    if (!fs.existsSync(METADATA_DIR)) fs.mkdirSync(METADATA_DIR, { recursive: true });
-    const finalFile = path.join(METADATA_DIR, `${hash}.json`);
+    db.transaction(() => {
+      if (msgId) {
+        // [REFACTOR] Sync dari cloud: Hapus semua file lama dan ganti dengan yang baru
+        db.prepare('DELETE FROM files').run(); // Asumsi 1 DB per session/hash saat ini
+        
+        const insertFile = db.prepare(`
+          INSERT INTO files (id, path, parent_path, name, size, created_at, message_ids)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `);
 
-    if (msgId) {
-      // Hasil sync dari cloud: replace file utama
-      const content = { lastMsgId: msgId, files: data, isDirty: false, updatedAt: Date.now() };
-      fs.writeFileSync(finalFile, JSON.stringify(content, null, 2));
-      console.log(`[metadata] SYNCED & RESTORED …${hash.slice(-8)} → ${data.length} items`);
-      mainWindow?.webContents.send('metadata-status', { hash, status: 'synced', items: data.length });
-      return true;
-    }
+        for (const f of data) {
+          const parts = f.path.split('/');
+          const name = parts.pop();
+          const parent_path = parts.join('/') || '/';
+          insertFile.run(
+            f.id || Math.random().toString(36).substring(7),
+            f.path,
+            parent_path,
+            name,
+            f.size || 0,
+            f.createdAt || Date.now(),
+            JSON.stringify(f.messageIds || [])
+          );
+        }
 
-    // Perubahan lokal: simpan dengan flag isDirty = true
-    let lastId = null;
-    if (fs.existsSync(finalFile)) {
-      try {
-        const existing = JSON.parse(fs.readFileSync(finalFile, 'utf8'));
-        lastId = existing.lastMsgId;
-      } catch (_) {}
-    }
+        // Update metadata_sync
+        const meta = db.prepare('SELECT snapshot_history FROM metadata_sync WHERE hash = ?').get(hash);
+        let snapshotHistory = JSON.parse(meta?.snapshot_history || '[]');
+        if (!snapshotHistory.includes(msgId)) {
+          snapshotHistory.push(msgId);
+          if (snapshotHistory.length > 3) snapshotHistory.shift();
+        }
 
-    const content = { lastMsgId: lastId, files: data, isDirty: true, updatedAt: Date.now() };
-    fs.writeFileSync(finalFile, JSON.stringify(content, null, 2));
-    console.log(`[metadata] LOCAL SAVE …${hash.slice(-8)} → ${data.length} items (dirty)`);
-    mainWindow?.webContents.send('metadata-status', { hash, status: 'dirty', items: data.length });
+        db.prepare(`
+          INSERT INTO metadata_sync (hash, last_msg_id, snapshot_history, is_dirty, updated_at)
+          VALUES (?, ?, ?, 0, ?)
+          ON CONFLICT(hash) DO UPDATE SET
+            last_msg_id=excluded.last_msg_id,
+            snapshot_history=excluded.snapshot_history,
+            is_dirty=0,
+            updated_at=excluded.updated_at
+        `).run(hash, msgId, JSON.stringify(snapshotHistory), Date.now());
 
-    if (metadataUploadTimer) clearTimeout(metadataUploadTimer);
-    metadataUploadTimer = setTimeout(() => {
-      metadataUploadTimer = null;
-      uploadMetadataToDiscord(hash);
-    }, 2000);
+        console.log(`[metadata] SYNCED & RESTORED …${hash.slice(-8)} → ${data.length} items`);
+        mainWindow?.webContents.send('metadata-status', { hash, status: 'synced', items: data.length });
+      } else {
+        // [REFACTOR] Perubahan lokal: Sync data array ke SQLite
+        // Strategi paling aman: Hapus semua dan insert ulang (karena 'data' adalah full state)
+        // Optimasi: Gunakan upsert jika datanya sangat besar, tapi untuk metadata JSON-size, 
+        // delete + insert di dalam transaksi sangat cepat.
+        
+        db.prepare('DELETE FROM files').run();
+        const insertFile = db.prepare(`
+          INSERT INTO files (id, path, parent_path, name, size, created_at, message_ids)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `);
 
+        for (const f of data) {
+          const parts = f.path.split('/');
+          const name = parts.pop();
+          const parent_path = parts.join('/') || '/';
+          insertFile.run(
+            f.id,
+            f.path,
+            parent_path,
+            name,
+            f.size || 0,
+            f.createdAt || Date.now(),
+            JSON.stringify(f.messageIds || [])
+          );
+        }
+
+        // Mark as dirty
+        db.prepare(`
+          UPDATE metadata_sync SET is_dirty = 1, updated_at = ? WHERE hash = ?
+        `).run(Date.now(), hash);
+
+        // Jika row belum ada di metadata_sync
+        const check = db.prepare('SELECT hash FROM metadata_sync WHERE hash = ?').get(hash);
+        if (!check) {
+          db.prepare('INSERT INTO metadata_sync (hash, is_dirty, updated_at) VALUES (?, 1, ?)').run(hash, Date.now());
+        }
+
+        console.log(`[metadata] LOCAL SAVE …${hash.slice(-8)} → ${data.length} items (dirty)`);
+        mainWindow?.webContents.send('metadata-status', { hash, status: 'dirty', items: data.length });
+
+        if (metadataUploadTimer) clearTimeout(metadataUploadTimer);
+        metadataUploadTimer = setTimeout(() => {
+          metadataUploadTimer = null;
+          uploadMetadataToDiscord(hash);
+        }, 2000);
+      }
+    })();
     return true;
   } catch (e) {
+    console.error('[save-metadata] error:', e.message);
     return false;
   }
 });

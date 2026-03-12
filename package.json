@@ -67,6 +67,7 @@
     }
   },
   "devDependencies": {
+    "@electron/rebuild": "^4.0.3",
     "@vitejs/plugin-react": "^4.2.1",
     "concurrently": "^8.2.2",
     "electron": "^29.1.0",
@@ -79,6 +80,7 @@
     "@fontsource/jetbrains-mono": "^5.2.8",
     "@fontsource/syne": "^5.2.7",
     "axios": "^1.6.7",
+    "better-sqlite3": "^11.10.0",
     "framer-motion": "^11.0.8",
     "lucide-react": "^0.344.0",
     "react": "^18.2.0",
