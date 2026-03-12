@@ -161,6 +161,21 @@ function SettingsPanel() {
         <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7 }}>
           <p>Disbox Linux v2.0</p>
           <p style={{ color: 'var(--text-muted)', marginTop: 8 }}>Discord-based cloud storage with virtual file system. Files are split into 25MB chunks and uploaded via Discord webhooks.</p>
+          
+          <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
+            <p style={{ fontWeight: 700, color: 'var(--text-primary)' }}>Naufal Gastiadirrijal Fawwaz Alamsyah</p>
+            <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>GitHub: naufal-backup</p>
+            <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>Email: naufalalamsyah453@gmail.com</p>
+            <a 
+              href="https://www.linkedin.com/in/naufal-gastiadirrijal-fawwaz-alamsyah-a34b43363" 
+              target="_blank" 
+              rel="noreferrer"
+              style={{ fontSize: 11, color: 'var(--accent)', textDecoration: 'none' }}
+              onClick={e => { e.preventDefault(); window.open?.(e.currentTarget.href, '_blank'); }}
+            >
+              LinkedIn Profile
+            </a>
+          </div>
         </div>
       </div>
     </div>

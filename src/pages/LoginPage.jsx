@@ -179,7 +179,12 @@ export default function LoginPage() {
         </div>
       </div>
 
-      <div className={styles.version}>Disbox v2.0 · Serverless Edition</div>
+      <div className={styles.version}>
+        <div>Disbox v2.0 · Serverless Edition</div>
+        <div style={{ marginTop: 4, opacity: 0.6, fontSize: '0.9em' }}>
+          Created by <b>naufal-backup</b> · naufalalamsyah453@gmail.com
+        </div>
+      </div>
     </div>
   );
 }

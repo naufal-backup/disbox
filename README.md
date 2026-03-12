@@ -89,3 +89,10 @@ Laporan bug dan Pull Request sangat kami hargai!
 ## 📄 Lisensi
 
 Proyek ini dilisensikan di bawah **MIT License**.
+
+---
+
+**Developed by Naufal Gastiadirrijal Fawwaz Alamsyah**
+*   GitHub: [naufal-backup](https://github.com/naufal-backup)
+*   LinkedIn: [Naufal Alamsyah](https://www.linkedin.com/in/naufal-gastiadirrijal-fawwaz-alamsyah-a34b43363)
+*   Email: naufalalamsyah453@gmail.com
