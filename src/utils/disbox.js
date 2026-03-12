@@ -472,18 +472,51 @@ export class DisboxAPI {
       
       const item = messageIds[i];
       const msgId = typeof item === 'string' ? item : item.msgId;
-
       const msgUrl = `${this.webhookUrl}/messages/${msgId}`;
-      const msgRes = await window.electron.fetch(msgUrl, { transferId });
-      throwIfAborted(signal);
-      if (!msgRes.ok) {
-        if (msgRes.error === 'ABORTED') throw new DOMException('Transfer dibatalkan', 'AbortError');
-        throw new Error(`Gagal fetch message ${msgId}: ${msgRes.status}`);
+
+      let chunkData = null;
+      let retryCount = 0;
+      const maxRetries = 5;
+
+      while (retryCount <= maxRetries) {
+        throwIfAborted(signal);
+        try {
+          const msgRes = await window.electron.fetch(msgUrl, { transferId });
+          throwIfAborted(signal);
+
+          if (!msgRes.ok) {
+            if (msgRes.error === 'ABORTED') throw new DOMException('Transfer dibatalkan oleh pengguna', 'AbortError');
+            
+            // Handle 503 (Service Unavailable) or 429 (Rate Limit) with backoff
+            if ((msgRes.status === 503 || msgRes.status === 429) && retryCount < maxRetries) {
+              retryCount++;
+              const delay = Math.pow(2, retryCount) * 1000 + Math.random() * 1000;
+              console.warn(`[disbox] Fetch message ${msgId} failed with ${msgRes.status}, retrying in ${Math.round(delay)}ms... (${retryCount}/${maxRetries})`);
+              await new Promise(resolve => setTimeout(resolve, delay));
+              continue;
+            }
+            throw new Error(`Gagal fetch message ${msgId}: ${msgRes.status}`);
+          }
+
+          const msg = JSON.parse(msgRes.body);
+          const attachmentUrl = msg.attachments?.[0]?.url;
+          if (!attachmentUrl) throw new Error('Attachment URL tidak ditemukan');
+          
+          chunkData = await window.electron.proxyDownload(attachmentUrl, transferId);
+          break; // Success
+        } catch (e) {
+          if (e.name === 'AbortError') throw e;
+          if (retryCount < maxRetries) {
+            retryCount++;
+            const delay = Math.pow(2, retryCount) * 1000 + Math.random() * 1000;
+            console.warn(`[disbox] Download attempt ${retryCount} for chunk ${i} failed: ${e.message}, retrying...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+          } else {
+            throw e;
+          }
+        }
       }
-      const msg = JSON.parse(msgRes.body);
-      const attachmentUrl = msg.attachments?.[0]?.url;
-      if (!attachmentUrl) throw new Error('Attachment URL tidak ditemukan');
-      const chunkData = await window.electron.proxyDownload(attachmentUrl, transferId);
+
       throwIfAborted(signal);
       
       // [DECRYPT] Decrypt chunk setelah download

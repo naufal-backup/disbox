@@ -582,7 +582,6 @@ async function uploadMetadataToDiscord(hash) {
 
   let files;
   try {
-    // [FIX] Query by hash
     const rows = db.prepare(
       'SELECT id, path, message_ids as messageIds, size, created_at as createdAt FROM files WHERE hash = ?'
     ).all(hash);
@@ -595,55 +594,81 @@ async function uploadMetadataToDiscord(hash) {
 
   console.log(`[metadata] UPLOADING …${hash.slice(-8)} (${files.length} items)`);
   mainWindow?.webContents.send('metadata-status', { hash, status: 'uploading', items: files.length });
-  try {
-    const key = getEncryptionKey(activeWebhookUrl);
-    const jsonBuf = Buffer.from(JSON.stringify(files));
-    const encryptedBuf = encrypt(jsonBuf, key);
-    const bodyBuf = buildMetadataFormData(encryptedBuf, 'disbox_metadata.json');
-    const response = await net.fetch(activeWebhookUrl + '?wait=true', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'multipart/form-data; boundary=----DisboxFlushBoundary',
-        'User-Agent': 'Mozilla/5.0 Disbox/2.0',
-      },
-      body: new Uint8Array(bodyBuf),
-    });
 
-    if (!response.ok) {
-      mainWindow?.webContents.send('metadata-status', { hash, status: 'error' });
-      return;
-    }
-    const data = JSON.parse(await response.text());
-    const newMsgId = data.id;
+  let retryCount = 0;
+  const maxRetries = 5;
 
-    db.transaction(() => {
-      const meta = db.prepare('SELECT snapshot_history FROM metadata_sync WHERE hash = ?').get(hash);
-      let snapshotHistory = JSON.parse(meta?.snapshot_history || '[]');
+  while (retryCount <= maxRetries) {
+    try {
+      const key = getEncryptionKey(activeWebhookUrl);
+      const jsonBuf = Buffer.from(JSON.stringify(files));
+      const encryptedBuf = encrypt(jsonBuf, key);
+      const bodyBuf = buildMetadataFormData(encryptedBuf, 'disbox_metadata.json');
       
-      snapshotHistory.push(newMsgId);
-      if (snapshotHistory.length > 3) snapshotHistory.shift();
+      const response = await net.fetch(activeWebhookUrl + '?wait=true', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'multipart/form-data; boundary=----DisboxFlushBoundary',
+          'User-Agent': 'Mozilla/5.0 Disbox/2.0',
+        },
+        body: new Uint8Array(bodyBuf),
+      });
 
-      db.prepare(`
-        INSERT INTO metadata_sync (hash, last_msg_id, snapshot_history, is_dirty, updated_at)
-        VALUES (?, ?, ?, 0, ?)
-        ON CONFLICT(hash) DO UPDATE SET
-          last_msg_id=excluded.last_msg_id,
-          snapshot_history=excluded.snapshot_history,
-          is_dirty=0,
-          updated_at=excluded.updated_at
-      `).run(hash, newMsgId, JSON.stringify(snapshotHistory), Date.now());
-    })();
+      if (!response.ok) {
+        if ((response.status === 503 || response.status === 429) && retryCount < maxRetries) {
+          retryCount++;
+          const delay = Math.pow(2, retryCount) * 1000 + Math.random() * 1000;
+          console.warn(`[metadata] Upload failed with ${response.status}, retrying in ${Math.round(delay)}ms...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue;
+        }
+        mainWindow?.webContents.send('metadata-status', { hash, status: 'error' });
+        return;
+      }
 
-    console.log(`[metadata] UPLOAD DONE ✓ ID: ${newMsgId}`);
-    mainWindow?.webContents.send('metadata-status', { hash, status: 'synced', items: files.length });
+      const data = JSON.parse(await response.text());
+      const newMsgId = data.id;
 
-    await net.fetch(activeWebhookUrl, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: `dbx: ${newMsgId}` }),
-    }).catch(() => {});
-  } catch (e) {
-    console.error('[metadata] UPLOAD error:', e.message);
+      db.transaction(() => {
+        const meta = db.prepare('SELECT snapshot_history FROM metadata_sync WHERE hash = ?').get(hash);
+        let snapshotHistory = JSON.parse(meta?.snapshot_history || '[]');
+        
+        snapshotHistory.push(newMsgId);
+        if (snapshotHistory.length > 3) snapshotHistory.shift();
+
+        db.prepare(`
+          INSERT INTO metadata_sync (hash, last_msg_id, snapshot_history, is_dirty, updated_at)
+          VALUES (?, ?, ?, 0, ?)
+          ON CONFLICT(hash) DO UPDATE SET
+            last_msg_id=excluded.last_msg_id,
+            snapshot_history=excluded.snapshot_history,
+            is_dirty=0,
+            updated_at=excluded.updated_at
+        `).run(hash, newMsgId, JSON.stringify(snapshotHistory), Date.now());
+      })();
+
+      console.log(`[metadata] UPLOAD DONE ✓ ID: ${newMsgId}`);
+      mainWindow?.webContents.send('metadata-status', { hash, status: 'synced', items: files.length });
+
+      await net.fetch(activeWebhookUrl, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: `dbx: ${newMsgId}` }),
+      }).catch(() => {});
+      
+      return; // Success
+    } catch (e) {
+      if (retryCount < maxRetries) {
+        retryCount++;
+        const delay = Math.pow(2, retryCount) * 1000 + Math.random() * 1000;
+        console.warn(`[metadata] Upload attempt ${retryCount} failed: ${e.message}, retrying...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      } else {
+        console.error('[metadata] UPLOAD error:', e.message);
+        mainWindow?.webContents.send('metadata-status', { hash, status: 'error' });
+        return;
+      }
+    }
   }
 }
 

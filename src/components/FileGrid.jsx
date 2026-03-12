@@ -13,6 +13,32 @@ import { CreateFolderModal, MoveModal, ConfirmModal } from './FolderModal.jsx';
 import FilePreview from './FilePreview.jsx';
 import styles from './FileGrid.module.css';
 
+// ─── Thumbnail Concurrency Control ──────────────────────────────────────────
+const MAX_CONCURRENT_THUMBS = 3;
+let activeThumbDownloads = 0;
+const thumbQueue = [];
+
+function processThumbQueue() {
+  while (activeThumbDownloads < MAX_CONCURRENT_THUMBS && thumbQueue.length > 0) {
+    const { id, task, resolve, reject } = thumbQueue.shift();
+    activeThumbDownloads++;
+    task()
+      .then(resolve)
+      .catch(reject)
+      .finally(() => {
+        activeThumbDownloads--;
+        processThumbQueue();
+      });
+  }
+}
+
+function enqueueThumb(id, task) {
+  return new Promise((resolve, reject) => {
+    thumbQueue.push({ id, task, resolve, reject });
+    processThumbQueue();
+  });
+}
+
 function FileThumbnail({ file }) {
   const { api, showPreviews, addTransfer, updateTransfer, removeTransfer } = useApp();
   const [thumbUrl, setThumbUrl] = useState(null);
@@ -72,31 +98,35 @@ function FileThumbnail({ file }) {
     const loadThumb = async () => {
       setLoading(true);
       try {
-        const signal = addTransfer({
-          id: transferId,
-          name: `Thumbnail: ${name}`,
-          progress: 0,
-          type: 'download',
-          status: 'active',
-          hidden: true
-        });
-
-        const buffer = await api.downloadFile(file, (p) => {
-          updateTransfer(transferId, { progress: p });
-        }, signal, transferId);
-
-        if (isMounted && !signal.aborted) {
-          const originalBlob = new Blob([buffer], { type: getMimeType(name) });
-          // Kompresi sebelum ditampilkan
-          const compressedBlob = await compressImage(originalBlob);
+        await enqueueThumb(transferId, async () => {
+          if (!isMounted) return;
           
-          objectUrl = URL.createObjectURL(compressedBlob);
-          setThumbUrl(objectUrl);
-          updateTransfer(transferId, { status: 'done', progress: 1 });
-          setTimeout(() => removeTransfer(transferId), 500);
-        }
+          const signal = addTransfer({
+            id: transferId,
+            name: `Thumbnail: ${name}`,
+            progress: 0,
+            type: 'download',
+            status: 'active',
+            hidden: true
+          });
+
+          const buffer = await api.downloadFile(file, (p) => {
+            updateTransfer(transferId, { progress: p });
+          }, signal, transferId);
+
+          if (isMounted && !signal.aborted) {
+            const originalBlob = new Blob([buffer], { type: getMimeType(name) });
+            // Kompresi sebelum ditampilkan
+            const compressedBlob = await compressImage(originalBlob);
+            
+            objectUrl = URL.createObjectURL(compressedBlob);
+            setThumbUrl(objectUrl);
+            updateTransfer(transferId, { status: 'done', progress: 1 });
+            setTimeout(() => removeTransfer(transferId), 500);
+          }
+        });
       } catch (e) {
-        console.error('Thumb failed:', e);
+        if (isMounted) console.error('Thumb failed:', e);
       } finally {
         if (isMounted) setLoading(false);
       }
@@ -109,6 +139,10 @@ function FileThumbnail({ file }) {
       if (objectUrl) URL.revokeObjectURL(objectUrl);
       window.electron?.cancelUpload?.(transferId);
       removeTransfer(transferId);
+      
+      // Remove from queue if still there
+      const idx = thumbQueue.findIndex(q => q.id === transferId);
+      if (idx >= 0) thumbQueue.splice(idx, 1);
     };
   }, [file.id, showPreviews, isImage]);
 
