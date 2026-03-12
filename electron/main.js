@@ -6,8 +6,6 @@ const os = require('os');
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
 // ─── Tangkap SIGINT/SIGTERM agar before-quit terpicu ─────────────────────────
-// Ctrl+C di terminal mengirim SIGINT yang bypass before-quit Electron.
-// Dengan menangkapnya dan memanggil app.quit(), before-quit akan terpicu.
 process.on('SIGINT', () => {
   console.log('[main] SIGINT received, calling app.quit() untuk trigger before-quit...');
   app.quit();
@@ -36,27 +34,69 @@ const Database = require('better-sqlite3');
 const DB_PATH = path.join(METADATA_DIR, 'disbox.db');
 const db = new Database(DB_PATH);
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS files (
-    id TEXT PRIMARY KEY,
-    path TEXT NOT NULL,
-    parent_path TEXT NOT NULL,
-    name TEXT NOT NULL,
-    size INTEGER DEFAULT 0,
-    created_at INTEGER,
-    message_ids TEXT NOT NULL
-  );
-  CREATE INDEX IF NOT EXISTS idx_path ON files(path);
-  CREATE INDEX IF NOT EXISTS idx_parent ON files(parent_path);
+// [FIX] Cek dan migrate tabel files SEBELUM membuat index yang butuh kolom hash
+// Ini harus jalan duluan karena CREATE INDEX IF NOT EXISTS akan error
+// jika tabel sudah ada tapi belum punya kolom hash
+try {
+  // Pastikan tabel files minimal ada dulu (versi lama tanpa hash)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS files (
+      id TEXT PRIMARY KEY,
+      path TEXT NOT NULL,
+      parent_path TEXT NOT NULL,
+      name TEXT NOT NULL,
+      size INTEGER DEFAULT 0,
+      created_at INTEGER,
+      message_ids TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS metadata_sync (
+      hash TEXT PRIMARY KEY,
+      last_msg_id TEXT,
+      snapshot_history TEXT DEFAULT '[]',
+      is_dirty INTEGER DEFAULT 0,
+      updated_at INTEGER
+    );
+  `);
 
-  CREATE TABLE IF NOT EXISTS metadata_sync (
-    hash TEXT PRIMARY KEY,
-    last_msg_id TEXT,
-    snapshot_history TEXT DEFAULT '[]',
-    is_dirty INTEGER DEFAULT 0,
-    updated_at INTEGER
-  );
-`);
+  // Sekarang cek apakah kolom hash sudah ada
+  const cols = db.prepare("PRAGMA table_info(files)").all();
+  const hasHash = cols.some(c => c.name === 'hash');
+
+  if (!hasHash) {
+    console.log('[migration] Kolom hash belum ada, migrasi tabel files...');
+    db.transaction(() => {
+      db.exec(`ALTER TABLE files RENAME TO files_old;`);
+      db.exec(`
+        CREATE TABLE files (
+          id TEXT NOT NULL,
+          hash TEXT NOT NULL,
+          path TEXT NOT NULL,
+          parent_path TEXT NOT NULL,
+          name TEXT NOT NULL,
+          size INTEGER DEFAULT 0,
+          created_at INTEGER,
+          message_ids TEXT NOT NULL,
+          PRIMARY KEY (id, hash)
+        );
+      `);
+      // Data lama tidak bisa di-migrate karena tidak ada info hash-nya
+      // App akan sync ulang dari Discord saat connect
+      db.exec(`DROP TABLE files_old;`);
+    })();
+    console.log('[migration] Tabel files berhasil di-migrate. Data akan di-sync dari Discord.');
+  }
+
+  // Sekarang aman untuk buat index (kolom hash sudah pasti ada)
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_hash ON files(hash);
+    CREATE INDEX IF NOT EXISTS idx_path ON files(path, hash);
+    CREATE INDEX IF NOT EXISTS idx_parent ON files(parent_path, hash);
+  `);
+
+} catch (e) {
+  console.error('[migration] Setup database gagal:', e.message);
+  throw e; // Fatal — app tidak bisa jalan tanpa DB
+}
 
 // [REFACTOR] Automatic Migration from JSON to SQLite
 function migrateJsonToSqlite() {
@@ -74,7 +114,6 @@ function migrateJsonToSqlite() {
       console.log(`[migration] Migrating ${hash} (${files.length} items)...`);
 
       db.transaction(() => {
-        // Insert metadata_sync
         const upsertSync = db.prepare(`
           INSERT INTO metadata_sync (hash, last_msg_id, snapshot_history, is_dirty, updated_at)
           VALUES (?, ?, ?, ?, ?)
@@ -92,11 +131,11 @@ function migrateJsonToSqlite() {
           meta.updatedAt || Date.now()
         );
 
-        // Insert files
+        // [FIX] Insert files dengan hash
         const insertFile = db.prepare(`
-          INSERT INTO files (id, path, parent_path, name, size, created_at, message_ids)
-          VALUES (?, ?, ?, ?, ?, ?, ?)
-          ON CONFLICT(id) DO UPDATE SET
+          INSERT INTO files (id, hash, path, parent_path, name, size, created_at, message_ids)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(id, hash) DO UPDATE SET
             path=excluded.path,
             parent_path=excluded.parent_path,
             name=excluded.name,
@@ -111,6 +150,7 @@ function migrateJsonToSqlite() {
           const parent_path = parts.join('/') || '/';
           insertFile.run(
             f.id || Math.random().toString(36).substring(7),
+            hash,
             f.path,
             parent_path,
             name,
@@ -121,11 +161,6 @@ function migrateJsonToSqlite() {
         }
       })();
 
-      // Verify migration
-      const count = db.prepare('SELECT COUNT(*) as total FROM files WHERE path IN (SELECT path FROM files WHERE id IN (SELECT id FROM files))').get();
-      // Simple verification based on this specific hash's files is harder since all files are in one table now.
-      // But we can just trust the transaction for now.
-      
       console.log(`[migration] Success for ${hash}. Renaming to .bak`);
       fs.renameSync(filePath, filePath + '.bak');
     } catch (e) {
@@ -142,7 +177,6 @@ let prefs = {
   startMinimized: false
 };
 
-// Muat preferensi dari file (jika ada)
 const PREFS_PATH = path.join(METADATA_DIR, 'preferences.json');
 try {
   if (fs.existsSync(PREFS_PATH)) {
@@ -157,7 +191,6 @@ function savePrefs() {
 }
 
 function createWindow() {
-  // Path ikon yang akan digunakan di dev maupun prod
   const iconPath = path.join(__dirname, 'icon.png');
   
   mainWindow = new BrowserWindow({
@@ -203,7 +236,6 @@ function createWindow() {
 }
 
 function createTray() {
-  // Cari icon di beberapa lokasi umum
   const iconPaths = [
     path.join(__dirname, '../src/assets/icon.png'),
     path.join(__dirname, 'icon.png'),
@@ -219,10 +251,8 @@ function createTray() {
     }
   }
 
-  // Jika tidak ketemu, buat icon kosong sederhana (atau gunakan icon bawaan jika ada)
   if (!trayIcon) {
-    // Buat buffer icon 16x16 warna ungu (brand disbox) sebagai fallback
-    trayIcon = nativeImage.createFromNamedImage('folder', [1, 1, 1]); // Placeholder
+    trayIcon = nativeImage.createFromNamedImage('folder', [1, 1, 1]);
   }
 
   tray = new Tray(trayIcon || nativeImage.createEmpty());
@@ -240,7 +270,6 @@ function createTray() {
 }
 
 app.whenReady().then(() => {
-  // ... existing session headers logic
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     callback({
       responseHeaders: {
@@ -266,7 +295,6 @@ app.on('window-all-closed', () => {
   }
 });
 
-// IPC untuk preferensi
 ipcMain.handle('get-prefs', () => prefs);
 ipcMain.handle('set-prefs', (_, newPrefs) => {
   prefs = { ...prefs, ...newPrefs };
@@ -286,14 +314,13 @@ ipcMain.on('set-active-webhook', (_, webhookUrl, hash) => {
 
 // ─── Flush metadata ke Discord sebelum quit ───────────────────────────────────
 app.on('before-quit', (event) => {
-  if (isQuitting && !metadataUploadTimer) return; // Sudah dalam proses quit
+  if (isQuitting && !metadataUploadTimer) return;
   
   if (!activeWebhookUrl || !activeWebhookHash || !metadataUploadTimer) {
     isQuitting = true;
     return;
   }
 
-  // Ada upload yang belum jalan
   clearTimeout(metadataUploadTimer);
   metadataUploadTimer = null;
 
@@ -312,7 +339,6 @@ app.on('before-quit', (event) => {
     });
 });
 
-// ─── flush-metadata IPC (update activeWebhook saja) ──────────────────────────
 ipcMain.handle('flush-metadata', async (_, webhookUrl, hash) => {
   activeWebhookUrl = webhookUrl;
   activeWebhookHash = hash;
@@ -334,7 +360,6 @@ function buildMetadataFormData(contentBuffer, filename) {
   return Buffer.concat(parts);
 }
 
-// ─── Electron net.fetch ───────────────────────────────────────────────────────
 ipcMain.handle('net-fetch', async (_, url, options = {}) => {
   const transferId = options.transferId;
   const controller = new AbortController();
@@ -363,7 +388,6 @@ ipcMain.handle('net-fetch', async (_, url, options = {}) => {
   }
 });
 
-// Binary download via net.fetch
 ipcMain.handle('proxy-download', async (_, url, transferId = null) => {
   const controller = new AbortController();
   if (transferId) abortControllers.set(transferId, controller);
@@ -397,7 +421,6 @@ ipcMain.handle('dialog-confirm', async (_, { title, message, detail, type = 'que
   return result.response === 1;
 });
 
-// ─── Window controls ──────────────────────────────────────────────────────────
 ipcMain.on('window-minimize', () => mainWindow?.minimize());
 ipcMain.on('window-maximize', () => {
   if (mainWindow?.isMaximized()) mainWindow.unmaximize();
@@ -406,7 +429,6 @@ ipcMain.on('window-maximize', () => {
 ipcMain.on('window-close', () => mainWindow?.close());
 ipcMain.handle('window-is-maximized', () => mainWindow?.isMaximized());
 
-// ─── File dialogs ─────────────────────────────────────────────────────────────
 ipcMain.handle('dialog-open-files', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ['openFile', 'multiSelections'],
@@ -419,10 +441,8 @@ ipcMain.handle('dialog-save-file', async (_, filename) => {
   return result.canceled ? null : result.filePath;
 });
 
-// ─── File I/O ─────────────────────────────────────────────────────────────────
 ipcMain.handle('read-file', async (_, filePath) => {
   const stats = fs.statSync(filePath);
-  // Batasi 512MB agar tidak OOM — file besar pakai upload-file-from-path
   const MAX_READ = 512 * 1024 * 1024;
   if (stats.size > MAX_READ) {
     throw new Error(`File terlalu besar (${(stats.size / 1024 / 1024).toFixed(0)} MB)`);
@@ -435,7 +455,6 @@ ipcMain.handle('read-file', async (_, filePath) => {
   };
 });
 
-// Hanya ambil ukuran file — aman untuk file berukuran apapun termasuk >2GB
 ipcMain.handle('stat-file', async (_, filePath) => {
   try {
     const stats = fs.statSync(filePath);
@@ -459,8 +478,6 @@ ipcMain.handle('save-file', async (_, { savePath, data }) => {
 ipcMain.handle('open-path', async (_, filePath) => shell.openPath(filePath));
 ipcMain.handle('get-version', () => app.getVersion());
 
-// ─── Helper: cari file metadata terbaru untuk hash tertentu ──────────────────
-// Format nama file: <hash>.<msgId>.json  (msgId = Discord Snowflake, terbesar = terbaru)
 function findLatestMetadataFile(hash) {
   try {
     const finalPath = path.join(METADATA_DIR, `${hash}.json`);
@@ -492,7 +509,6 @@ ipcMain.handle('get-latest-metadata-msgid', async (_, hash) => {
     const meta = db.prepare('SELECT last_msg_id, snapshot_history, is_dirty FROM metadata_sync WHERE hash = ?').get(hash);
     if (!meta) return null;
     
-    // Jika ada perubahan lokal yang belum diupload, anggap sebagai 'pending'
     if (meta.is_dirty) return 'pending';
     
     return {
@@ -505,19 +521,12 @@ ipcMain.handle('get-latest-metadata-msgid', async (_, hash) => {
   return null;
 });
 
+// [FIX] load-metadata: filter by hash
 ipcMain.handle('load-metadata', async (_, hash) => {
   try {
-    // [REFACTOR] Ambil semua file yang berhubungan dengan hash ini (saat ini kita asumsikan 1 hash = 1 drive)
-    // Karena kita menyimpan path, kita bisa filter berdasarkan path jika perlu, 
-    // tapi sistem saat ini sepertinya memisahkan metadata per hash (per webhook).
-    // Untuk SQLite, kita mungkin butuh kolom hash di tabel files jika mendukung multiple hash secara efisien.
-    // Tapi karena disbox saat ini pakai 1 hash per .json, kita akan ambil SEMUA file di database 
-    // (dengan asumsi user hanya pakai 1 webhook per instance, atau kita tambahkan kolom hash).
-    
-    // Mari tambahkan kolom hash ke tabel files untuk mendukung multiple webhooks di 1 DB.
-    // (Skema awal saya lupa kolom hash di tabel files)
-    
-    const files = db.prepare('SELECT id, path, message_ids as messageIds, size, created_at as createdAt FROM files').all();
+    const files = db.prepare(
+      'SELECT id, path, message_ids as messageIds, size, created_at as createdAt FROM files WHERE hash = ?'
+    ).all(hash);
     
     return files.map(f => ({
       ...f,
@@ -537,7 +546,10 @@ async function uploadMetadataToDiscord(hash) {
 
   let files;
   try {
-    const rows = db.prepare('SELECT id, path, message_ids as messageIds, size, created_at as createdAt FROM files').all();
+    // [FIX] Query by hash
+    const rows = db.prepare(
+      'SELECT id, path, message_ids as messageIds, size, created_at as createdAt FROM files WHERE hash = ?'
+    ).all(hash);
     files = rows.map(f => ({
       ...f,
       messageIds: JSON.parse(f.messageIds)
@@ -565,7 +577,6 @@ async function uploadMetadataToDiscord(hash) {
     const data = JSON.parse(await response.text());
     const newMsgId = data.id;
 
-    // [REFACTOR] Update SQLite: set is_dirty = 0 dan update last_msg_id serta snapshot_history
     db.transaction(() => {
       const meta = db.prepare('SELECT snapshot_history FROM metadata_sync WHERE hash = ?').get(hash);
       let snapshotHistory = JSON.parse(meta?.snapshot_history || '[]');
@@ -587,7 +598,6 @@ async function uploadMetadataToDiscord(hash) {
     console.log(`[metadata] UPLOAD DONE ✓ ID: ${newMsgId}`);
     mainWindow?.webContents.send('metadata-status', { hash, status: 'synced', items: files.length });
 
-    // Update Webhook Name untuk discovery
     await net.fetch(activeWebhookUrl, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -598,16 +608,17 @@ async function uploadMetadataToDiscord(hash) {
   }
 }
 
+// [FIX] save-metadata: semua operasi filter/delete by hash
 ipcMain.handle('save-metadata', async (_, hash, data, msgId = null) => {
   try {
     db.transaction(() => {
       if (msgId) {
-        // [REFACTOR] Sync dari cloud: Hapus semua file lama dan ganti dengan yang baru
-        db.prepare('DELETE FROM files').run(); // Asumsi 1 DB per session/hash saat ini
+        // Sync dari cloud: hapus HANYA file milik hash ini, bukan semua
+        db.prepare('DELETE FROM files WHERE hash = ?').run(hash); // [FIX]
         
         const insertFile = db.prepare(`
-          INSERT INTO files (id, path, parent_path, name, size, created_at, message_ids)
-          VALUES (?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO files (id, hash, path, parent_path, name, size, created_at, message_ids)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `);
 
         for (const f of data) {
@@ -616,6 +627,7 @@ ipcMain.handle('save-metadata', async (_, hash, data, msgId = null) => {
           const parent_path = parts.join('/') || '/';
           insertFile.run(
             f.id || Math.random().toString(36).substring(7),
+            hash, // [FIX]
             f.path,
             parent_path,
             name,
@@ -625,7 +637,6 @@ ipcMain.handle('save-metadata', async (_, hash, data, msgId = null) => {
           );
         }
 
-        // Update metadata_sync
         const meta = db.prepare('SELECT snapshot_history FROM metadata_sync WHERE hash = ?').get(hash);
         let snapshotHistory = JSON.parse(meta?.snapshot_history || '[]');
         if (!snapshotHistory.includes(msgId)) {
@@ -646,15 +657,12 @@ ipcMain.handle('save-metadata', async (_, hash, data, msgId = null) => {
         console.log(`[metadata] SYNCED & RESTORED …${hash.slice(-8)} → ${data.length} items`);
         mainWindow?.webContents.send('metadata-status', { hash, status: 'synced', items: data.length });
       } else {
-        // [REFACTOR] Perubahan lokal: Sync data array ke SQLite
-        // Strategi paling aman: Hapus semua dan insert ulang (karena 'data' adalah full state)
-        // Optimasi: Gunakan upsert jika datanya sangat besar, tapi untuk metadata JSON-size, 
-        // delete + insert di dalam transaksi sangat cepat.
+        // Perubahan lokal: hapus HANYA file milik hash ini
+        db.prepare('DELETE FROM files WHERE hash = ?').run(hash); // [FIX]
         
-        db.prepare('DELETE FROM files').run();
         const insertFile = db.prepare(`
-          INSERT INTO files (id, path, parent_path, name, size, created_at, message_ids)
-          VALUES (?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO files (id, hash, path, parent_path, name, size, created_at, message_ids)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `);
 
         for (const f of data) {
@@ -663,6 +671,7 @@ ipcMain.handle('save-metadata', async (_, hash, data, msgId = null) => {
           const parent_path = parts.join('/') || '/';
           insertFile.run(
             f.id,
+            hash, // [FIX]
             f.path,
             parent_path,
             name,
@@ -672,12 +681,10 @@ ipcMain.handle('save-metadata', async (_, hash, data, msgId = null) => {
           );
         }
 
-        // Mark as dirty
         db.prepare(`
           UPDATE metadata_sync SET is_dirty = 1, updated_at = ? WHERE hash = ?
         `).run(Date.now(), hash);
 
-        // Jika row belum ada di metadata_sync
         const check = db.prepare('SELECT hash FROM metadata_sync WHERE hash = ?').get(hash);
         if (!check) {
           db.prepare('INSERT INTO metadata_sync (hash, is_dirty, updated_at) VALUES (?, 1, ?)').run(hash, Date.now());
@@ -700,7 +707,7 @@ ipcMain.handle('save-metadata', async (_, hash, data, msgId = null) => {
   }
 });
 
-// ─── Upload chunk (single chunk, dari renderer buffer) ────────────────────────
+// ─── Upload chunk ─────────────────────────────────────────────────────────────
 ipcMain.handle('upload-chunk', async (_, webhookUrl, chunkB64, filename) => {
   try {
     const buffer = Buffer.from(chunkB64, 'base64');
@@ -716,8 +723,6 @@ ipcMain.handle('upload-chunk', async (_, webhookUrl, chunkB64, filename) => {
       Buffer.from('--' + boundary + '--\r\n'),
     ];
     const bodyBuf = Buffer.concat(bodyParts);
-
-    console.log('[upload-chunk] sending', filename, bodyBuf.length, 'bytes');
 
     const response = await net.fetch(webhookUrl + '?wait=true', {
       method: 'POST',
@@ -736,17 +741,13 @@ ipcMain.handle('upload-chunk', async (_, webhookUrl, chunkB64, filename) => {
   }
 });
 
-// ─── Cancel upload / transfer ──────────────────────────────────────────────────
-// Renderer memanggil ini sebelum/sesudah minta cancel, main process set flag.
 ipcMain.on('cancel-upload', (_, transferId) => {
-  // Batalkan upload-file-from-path flag
   const flag = uploadCancelFlags.get(transferId);
   if (flag) {
     flag.cancelled = true;
     console.log('[upload] Cancelled by user (flag):', transferId);
   }
 
-  // Batalkan active net.fetch jika ada
   const controller = abortControllers.get(transferId);
   if (controller) {
     controller.abort();
@@ -754,9 +755,7 @@ ipcMain.on('cancel-upload', (_, transferId) => {
   }
 });
 
-// ─── Upload file dari path (parallel 8 chunks) ───────────────────────────────
 ipcMain.handle('upload-file-from-path', async (event, webhookUrl, nativePath, destName, transferId, chunkSize) => {
-  // Buat flag cancel untuk transfer ini
   const cancelFlag = { cancelled: false };
   uploadCancelFlags.set(transferId, cancelFlag);
 
@@ -774,7 +773,6 @@ ipcMain.handle('upload-file-from-path', async (event, webhookUrl, nativePath, de
     let nextChunkIndex = 0;
 
     return new Promise((resolve, reject) => {
-      // Cek cancel flag secara periodik — jika dicancel, tutup fd dan reject
       const cancelChecker = setInterval(() => {
         if (cancelFlag.cancelled) {
           clearInterval(cancelChecker);
@@ -799,7 +797,6 @@ ipcMain.handle('upload-file-from-path', async (event, webhookUrl, nativePath, de
           return;
         }
 
-        // Batasi maksimal 3 upload paralel untuk file besar agar hemat RAM dan stabil
         while (activeUploads < 3 && nextChunkIndex < numChunks) {
           const index = nextChunkIndex++;
           activeUploads++;
@@ -808,7 +805,6 @@ ipcMain.handle('upload-file-from-path', async (event, webhookUrl, nativePath, de
       }
 
       async function uploadChunk(index, retryCount = 0) {
-        // Cek cancel sebelum mulai chunk
         if (cancelFlag.cancelled) {
           activeUploads--;
           return;
@@ -829,13 +825,10 @@ ipcMain.handle('upload-file-from-path', async (event, webhookUrl, nativePath, de
           const footer = Buffer.from('\r\n--' + boundary + '--\r\n');
           const body = new Uint8Array(Buffer.concat([header, buf, footer]));
 
-          // Cek cancel lagi sebelum network call
           if (cancelFlag.cancelled) {
             activeUploads--;
             return;
           }
-
-          console.log(`[upload] Sending chunk ${index+1}/${numChunks} (${(size/1024/1024).toFixed(1)} MB)...`);
 
           const response = await net.fetch(webhookUrl + '?wait=true', {
             method: 'POST',
@@ -846,7 +839,6 @@ ipcMain.handle('upload-file-from-path', async (event, webhookUrl, nativePath, de
             body,
           });
 
-          // Cek cancel setelah network call selesai
           if (cancelFlag.cancelled) {
             activeUploads--;
             return;
@@ -856,12 +848,11 @@ ipcMain.handle('upload-file-from-path', async (event, webhookUrl, nativePath, de
 
           if (response.status === 429) {
             const retryAfter = (JSON.parse(text).retry_after || 5) + 1;
-            console.warn(`[upload] Rate limited on chunk ${index}, retrying in ${retryAfter}s...`);
             activeUploads--;
             setTimeout(() => {
               if (!cancelFlag.cancelled) {
                 activeUploads++;
-                uploadChunk(index, retryCount); // Jangan kurangi retry count untuk 429
+                uploadChunk(index, retryCount);
               }
             }, (retryAfter * 1000));
             return;

@@ -41,7 +41,6 @@ export function AppProvider({ children }) {
   const [closeToTray, setCloseToTray] = useState(true);
   const [startMinimized, setStartMinimized] = useState(false);
 
-  // Map of transferId → AbortController
   const abortControllersRef = useRef(new Map());
 
   useEffect(() => {
@@ -90,8 +89,24 @@ export function AppProvider({ children }) {
 
   const connect = useCallback(async (url, metadataId = null) => {
     setLoading(true);
+
+    // [FIX] Reset state UI dulu sebelum load webhook baru
+    // Ini mencegah data lama tampil saat ganti webhook
+    setIsConnected(false);
+    setFiles([]);
+    setFileTree(null);
+    setCurrentPath('/');
+    setTransfers([]);
+    setMetadataStatus({ status: 'synced', items: 0 });
+
+    // Cancel semua transfer yang sedang berjalan
+    abortControllersRef.current.forEach(controller => controller.abort());
+    abortControllersRef.current.clear();
+
     try {
       const instance = new DisboxAPI(url);
+      // [FIX] instance.init() akan otomatis generate hash baru dan sync dari Discord
+      // karena lastSyncedId = null pada instance baru
       await instance.init(metadataId);
       const fs = await instance.getFileSystem();
 
@@ -99,7 +114,6 @@ export function AppProvider({ children }) {
       saveWebhookToList(url);
       setSavedWebhooks(getSavedWebhooks());
 
-      // Beritahu main process webhook aktif untuk before-quit flush
       window.electron?.setActiveWebhook(url, instance.hashedWebhook);
 
       setWebhookUrl(url);
@@ -117,7 +131,6 @@ export function AppProvider({ children }) {
   }, []);
 
   const disconnect = useCallback(() => {
-    // Cancel all active transfers on disconnect
     abortControllersRef.current.forEach(controller => controller.abort());
     abortControllersRef.current.clear();
 
@@ -135,7 +148,6 @@ export function AppProvider({ children }) {
     if (!api) return;
     if (!silent) setLoading(true);
     try {
-      // Always sync from cloud first to get the latest metadata from Discord
       await api.syncMetadata();
       const fs = await api.getFileSystem();
       setFiles(fs);
@@ -156,13 +168,10 @@ export function AppProvider({ children }) {
     return () => clearInterval(interval);
   }, [isConnected, api, refresh]);
 
-  // Saat api berubah (connect/reconnect), update main process tentang webhook aktif
   useEffect(() => {
     if (!api || !webhookUrl) return;
     window.electron?.setActiveWebhook(webhookUrl, api.hashedWebhook);
   }, [api, webhookUrl]);
-
-
 
   useEffect(() => {
     if (!window.electron?.onMetadataChange || !api) return;
@@ -275,10 +284,7 @@ export function AppProvider({ children }) {
     return [...dirs].sort();
   }, [files]);
 
-  // ─── Transfer management with AbortController ────────────────────────────
-
   const addTransfer = useCallback((t) => {
-    // Create an AbortController for each new transfer
     const controller = new AbortController();
     abortControllersRef.current.set(t.id, controller);
     setTransfers(p => [...p, { ...t, signal: controller.signal }]);
@@ -290,19 +296,16 @@ export function AppProvider({ children }) {
   }, []);
 
   const removeTransfer = useCallback((id) => {
-    // Clean up AbortController when transfer is removed
     abortControllersRef.current.delete(id);
     setTransfers(p => p.filter(t => t.id !== id));
   }, []);
 
-  // Cancel (stop) a specific transfer
   const cancelTransfer = useCallback((id) => {
     const controller = abortControllersRef.current.get(id);
     if (controller) {
       controller.abort();
     }
 
-    // Beritahu main process untuk batalkan fetch/upload terkait
     if (window.electron?.cancelUpload) {
       window.electron.cancelUpload(id);
     }
@@ -310,14 +313,12 @@ export function AppProvider({ children }) {
     setTransfers(p => p.map(t =>
       t.id === id ? { ...t, status: 'cancelled' } : t
     ));
-    // Auto-remove after a short delay
     setTimeout(() => {
       abortControllersRef.current.delete(id);
       setTransfers(p => p.filter(t => t.id !== id));
     }, 2000);
   }, []);
 
-  // Get the AbortSignal for a given transfer ID
   const getTransferSignal = useCallback((id) => {
     return abortControllersRef.current.get(id)?.signal ?? null;
   }, []);

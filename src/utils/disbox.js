@@ -25,6 +25,8 @@ export class DisboxAPI {
   constructor(webhookUrl) {
     this.webhookUrl = webhookUrl.split('?')[0];
     this.hashedWebhook = null;
+    // [FIX] lastSyncedId = null pada setiap instance baru
+    // Ini memastikan instance baru (ganti webhook) selalu download dari Discord
     this.lastSyncedId = null;
     this.chunkSize = Number(localStorage.getItem('disbox_chunk_size')) || 8 * 1024 * 1024;
   }
@@ -47,19 +49,13 @@ export class DisboxAPI {
 
   // ─── Metadata Sync ────────────────────────────────────────────────────────
 
-  // ─── Metadata Sync ────────────────────────────────────────────────────────
-
   async _getMsgIdFromDiscovery() {
-    // Sumber 1: file lokal — cari msgId terbesar dari nama file <hash>.<msgId>.json
-    // atau 'pending' jika ada perubahan lokal yang belum diupload
     const localRes = await window.electron.getLatestMetadataMsgId?.(this.hashedWebhook);
     if (localRes === 'pending') return 'pending';
     
-    // [REFACTOR] localRes sekarang bisa berupa objek { lastMsgId, snapshotHistory }
     const localMsgId = typeof localRes === 'object' ? localRes?.lastMsgId : localRes;
     const snapshotHistory = localRes?.snapshotHistory || [];
 
-    // Sumber 2: webhook name di Discord
     let webhookMsgId = null;
     try {
       const res = await window.electron.fetch(this.webhookUrl);
@@ -78,7 +74,6 @@ export class DisboxAPI {
     const best = candidates.reduce((a, b) => BigInt(a) >= BigInt(b) ? a : b);
     console.log(`[sync] Discovery: local=${localMsgId}, webhook=${webhookMsgId} → pakai: ${best}`);
     
-    // Kembalikan objek untuk fallback jika diperlukan
     return { best, snapshotHistory };
   }
 
@@ -100,14 +95,12 @@ export class DisboxAPI {
   }
 
   async syncMetadata(forceId = null) {
-    // Cegah multiple sync berjalan paralel
     if (this._syncing) {
       console.log('[sync] Sync sudah berjalan, skip.');
       return false;
     }
     this._syncing = true;
     try {
-      // 1. Tentukan msgId yang akan digunakan
       const discovery = forceId ? { best: forceId, snapshotHistory: [] } : await this._getMsgIdFromDiscovery();
       if (!discovery) {
         console.log('[sync] Tidak ada msgId ditemukan, skip sync.');
@@ -121,27 +114,24 @@ export class DisboxAPI {
 
       const { best: msgId, snapshotHistory } = discovery;
 
-      // 2. Cek apakah perlu download atau bisa pakai local
-      //    Hanya skip download jika: msgId sama dengan lastSyncedId DAN local valid
       if (!forceId && msgId === this.lastSyncedId) {
         const local = await window.electron.loadMetadata(this.hashedWebhook);
         if (Array.isArray(local) && local.length > 0) {
           console.log('[sync] Local up-to-date, skip download. msgId:', msgId, 'items:', local.length);
           return true;
         }
-        // Local hilang/kosong meski ID sama → tetap download
         console.log('[sync] ID sama tapi local kosong/hilang → force download dari Discord');
       }
 
-      // 3. Download dari Discord
       console.log('[sync] Downloading metadata dari Discord, msgId:', msgId);
       let files;
+      // [FIX] resolvedMsgId melacak msgId yang benar-benar berhasil didownload
+      let resolvedMsgId = msgId;
       try {
         files = await this._downloadMetadataFromMsg(msgId);
       } catch (e) {
         console.error('[sync] Download gagal untuk msgId:', msgId, e.message);
         
-        // [REFACTOR] Fallback rolling snapshot: coba history dari terbaru ke terlama
         const fallbackCandidates = [...snapshotHistory].reverse().filter(id => id !== msgId);
         if (this.lastSyncedId && !fallbackCandidates.includes(this.lastSyncedId) && this.lastSyncedId !== msgId) {
           fallbackCandidates.push(this.lastSyncedId);
@@ -152,8 +142,9 @@ export class DisboxAPI {
           console.log('[sync] Fallback: mencoba download dari msgId:', fallbackId);
           try {
             files = await this._downloadMetadataFromMsg(fallbackId);
+            // [FIX] Simpan fallbackId yang berhasil, jangan override dengan msgId asli
+            resolvedMsgId = fallbackId;
             console.log('[sync] Fallback BERHASIL menggunakan msgId:', fallbackId);
-            this.lastSyncedId = fallbackId; // Update ID yang berhasil
             success = true;
             break;
           } catch (err) {
@@ -167,9 +158,9 @@ export class DisboxAPI {
         }
       }
 
-      // 4. Simpan ke lokal
-      await window.electron.saveMetadata(this.hashedWebhook, files, this.lastSyncedId || msgId);
-      this.lastSyncedId = this.lastSyncedId || msgId;
+      // [FIX] Gunakan resolvedMsgId yang konsisten (bukan campuran this.lastSyncedId || msgId)
+      await window.electron.saveMetadata(this.hashedWebhook, files, resolvedMsgId);
+      this.lastSyncedId = resolvedMsgId;
       localStorage.setItem(`dbx_last_sync_${this.hashedWebhook}`, this.lastSyncedId);
       console.log('[sync] ✓ Berhasil sync. msgId:', this.lastSyncedId, '| items:', files.length);
       return true;
@@ -183,9 +174,6 @@ export class DisboxAPI {
 
   async uploadMetadataToDiscord(_files) {
     // Upload ke Discord sekarang ditangani oleh main process via before-quit flush.
-    // Fungsi ini sengaja dikosongkan untuk menghindari race condition antara
-    // debounce upload renderer dan FLUSH di main process.
-    // File lokal sudah disimpan oleh _saveFileSystem — itu sudah cukup.
   }
 
   async validateWebhook() {
@@ -205,8 +193,6 @@ export class DisboxAPI {
     try {
       let data = await window.electron.loadMetadata(this.hashedWebhook);
 
-      // Jika lokal kosong/hilang AND ini adalah pertama kali (lastSyncedId null) 
-      // → paksa sync dari Discord
       if ((!Array.isArray(data) || data.length === 0) && !this.lastSyncedId) {
         console.log('[disbox] Local kosong dan belum pernah sync, fetch dari Discord...');
         const ok = await this.syncMetadata();
