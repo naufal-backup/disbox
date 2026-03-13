@@ -7,22 +7,31 @@ Disbox adalah aplikasi desktop penyimpanan awan (cloud storage) modern yang mema
 ## 🚀 Fitur Utama
 
 *   **Penyimpanan Tak Terbatas:** Manfaatkan Discord Webhook untuk menyimpan file tanpa batasan kuota.
-*   **virtual File System:** Kelola file Anda dengan struktur folder, layaknya Google Drive atau Dropbox.
-*   **SQLite Engine:** Metadata kini dikelola menggunakan SQLite untuk pencarian dan navigasi folder yang jauh lebih cepat (hingga 80% lebih efisien dibanding JSON).
-*   **Enkripsi AES-GCM:** [BARU] Keamanan tingkat tinggi untuk setiap file dan folder dengan enkripsi *end-to-end* menggunakan kunci yang diturunkan dari URL Webhook Anda.
-*   **Sistem Kunci (Locking) v3.0:** [BARU] Lindungi file sensitif dengan Master PIN. Fitur buka kunci kini mendukung penempatan ke folder tujuan manapun, termasuk direktori *root*.
-*   **Multi-Snapshot Rolling:** Sistem cadangan otomatis yang menyimpan 3 snapshot metadata terakhir di Discord. Jika satu pesan metadata terhapus, data Anda tetap aman.
-*   **Sistem Chunking Pintar:** File besar otomatis dipecah menjadi bagian-bagian kecil (10MB - 500MB) untuk stabilitas upload sesuai limit akun Discord Anda.
-*   **Sinkronisasi Antar Perangkat:** Sinkronisasi metadata otomatis yang memungkinkan pengelolaan file secara bersamaan antara versi Desktop dan Mobile.
-*   **Polling Latar Belakang:** Aplikasi secara otomatis mendeteksi perubahan yang dilakukan di perangkat lain setiap 30 detik tanpa perlu refresh manual.
-*   **Multi-Platform:** Dukungan penuh untuk sistem operasi Linux dan Windows.
-*   **Pratinjau File Langsung:**
-    *   **Gambar:** PNG, JPG, WebP, SVG.
-    *   **Media:** Pemutar Video dan Audio bawaan.
-    *   **Dokumen:** Viewer PDF terintegrasi.
-    *   **Kode:** *Syntax Highlighting* untuk berbagai bahasa pemrograman (JS, Python, Rust, dll).
-*   **Sinkronisasi Metadata:** Metadata disimpan secara lokal dan disinkronkan ke Discord untuk akses antar perangkat.
-*   **Mode Gelap/Terang:** Antarmuka modern yang dapat disesuaikan dengan preferensi Anda.
+*   **Virtual File System:** Kelola file Anda dengan struktur folder, layaknya Google Drive atau Dropbox.
+*   **SQLite Engine (Optimized):** Metadata dikelola menggunakan SQLite dengan **WAL (Write-Ahead Logging) Mode** untuk sinkronisasi kilat dan integritas data yang sangat stabil.
+*   **Dukungan Multi-Bahasa:** [BARU] Tersedia dalam bahasa **Indonesia**, **English**, dan **Mandarin (China)** untuk kenyamanan pengguna global.
+*   **Validasi Integritas Data:** [BARU] Sistem pengecekan otomatis untuk mencegah duplikasi nama file/folder di lokasi yang sama saat pembuatan, pemindahan, atau pengubahan nama.
+*   **Enkripsi AES-GCM:** Keamanan tingkat tinggi untuk setiap file dan folder dengan enkripsi *end-to-end* menggunakan kunci yang diturunkan dari URL Webhook Anda.
+*   **Sistem Kunci (Locking) v3.0:** Lindungi file sensitif dengan Master PIN. Fitur buka kunci kini mendukung penempatan ke folder tujuan manapun.
+*   **UI/UX Modern & Responsif:** 
+    *   Toolbar terstandarisasi (32px) untuk estetika yang simetris.
+    *   Sistem Sorting kustom (Nama, Terbaru, Ukuran).
+    *   Smart Breadcrumb yang tetap fungsional di folder sangat dalam.
+    *   Context Menu cerdas yang tidak terpotong di pinggir layar.
+*   **Multi-Snapshot Rolling:** Sistem cadangan otomatis yang menyimpan 3 snapshot metadata terakhir di Discord.
+*   **Sistem Chunking Pintar:** File besar otomatis dipecah menjadi bagian-bagian kecil (10MB - 500MB) sesuai limit akun Discord Anda.
+*   **Sinkronisasi Antar Perangkat:** Sinkronisasi metadata otomatis antara versi Desktop dan Mobile dengan polling latar belakang setiap 30 detik.
+*   **Pratinjau File Langsung:** Dukungan Gambar, Video, Audio, PDF, dan Kode (*Syntax Highlighting*).
+*   **Versi Dinamis:** Info versi di Settings yang selalu terhubung dengan rilis terbaru di GitHub API.
+
+## 🌍 Lokalisasi
+
+Disbox mendukung pengaturan bahasa secara dinamis:
+- 🇮🇩 **Indonesia** (Default)
+- 🇺🇸 **English**
+- 🇨🇳 **Mandarin (China)**
+
+Pengaturan dapat diubah kapan saja melalui menu **Settings > Language**.
 
 ## 📸 Cuplikan Layar
 
@@ -45,8 +54,8 @@ Pastikan sistem Anda memiliki komponen berikut:
     [Releases](https://github.com/naufal-backup/disbox/releases)
 1.  **Kloning repositori ini:**
     ```bash
-    git clone https://github.com/naufal-backup/disbox-linux.git
-    cd disbox-linux
+    git clone https://github.com/naufal-backup/disbox.git
+    cd disbox
     ```
 
 2.  **Instal dependensi:**
@@ -81,10 +90,10 @@ Hasil build akan tersedia di folder `release/`:
 
 Disbox menggunakan **Discord Webhook** sebagai endpoint penyimpanan. Data Anda aman karena tidak ada server perantara (serverless). 
 
-**Penyimpanan Lokal (v2.1+):**
-Aplikasi kini bermigrasi secara otomatis dari file JSON datar ke **SQLite Database** (`disbox.db`) untuk integritas data yang lebih baik. File JSON lama akan diubah menjadi `.bak` secara otomatis saat pertama kali dijalankan.
+**Penyimpanan Lokal (Optimized):**
+Aplikasi menggunakan **SQLite Database** (`disbox.db`) dengan optimasi performa tinggi (**WAL Mode & Synchronous Normal**). Hal ini menjamin proses tulis-baca metadata ribuan file terjadi secara instan tanpa risiko kerusakan database saat aplikasi ditutup tiba-tiba.
 
-Metadata file Anda dienkripsi secara ringan dan hanya Anda yang memiliki akses melalui URL Webhook pribadi Anda.
+Metadata file Anda dienkripsi secara aman menggunakan **AES-GCM 256-bit** dan hanya Anda yang memiliki akses melalui URL Webhook pribadi Anda.
 
 ## 🤝 Kontribusi
 
