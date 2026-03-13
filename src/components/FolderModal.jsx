@@ -54,7 +54,7 @@ export function CreateFolderModal({ onClose }) {
 }
 
 // ─── Move / Copy Modal ────────────────────────────────────────────────────────
-export function MoveModal({ id, file, paths, mode, onClose }) {
+export function MoveModal({ id, file, paths, mode, onClose, onUnlock }) {
   const { getAllDirs, movePath, copyPath, bulkMove, bulkCopy, files: allFiles } = useApp();
   const [selectedDir, setSelectedDir] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -98,22 +98,43 @@ export function MoveModal({ id, file, paths, mode, onClose }) {
     setLoading(true);
     const destDir = selectedDir === '/' ? '' : selectedDir.slice(1);
     
-    const ok = isBulk
-      ? (mode === 'move' ? await bulkMove(paths, destDir) : await bulkCopy(paths, destDir))
-      : (mode === 'move' ? await movePath(itemPath, destDir, id) : await copyPath(itemPath, destDir, id));
+    let ok = false;
+    if (isBulk) {
+      ok = (mode === 'move' || mode === 'unlock') ? await bulkMove(paths, destDir) : await bulkCopy(paths, destDir);
+    } else {
+      ok = (mode === 'move' || mode === 'unlock') ? await movePath(itemPath, destDir, id) : await copyPath(itemPath, destDir, id);
+    }
+
+    if (ok && mode === 'unlock' && onUnlock) {
+      await onUnlock();
+    }
 
     setLoading(false);
     if (ok) onClose();
+  };
+
+  const getTitle = () => {
+    if (mode === 'move') return 'Pindah Item';
+    if (mode === 'copy') return 'Salin Item';
+    if (mode === 'unlock') return 'Buka Kunci & Letakkan di…';
+    return 'Pindah Item';
+  };
+
+  const getBtnLabel = () => {
+    if (mode === 'move') return 'Pindahkan';
+    if (mode === 'copy') return 'Salin ke sini';
+    if (mode === 'unlock') return 'Buka Kunci di Sini';
+    return 'Pindahkan';
   };
 
   return (
     <Backdrop onClose={onClose}>
       <div className={styles.modal} style={{ width: 440 }}>
         <div className={styles.header}>
-          <div className={styles.headerIcon} style={{ background: mode === 'move' ? 'rgba(240,165,0,0.15)' : 'rgba(0,212,170,0.12)', color: mode === 'move' ? 'var(--amber)' : 'var(--teal)' }}>
-            {mode === 'move' ? <Move size={16} /> : <Copy size={16} />}
+          <div className={styles.headerIcon} style={{ background: (mode === 'move' || mode === 'unlock') ? 'rgba(240,165,0,0.15)' : 'rgba(0,212,170,0.12)', color: (mode === 'move' || mode === 'unlock') ? 'var(--amber)' : 'var(--teal)' }}>
+            {mode === 'copy' ? <Copy size={16} /> : <Move size={16} />}
           </div>
-          <span>{mode === 'move' ? 'Pindah' : 'Salin'} Item</span>
+          <span>{getTitle()}</span>
           <button className={styles.closeBtn} onClick={onClose}><X size={14} /></button>
         </div>
 
@@ -149,7 +170,7 @@ export function MoveModal({ id, file, paths, mode, onClose }) {
             disabled={loading || selectedDir === null}
             style={mode === 'copy' ? { background: 'var(--teal)' } : {}}
           >
-            {loading ? 'Memproses…' : mode === 'move' ? 'Pindahkan' : 'Salin ke sini'}
+            {loading ? 'Memproses…' : getBtnLabel()}
           </button>
         </div>
       </div>

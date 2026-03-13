@@ -74,6 +74,45 @@
   gap: 8px;
 }
 
+.zoomControl {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  padding: 0 12px;
+  height: 32px;
+  border-radius: 20px;
+  margin-right: 8px;
+}
+
+.zoomSlider {
+  -webkit-appearance: none;
+  width: 100px;
+  height: 4px;
+  background: var(--bg-hover);
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+
+.zoomSlider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  background: var(--accent);
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.zoomValue {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+  min-width: 35px;
+  text-align: right;
+}
+
 .actionBtn {
   width: 32px;
   height: 32px;
@@ -121,37 +160,45 @@
 
 .viewport {
   flex: 1;
-  background: #05050a; /* Dark background for preview */
-  display: flex;
-  overflow: auto; /* Enable scrolling for zoomed images */
-  position: relative;
-  scrollbar-width: none; /* Hide scrollbar for Firefox */
-}
-
-.viewport::-webkit-scrollbar {
-  display: none; /* Hide scrollbar for Chrome/Safari */
-}
-
-.content {
-  margin: auto; /* Robust centering: centers when small, allows full scroll when big */
+  background: #000;
   display: flex;
   align-items: center;
   justify-content: center;
-  min-width: 100%;
-  min-height: 100%;
+  overflow: hidden; /* Prevent any accidental scrolling */
+  position: relative;
 }
 
-.image {
+.content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 100%;
   height: 100%;
-  object-fit: contain;
+}
+
+.imageWrapper {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   animation: fadeIn 0.3s ease;
+  user-select: none;
+}
+
+.imageWrapper img {
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  display: block;
 }
 
 .video {
-  width: 100%;
-  height: 100%;
-  max-width: 1280px;
+  max-width: min(100%, 1280px);
+  margin: auto;
+  flex-shrink: 0;
 }
 
 .audioWrapper {
@@ -159,6 +206,8 @@
   flex-direction: column;
   align-items: center;
   gap: 24px;
+  margin: auto;
+  flex-shrink: 0;
 }
 
 .audioIcon {
@@ -197,6 +246,8 @@
   gap: 16px;
   color: var(--text-secondary);
   text-align: center;
+  margin: auto;
+  flex-shrink: 0;
 }
 
 .retryBtn {

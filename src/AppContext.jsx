@@ -43,28 +43,31 @@ export function AppProvider({ children }) {
   const [uiScale, setUiScale] = useState(() => Number(localStorage.getItem('disbox_ui_scale')) || 1);
   const [chunkSize, setChunkSize] = useState(() => Number(localStorage.getItem('disbox_chunk_size')) || 8 * 1024 * 1024);
   const [showPreviews, setShowPreviews] = useState(() => localStorage.getItem('disbox_show_previews') !== 'false');
+  const [showRecent, setShowRecent] = useState(() => localStorage.getItem('disbox_show_recent') !== 'false');
   const [metadataStatus, setMetadataStatus] = useState({ status: 'synced', items: 0 });
   const [closeToTray, setCloseToTray] = useState(true);
   const [startMinimized, setStartMinimized] = useState(false);
+  const [isVerified, setIsVerified] = useState(false);
 
   const abortControllersRef = useRef(new Map());
 
   useEffect(() => {
     if (window.electron?.getPrefs) {
       window.electron.getPrefs().then(p => {
-        setCloseToTray(p.closeToTray);
-        setStartMinimized(p.startMinimized);
-      });
-    }
-  }, []);
-
-  const updatePrefs = useCallback((newPrefs) => {
-    if (window.electron?.setPrefs) {
-      window.electron.setPrefs(newPrefs).then(p => {
         if (p.closeToTray !== undefined) setCloseToTray(p.closeToTray);
         if (p.startMinimized !== undefined) setStartMinimized(p.startMinimized);
       });
     }
+  }, []);
+
+  const updatePrefs = useCallback((prefs) => {
+    if (prefs.closeToTray !== undefined) setCloseToTray(prefs.closeToTray);
+    if (prefs.startMinimized !== undefined) setStartMinimized(prefs.startMinimized);
+    if (prefs.showRecent !== undefined) {
+      setShowRecent(prefs.showRecent);
+      localStorage.setItem('disbox_show_recent', prefs.showRecent.toString());
+    }
+    if (window.electron?.setPrefs) window.electron.setPrefs(prefs);
   }, []);
 
   useEffect(() => {
@@ -277,6 +280,85 @@ export function AppProvider({ children }) {
     }
   }, [api, refresh]);
 
+  const setLocked = useCallback(async (id, isLocked) => {
+    if (!api) return false;
+    try {
+      const hash = api.hashedWebhook;
+      
+      // Find the item to check if it's a folder
+      const target = files.find(f => f.id === id);
+      if (target) {
+        // It's a file
+        await window.electron.setLocked(id, hash, isLocked);
+      } else {
+        // It's a folder path
+        const folderPath = id; 
+        const affectedFiles = files.filter(f => f.path === folderPath || f.path.startsWith(folderPath + '/'));
+        for (const f of affectedFiles) {
+          await window.electron.setLocked(f.id, hash, isLocked);
+        }
+      }
+      
+      await refresh();
+      return true;
+    } catch (e) {
+      console.error('Set locked failed:', e);
+      return false;
+    }
+  }, [api, files, refresh]);
+
+  const verifyPin = useCallback(async (pin) => {
+    if (!api) return false;
+    const ok = await window.electron.verifyPin(api.hashedWebhook, pin);
+    if (ok) setIsVerified(true);
+    return ok;
+  }, [api]);
+
+  const setPin = useCallback(async (pin) => {
+    if (!api) return false;
+    return await window.electron.setPin(api.hashedWebhook, pin);
+  }, [api]);
+
+  const hasPin = useCallback(async () => {
+    if (!api) return false;
+    return await window.electron.hasPin(api.hashedWebhook);
+  }, [api]);
+
+  const removePin = useCallback(async (pin) => {
+    if (!api) return false;
+    const ok = await window.electron.verifyPin(api.hashedWebhook, pin);
+    if (ok) {
+      await window.electron.removePin(api.hashedWebhook);
+      setIsVerified(false);
+      return true;
+    }
+    return false;
+  }, [api]);
+
+  const setStarred = useCallback(async (id, isStarred) => {
+    if (!api) return false;
+    try {
+      const hash = api.hashedWebhook;
+      const target = files.find(f => f.id === id);
+      if (target) {
+        // It's a file
+        await window.electron.setStarred(id, hash, isStarred);
+      } else {
+        // It's a folder path (id is the path)
+        // Find the .keep file for this folder
+        const keepFile = files.find(f => f.path === (id ? `${id}/.keep` : '.keep'));
+        if (keepFile) {
+          await window.electron.setStarred(keepFile.id, hash, isStarred);
+        }
+      }
+      await refresh();
+      return true;
+    } catch (e) {
+      console.error('Set starred failed:', e);
+      return false;
+    }
+  }, [api, files, refresh]);
+
   const getAllDirs = useCallback(() => {
     const dirs = new Set(['/']);
     files.forEach(f => {
@@ -336,12 +418,15 @@ export function AppProvider({ children }) {
       uiScale, setUiScale,
       chunkSize, setChunkSize,
       showPreviews, setShowPreviews,
+      showRecent, setShowRecent,
       metadataStatus,
       closeToTray, startMinimized, updatePrefs,
+      isVerified, setIsVerified,
       isTransferring,
       connect, disconnect, refresh,
       createFolder, movePath, copyPath, deletePath,
       bulkDelete, bulkMove, bulkCopy,
+      setLocked, setStarred, verifyPin, setPin, hasPin, removePin,
       getAllDirs,
       addTransfer, updateTransfer, removeTransfer,
       cancelTransfer, getTransferSignal,

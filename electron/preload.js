@@ -52,6 +52,15 @@ contextBridge.exposeInMainWorld('electron', {
   setActiveWebhook: (webhookUrl, hash) => ipcRenderer.send('set-active-webhook', webhookUrl, hash),
   loadSyncId: (hash)          => ipcRenderer.invoke('load-syncid', hash),
   saveSyncId: (hash, msgId)   => ipcRenderer.invoke('save-syncid', hash, msgId),
+
+  // Lock & PIN & Star
+  setLocked: (id, hash, isLocked) => ipcRenderer.invoke('set-locked', id, hash, isLocked),
+  setStarred: (id, hash, isStarred) => ipcRenderer.invoke('set-starred', id, hash, isStarred),
+  setPin: (hash, pin)             => ipcRenderer.invoke('set-pin', hash, pin),
+  verifyPin: (hash, pin)          => ipcRenderer.invoke('verify-pin', hash, pin),
+  hasPin: (hash)                  => ipcRenderer.invoke('has-pin', hash),
+  removePin: (hash)               => ipcRenderer.invoke('remove-pin', hash),
+
   onMetadataChange: (callback) => {
     const listener = (_, hash) => callback(hash);
     ipcRenderer.on('metadata-external-change', listener);

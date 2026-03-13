@@ -1,4 +1,4 @@
-import { HardDrive, Upload, Clock, Star, Trash2, Settings, RefreshCw, LogOut, Sun, Moon } from 'lucide-react';
+import { HardDrive, Upload, Clock, Star, Trash2, Settings, RefreshCw, LogOut, Sun, Moon, Lock } from 'lucide-react';
 import { useState } from 'react';
 import { useApp } from '../AppContext.jsx';
 import { ConfirmModal } from './FolderModal.jsx';
@@ -8,11 +8,11 @@ const navItems = [
   { icon: HardDrive,  label: 'My Drive',    id: 'drive' },
   { icon: Clock,      label: 'Recent',       id: 'recent' },
   { icon: Star,       label: 'Starred',      id: 'starred' },
-  { icon: Trash2,     label: 'Trash',        id: 'trash' },
+  { icon: Lock,       label: 'Locked',       id: 'locked' },
 ];
 
 export default function Sidebar({ activePage, onNavigate }) {
-  const { disconnect, refresh, loading, files, theme, toggleTheme } = useApp();
+  const { disconnect, refresh, loading, files, theme, toggleTheme, showRecent } = useApp();
   const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
 
   const totalSize = files.reduce((sum, f) => sum + (f.size || 0), 0);
@@ -37,7 +37,7 @@ export default function Sidebar({ activePage, onNavigate }) {
 
       {/* Nav */}
       <nav className={styles.nav}>
-        {navItems.map(({ icon: Icon, label, id }) => (
+        {navItems.filter(item => item.id !== 'recent' || showRecent).map(({ icon: Icon, label, id }) => (
           <button
             key={id}
             className={`${styles.navItem} ${activePage === id ? styles.active : ''}`}

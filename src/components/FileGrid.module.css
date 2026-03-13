@@ -733,3 +733,152 @@
   border-radius: var(--radius-lg);
   pointer-events: none;
 }
+
+/* ── Status Overlays (Top-Left) ── */
+.lockOverlay, .starOverlay {
+  position: absolute;
+  top: 6px;
+  width: 18px;
+  height: 18px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-bright);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+}
+
+.lockOverlay {
+  left: 6px;
+  color: var(--accent-bright);
+}
+
+.starOverlay {
+  /* Offset to the right if lock is also present? 
+     For simplicity, let's stack them or put star next to lock */
+  left: 6px; 
+  color: var(--amber);
+}
+
+/* If both exist, move star to the right */
+.lockOverlay + .starOverlay {
+  left: 28px;
+}
+
+/* ── PIN Modal ── */
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 11000;
+  animation: fadeIn 0.2s ease;
+}
+
+.pinModal {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-bright);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  width: 100%;
+  max-width: 320px;
+  box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+  animation: scaleIn 0.2s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+}
+
+.pinHeader {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+  text-align: center;
+}
+
+.pinHeader h3 {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.pinInput {
+  width: 100%;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+  color: var(--text-primary);
+  font-size: 18px;
+  text-align: center;
+  letter-spacing: 0.2em;
+  margin-bottom: 12px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.pinInput:focus {
+  border-color: var(--accent);
+}
+
+.pinError {
+  color: var(--red);
+  font-size: 12px;
+  margin-bottom: 12px;
+  text-align: center;
+}
+
+.pinActions {
+  display: flex;
+  gap: 10px;
+}
+
+.pinActions button {
+  flex: 1;
+  padding: 10px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.cancelBtn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+
+.cancelBtn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.confirmBtn {
+  background: var(--accent);
+  border: none;
+  color: white;
+}
+
+.confirmBtn:hover {
+  background: var(--accent-bright);
+}
+
+.confirmBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes scaleIn {
+  from { transform: scale(0.9); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}

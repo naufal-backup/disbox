@@ -77,13 +77,17 @@ try {
   // Pastikan tabel files minimal ada dulu (versi lama tanpa hash)
   db.exec(`
     CREATE TABLE IF NOT EXISTS files (
-      id TEXT PRIMARY KEY,
+      id TEXT NOT NULL,
+      hash TEXT NOT NULL,
       path TEXT NOT NULL,
       parent_path TEXT NOT NULL,
       name TEXT NOT NULL,
       size INTEGER DEFAULT 0,
       created_at INTEGER,
-      message_ids TEXT NOT NULL
+      message_ids TEXT NOT NULL,
+      is_locked INTEGER DEFAULT 0,
+      is_starred INTEGER DEFAULT 0,
+      PRIMARY KEY (id, hash)
     );
     CREATE TABLE IF NOT EXISTS metadata_sync (
       hash TEXT PRIMARY KEY,
@@ -92,11 +96,19 @@ try {
       is_dirty INTEGER DEFAULT 0,
       updated_at INTEGER
     );
+    CREATE TABLE IF NOT EXISTS settings (
+      hash TEXT NOT NULL,
+      key TEXT NOT NULL,
+      value TEXT,
+      PRIMARY KEY (hash, key)
+    );
   `);
 
   // Sekarang cek apakah kolom hash sudah ada
   const cols = db.prepare("PRAGMA table_info(files)").all();
   const hasHash = cols.some(c => c.name === 'hash');
+  const hasIsLocked = cols.some(c => c.name === 'is_locked');
+  const hasIsStarred = cols.some(c => c.name === 'is_starred');
 
   if (!hasHash) {
     console.log('[migration] Kolom hash belum ada, migrasi tabel files...');
@@ -112,14 +124,22 @@ try {
           size INTEGER DEFAULT 0,
           created_at INTEGER,
           message_ids TEXT NOT NULL,
+          is_locked INTEGER DEFAULT 0,
+          is_starred INTEGER DEFAULT 0,
           PRIMARY KEY (id, hash)
         );
       `);
-      // Data lama tidak bisa di-migrate karena tidak ada info hash-nya
-      // App akan sync ulang dari Discord saat connect
       db.exec(`DROP TABLE files_old;`);
     })();
-    console.log('[migration] Tabel files berhasil di-migrate. Data akan di-sync dari Discord.');
+  } else {
+    if (!hasIsLocked) {
+      console.log('[migration] Kolom is_locked belum ada, migrasi...');
+      db.exec(`ALTER TABLE files ADD COLUMN is_locked INTEGER DEFAULT 0`);
+    }
+    if (!hasIsStarred) {
+      console.log('[migration] Kolom is_starred belum ada, migrasi...');
+      db.exec(`ALTER TABLE files ADD COLUMN is_starred INTEGER DEFAULT 0`);
+    }
   }
 
   // Sekarang aman untuk buat index (kolom hash sudah pasti ada)
@@ -561,16 +581,84 @@ ipcMain.handle('get-latest-metadata-msgid', async (_, hash) => {
 ipcMain.handle('load-metadata', async (_, hash) => {
   try {
     const files = db.prepare(
-      'SELECT id, path, message_ids as messageIds, size, created_at as createdAt FROM files WHERE hash = ?'
+      'SELECT id, path, message_ids as messageIds, size, created_at as createdAt, is_locked as isLocked, is_starred as isStarred FROM files WHERE hash = ?'
     ).all(hash);
     
     return files.map(f => ({
       ...f,
-      messageIds: JSON.parse(f.messageIds)
+      messageIds: JSON.parse(f.messageIds),
+      isLocked: !!f.isLocked,
+      isStarred: !!f.isStarred
     }));
   } catch (e) {
     console.error('[load-metadata] error:', e.message);
     return null;
+  }
+});
+
+ipcMain.handle('set-starred', async (_, id, hash, isStarred) => {
+  try {
+    db.prepare('UPDATE files SET is_starred = ? WHERE id = ? AND hash = ?').run(isStarred ? 1 : 0, id, hash);
+    return true;
+  } catch (e) {
+    console.error('[set-starred] error:', e.message);
+    return false;
+  }
+});
+
+ipcMain.handle('set-locked', async (_, id, hash, isLocked) => {
+  try {
+    db.prepare('UPDATE files SET is_locked = ? WHERE id = ? AND hash = ?').run(isLocked ? 1 : 0, id, hash);
+    return true;
+  } catch (e) {
+    console.error('[set-locked] error:', e.message);
+    return false;
+  }
+});
+
+ipcMain.handle('set-pin', async (_, hash, pin) => {
+  try {
+    const hashedPin = cryptoNode.createHash('sha256').update(pin).digest('hex');
+    db.prepare(`
+      INSERT INTO settings (hash, key, value) VALUES (?, 'pin_hash', ?)
+      ON CONFLICT(hash, key) DO UPDATE SET value = excluded.value
+    `).run(hash, hashedPin);
+    return true;
+  } catch (e) {
+    console.error('[set-pin] error:', e.message);
+    return false;
+  }
+});
+
+ipcMain.handle('verify-pin', async (_, hash, pin) => {
+  try {
+    const row = db.prepare("SELECT value FROM settings WHERE hash = ? AND key = 'pin_hash'").get(hash);
+    if (!row) return false;
+    const hashedPin = cryptoNode.createHash('sha256').update(pin).digest('hex');
+    return row.value === hashedPin;
+  } catch (e) {
+    console.error('[verify-pin] error:', e.message);
+    return false;
+  }
+});
+
+ipcMain.handle('has-pin', async (_, hash) => {
+  try {
+    const row = db.prepare("SELECT value FROM settings WHERE hash = ? AND key = 'pin_hash'").get(hash);
+    return !!row;
+  } catch (e) {
+    console.error('[has-pin] error:', e.message);
+    return false;
+  }
+});
+
+ipcMain.handle('remove-pin', async (_, hash) => {
+  try {
+    db.prepare("DELETE FROM settings WHERE hash = ? AND key = 'pin_hash'").run(hash);
+    return true;
+  } catch (e) {
+    console.error('[remove-pin] error:', e.message);
+    return false;
   }
 });
 
@@ -583,11 +671,13 @@ async function uploadMetadataToDiscord(hash) {
   let files;
   try {
     const rows = db.prepare(
-      'SELECT id, path, message_ids as messageIds, size, created_at as createdAt FROM files WHERE hash = ?'
+      'SELECT id, path, message_ids as messageIds, size, created_at as createdAt, is_locked as isLocked, is_starred as isStarred FROM files WHERE hash = ?'
     ).all(hash);
     files = rows.map(f => ({
       ...f,
-      messageIds: JSON.parse(f.messageIds)
+      messageIds: JSON.parse(f.messageIds),
+      isLocked: !!f.isLocked,
+      isStarred: !!f.isStarred
     }));
     if (files.length === 0) return;
   } catch { return; }
@@ -681,8 +771,8 @@ ipcMain.handle('save-metadata', async (_, hash, data, msgId = null) => {
         db.prepare('DELETE FROM files WHERE hash = ?').run(hash); // [FIX]
         
         const insertFile = db.prepare(`
-          INSERT INTO files (id, hash, path, parent_path, name, size, created_at, message_ids)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO files (id, hash, path, parent_path, name, size, created_at, message_ids, is_locked, is_starred)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
 
         for (const f of data) {
@@ -697,7 +787,9 @@ ipcMain.handle('save-metadata', async (_, hash, data, msgId = null) => {
             name,
             f.size || 0,
             f.createdAt || Date.now(),
-            JSON.stringify(f.messageIds || [])
+            JSON.stringify(f.messageIds || []),
+            f.isLocked ? 1 : 0,
+            f.isStarred ? 1 : 0
           );
         }
 
@@ -725,8 +817,8 @@ ipcMain.handle('save-metadata', async (_, hash, data, msgId = null) => {
         db.prepare('DELETE FROM files WHERE hash = ?').run(hash); // [FIX]
         
         const insertFile = db.prepare(`
-          INSERT INTO files (id, hash, path, parent_path, name, size, created_at, message_ids)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO files (id, hash, path, parent_path, name, size, created_at, message_ids, is_locked, is_starred)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
 
         for (const f of data) {
@@ -741,7 +833,9 @@ ipcMain.handle('save-metadata', async (_, hash, data, msgId = null) => {
             name,
             f.size || 0,
             f.createdAt || Date.now(),
-            JSON.stringify(f.messageIds || [])
+            JSON.stringify(f.messageIds || []),
+            f.isLocked ? 1 : 0,
+            f.isStarred ? 1 : 0
           );
         }
 

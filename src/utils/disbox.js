@@ -428,8 +428,7 @@ export class DisboxAPI {
           if (res.error === 'UPLOAD_CANCELLED') throw new DOMException('Transfer dibatalkan', 'AbortError');
           throw new Error(res.error || 'Upload gagal');
         }
-        await this.createFile(filePath, res.messageIds, res.size, fileId);
-        return res.messageIds;
+        return await this.createFile(filePath, res.messageIds, res.size, fileId);
       } catch (e) {
         if (e.message === 'UPLOAD_CANCELLED') throw new DOMException('Transfer dibatalkan', 'AbortError');
         throw e;
@@ -458,8 +457,7 @@ export class DisboxAPI {
       onProgress?.((i + 1) / numChunks);
     }
     throwIfAborted(signal);
-    await this.createFile(filePath, messageIds, totalSize, fileId);
-    return messageIds;
+    return await this.createFile(filePath, messageIds, totalSize, fileId);
   }
 
   // ─── Download ─────────────────────────────────────────────────────────────
