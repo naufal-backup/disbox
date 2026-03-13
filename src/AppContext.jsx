@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import { DisboxAPI, buildTree } from './utils/disbox.js';
+import { translations } from './utils/i18n.js';
 
 const AppContext = createContext(null);
 
@@ -39,6 +40,7 @@ export function AppProvider({ children }) {
   const isTransferring = transfers.some(t => t.status === 'active');
 
   const [savedWebhooks, setSavedWebhooks] = useState(getSavedWebhooks);
+  const [language, setLanguage] = useState(() => localStorage.getItem('disbox_lang') || 'id');
   const [theme, setTheme] = useState(() => localStorage.getItem('disbox_theme') || 'dark');
   const [uiScale, setUiScale] = useState(() => Number(localStorage.getItem('disbox_ui_scale')) || 1);
   const [chunkSize, setChunkSize] = useState(() => Number(localStorage.getItem('disbox_chunk_size')) || 8 * 1024 * 1024);
@@ -46,6 +48,7 @@ export function AppProvider({ children }) {
   const [showImagePreviews, setShowImagePreviews] = useState(() => localStorage.getItem('disbox_show_image_previews') !== 'false');
   const [showVideoPreviews, setShowVideoPreviews] = useState(() => localStorage.getItem('disbox_show_video_previews') !== 'false');
   const [showRecent, setShowRecent] = useState(() => localStorage.getItem('disbox_show_recent') !== 'false');
+  const [autoCloseTransfers, setAutoCloseTransfers] = useState(() => localStorage.getItem('disbox_auto_close_transfers') !== 'false');
   const [metadataStatus, setMetadataStatus] = useState({ status: 'synced', items: 0 });
   const [closeToTray, setCloseToTray] = useState(true);
   const [startMinimized, setStartMinimized] = useState(false);
@@ -58,6 +61,7 @@ export function AppProvider({ children }) {
       window.electron.getPrefs().then(p => {
         if (p.closeToTray !== undefined) setCloseToTray(p.closeToTray);
         if (p.startMinimized !== undefined) setStartMinimized(p.startMinimized);
+        if (p.autoCloseTransfers !== undefined) setAutoCloseTransfers(p.autoCloseTransfers);
       });
     }
   }, []);
@@ -68,6 +72,10 @@ export function AppProvider({ children }) {
     if (prefs.showRecent !== undefined) {
       setShowRecent(prefs.showRecent);
       localStorage.setItem('disbox_show_recent', prefs.showRecent.toString());
+    }
+    if (prefs.autoCloseTransfers !== undefined) {
+      setAutoCloseTransfers(prefs.autoCloseTransfers);
+      localStorage.setItem('disbox_auto_close_transfers', prefs.autoCloseTransfers.toString());
     }
     if (prefs.showPreviews !== undefined) {
       setShowPreviews(prefs.showPreviews);
@@ -95,6 +103,20 @@ export function AppProvider({ children }) {
     document.documentElement.setAttribute('data-theme', theme);
     localStorage.setItem('disbox_theme', theme);
   }, [theme]);
+
+  useEffect(() => {
+    localStorage.setItem('disbox_lang', language);
+  }, [language]);
+
+  const t = useCallback((key, params = null) => {
+    let text = translations[language]?.[key] || translations['en']?.[key] || key;
+    if (params) {
+      Object.keys(params).forEach(k => {
+        text = text.replace(`{${k}}`, params[k]);
+      });
+    }
+    return text;
+  }, [language]);
 
   useEffect(() => {
     document.body.style.zoom = uiScale;
@@ -180,12 +202,12 @@ export function AppProvider({ children }) {
     }
   }, [api]);
 
-  // Background polling for changes (every 30 seconds)
+  // Background polling for changes (every 5 seconds)
   useEffect(() => {
     if (!isConnected || !api) return;
     const interval = setInterval(() => {
       refresh(true);
-    }, 30000);
+    }, 5000);
     return () => clearInterval(interval);
   }, [isConnected, api, refresh]);
 
@@ -428,6 +450,7 @@ export function AppProvider({ children }) {
       api, webhookUrl, isConnected, files, fileTree,
       currentPath, setCurrentPath,
       loading, transfers, savedWebhooks,
+      language, setLanguage, t,
       theme, toggleTheme,
       uiScale, setUiScale,
       chunkSize, setChunkSize,
@@ -435,6 +458,7 @@ export function AppProvider({ children }) {
       showImagePreviews, setShowImagePreviews,
       showVideoPreviews, setShowVideoPreviews,
       showRecent, setShowRecent,
+      autoCloseTransfers, setAutoCloseTransfers,
       metadataStatus,
       closeToTray, startMinimized, updatePrefs,
       isVerified, setIsVerified,

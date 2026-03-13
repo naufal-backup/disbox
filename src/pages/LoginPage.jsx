@@ -6,7 +6,7 @@ import styles from './LoginPage.module.css';
 const DISCORD_WEBHOOK_REGEX = /^https:\/\/discord(app)?\.com\/api\/webhooks\/\d+\/.+$/;
 
 export default function LoginPage() {
-  const { connect, loading, savedWebhooks } = useApp();
+  const { connect, loading, savedWebhooks, t } = useApp();
   const [url, setUrl] = useState('');
   const [metadataId, setMetadataId] = useState('');
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -54,10 +54,10 @@ export default function LoginPage() {
         </div>
 
         <h1 className={styles.title}>Disbox</h1>
-        <p className={styles.subtitle}>Discord sebagai cloud storage kamu</p>
+        <p className={styles.subtitle}>{t('subtitle')}</p>
 
         <div className={styles.features}>
-          {['Storage tak terbatas', 'Upload chunk 8MB', 'Metadata lokal', 'Virtual filesystem'].map(f => (
+          {[t('feature_unlimited'), t('feature_chunk'), t('feature_local'), t('feature_virtual')].map(f => (
             <div key={f} className={styles.feature}>
               <div className={styles.featureDot} />
               <span>{f}</span>
@@ -75,7 +75,7 @@ export default function LoginPage() {
               onClick={() => setShowHistory(h => !h)}
             >
               <Clock size={12} />
-              <span>Webhook tersimpan ({savedWebhooks.length})</span>
+              <span>{t('saved_webhooks_count', { count: savedWebhooks.length })}</span>
               <ChevronDown size={12} style={{ transform: showHistory ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
             </button>
 
@@ -105,12 +105,12 @@ export default function LoginPage() {
 
         {/* URL Input */}
         <div className={styles.inputGroup}>
-          <label className={styles.label}>Discord Webhook URL</label>
+          <label className={styles.label}>{t('webhook_url')}</label>
           <div className={styles.inputRow}>
             <input
               type="text"
               className={`${styles.input} ${error ? styles.inputError : ''} ${isValid ? styles.inputValid : ''}`}
-              placeholder="https://discord.com/api/webhooks/…"
+              placeholder={t('webhook_placeholder')}
               value={url}
               onChange={e => { setUrl(e.target.value); setError(''); }}
               onKeyDown={e => e.key === 'Enter' && handleConnect()}
@@ -129,7 +129,7 @@ export default function LoginPage() {
             </div>
           )}
           {isValid && !error && (
-            <div className={styles.validMsg}>✓ Format URL valid</div>
+            <div className={styles.validMsg}>✓ {t('url_valid')}</div>
           )}
         </div>
 
@@ -140,29 +140,29 @@ export default function LoginPage() {
             onClick={() => setShowAdvanced(!showAdvanced)}
             type="button"
           >
-            {showAdvanced ? 'Sembunyikan Opsi Lanjutan' : 'Opsi Lanjutan (Manual Sync)'}
+            {showAdvanced ? t('hide_advanced') : t('advanced_options')}
           </button>
           
           {showAdvanced && (
             <div className={styles.advancedFields}>
-              <label className={styles.label}>Metadata Message ID (Opsional)</label>
+              <label className={styles.label}>{t('metadata_msg_id')}</label>
               <input
                 type="text"
                 className={styles.input}
-                placeholder="ID pesan yang berisi metadata.json"
+                placeholder={t('metadata_id_placeholder')}
                 value={metadataId}
                 onChange={e => setMetadataId(e.target.value)}
               />
-              <p className={styles.helpText}>Gunakan ini jika Disbox gagal mendeteksi metadata secara otomatis.</p>
+              <p className={styles.helpText}>{t('metadata_help')}</p>
             </div>
           )}
         </div>
 
         <button className={styles.connectBtn} onClick={() => handleConnect()} disabled={loading || !url.trim()}>
           {loading ? (
-            <><Loader2 size={16} className="spin" /> Connecting…</>
+            <><Loader2 size={16} className="spin" /> {t('connecting')}</>
           ) : (
-            <><Cloud size={16} /> Connect Drive</>
+            <><Cloud size={16} /> {t('connect_drive')}</>
           )}
         </button>
 
@@ -174,7 +174,7 @@ export default function LoginPage() {
             rel="noreferrer"
             onClick={e => { e.preventDefault(); window.open?.(e.currentTarget.href, '_blank'); }}
           >
-            <ExternalLink size={11} /> Cara membuat webhook
+            <ExternalLink size={11} /> {t('how_to_webhook')}
           </a>
         </div>
       </div>

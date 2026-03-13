@@ -33,6 +33,8 @@
   min-width: 0;
   flex-wrap: nowrap;
   margin-right: 24px; /* Meningkatkan jarak dari searchbar */
+  position: relative;
+  z-index: 10;
 }
 
 .breadcrumbRow {
@@ -96,6 +98,8 @@
   line-height: 1;
   margin-left: -2px;
   margin-right: 0px; /* Merapatkan arrow di sisi kanan titik tiga */
+  cursor: pointer;
+  transition: all 0.2s ease;
 }
 
 .breadcrumbEllipsis:hover {
@@ -179,9 +183,11 @@
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  padding: 5px 10px;
+  padding: 0 10px;
+  height: 32px;
   color: var(--text-muted);
   transition: border-color 0.15s;
+  box-sizing: border-box;
 }
 
 .searchBox:focus-within {
@@ -196,9 +202,121 @@
   font-size: 12px;
   color: var(--text-primary);
   width: 160px;
+  height: 100%;
 }
 
 .searchInput::placeholder { color: var(--text-muted); }
+
+.sortBoxContainer {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.sortBox {
+  display: flex;
+  align-items: center;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0 8px;
+  height: 32px;
+  color: var(--text-dim);
+  transition: all 0.15s ease;
+  cursor: pointer;
+  gap: 6px;
+  font-family: inherit;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.sortBox:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-bright);
+}
+
+.sortText {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--text-primary);
+  min-width: 45px;
+  text-align: left;
+}
+
+.sortIconMain {
+  color: var(--accent-bright);
+  opacity: 0.8;
+}
+
+.sortIconArrow {
+  color: var(--text-muted);
+  opacity: 0.5;
+  transition: transform 0.2s ease;
+}
+
+.rotated {
+  transform: rotate(180deg);
+}
+
+.menuBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  background: transparent;
+}
+
+.sortMenu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-bright);
+  border-radius: var(--radius);
+  padding: 4px;
+  z-index: 1000;
+  min-width: 160px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  animation: slideDown 0.15s ease;
+}
+
+.sortMenuItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-family: var(--font-body);
+  cursor: pointer;
+  border-radius: 6px;
+  transition: all 0.1s;
+  text-align: left;
+}
+
+.sortMenuItem:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.sortMenuItem.active {
+  color: var(--accent-bright);
+  background: var(--accent-dim);
+}
+
+.checkIcon {
+  width: 14px;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent-bright);
+}
 
 .viewToggle {
   display: flex;
@@ -207,10 +325,13 @@
   border-radius: var(--radius-sm);
   padding: 2px;
   gap: 2px;
+  height: 32px;
+  box-sizing: border-box;
 }
 
 .viewBtn {
-  padding: 4px 7px;
+  padding: 0 7px;
+  height: 100%;
   border: none;
   background: transparent;
   color: var(--text-muted);
@@ -218,6 +339,7 @@
   border-radius: 4px;
   display: flex;
   align-items: center;
+  justify-content: center;
   transition: all 0.15s;
 }
 
@@ -232,7 +354,8 @@
   display: flex;
   align-items: center;
   gap: 7px;
-  padding: 7px 14px;
+  padding: 0 14px;
+  height: 32px;
   background: var(--accent);
   border: none;
   border-radius: var(--radius-sm);
@@ -243,6 +366,7 @@
   cursor: pointer;
   transition: all 0.15s;
   box-shadow: var(--glow-accent);
+  box-sizing: border-box;
 }
 
 .uploadBtn:hover { background: var(--accent-bright); }
@@ -261,6 +385,7 @@
   cursor: pointer;
   transition: all 0.15s;
   flex-shrink: 0;
+  box-sizing: border-box;
 }
 
 .folderBtn:hover {
@@ -275,8 +400,10 @@
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  padding: 4px 10px;
+  padding: 0 10px;
+  height: 32px;
   color: var(--text-muted);
+  box-sizing: border-box;
 }
 
 .zoomSlider {
@@ -569,26 +696,31 @@
 .list { 
   display: flex; 
   flex-direction: column; 
-  font-size: calc(11px * var(--zoom));
+  font-size: 13px;
 }
 
 .listHeader {
   display: flex;
   align-items: center;
-  padding: 6px 12px;
-  font-size: calc(9px * var(--zoom));
-  font-weight: 500;
+  padding: 10px 12px;
+  font-size: 10px;
+  font-weight: 700;
   color: var(--text-muted);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   border-bottom: 1px solid var(--border);
   margin-bottom: 4px;
 }
 
+.listColCheck { width: 30px; flex-shrink: 0; }
+.listColName { flex: 1; min-width: 0; }
+.listColSize { width: 100px; text-align: right; flex-shrink: 0; }
+.listColActions { width: 120px; flex-shrink: 0; }
+
 .listRow {
   display: flex;
   align-items: center;
-  padding: calc(5px * var(--zoom)) 12px;
+  padding: 8px 12px;
   border-radius: var(--radius-sm);
   cursor: pointer;
   gap: 10px;
@@ -613,25 +745,25 @@
 }
 
 .listIcon { 
-  width: calc(22px * var(--zoom)); 
+  width: 22px; 
   text-align: center; 
   flex-shrink: 0; 
-  font-size: calc(14px * var(--zoom)); 
+  font-size: 16px; 
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
 .listIcon svg {
-  width: calc(14px * var(--zoom)) !important;
-  height: calc(14px * var(--zoom)) !important;
+  width: 16px !important;
+  height: 16px !important;
 }
 
-.listName { flex: 1; min-width: 0; }
-.listSize { width: 100px; text-align: right; color: var(--text-muted); }
+.listName { flex: 1; min-width: 0; font-size: 13px; }
+.listSize { width: 100px; text-align: right; color: var(--text-muted); flex-shrink: 0; font-family: var(--font-mono); font-size: 11px; }
 
 .listActions {
-  width: 80px;
+  width: 120px;
   display: flex;
   align-items: center;
   justify-content: flex-end;

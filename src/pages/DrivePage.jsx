@@ -8,7 +8,7 @@ import { useState, useEffect } from 'react';
 import toast from 'react-hot-toast';
 
 export default function DrivePage({ activePage, onNavigate }) {
-  const { isVerified, setIsVerified, hasPin, setCurrentPath } = useApp();
+  const { isVerified, setIsVerified, hasPin, setCurrentPath, t } = useApp();
   const [checkingPin, setCheckingPin] = useState(false);
 
   // Reset verification and path when switching tabs
@@ -43,7 +43,7 @@ export default function DrivePage({ activePage, onNavigate }) {
           </div>
         )}
       </main>
-      <TransferPanel />
+      <TransferPanel activePage={activePage} />
     </div>
   );
 }
@@ -59,7 +59,7 @@ function Placeholder({ label, icon }) {
 }
 
 function LockedGateway({ onVerified }) {
-  const { verifyPin, hasPin } = useApp();
+  const { verifyPin, hasPin, t } = useApp();
   const [pin, setPin] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -77,7 +77,7 @@ function LockedGateway({ onVerified }) {
     if (ok) {
       onVerified();
     } else {
-      setError('PIN salah');
+      setError(t('pin_error_wrong'));
       setPin('');
     }
     setLoading(false);
@@ -88,9 +88,9 @@ function LockedGateway({ onVerified }) {
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 20 }}>
         <div style={{ background: 'var(--bg-elevated)', padding: 24, borderRadius: 'var(--radius-lg)', border: '1px solid var(--border)', textAlign: 'center', maxWidth: 400 }}>
           <Lock size={48} style={{ color: 'var(--text-muted)', marginBottom: 16 }} />
-          <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>PIN Belum Diset</h3>
+          <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>{t('pin_not_set')}</h3>
           <p style={{ fontSize: 14, color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: 20 }}>
-            Anda belum mengatur Master PIN. Silakan buat PIN terlebih dahulu di menu Settings untuk menggunakan fitur folder terkunci.
+            {t('pin_not_set_desc')}
           </p>
         </div>
       </div>
@@ -101,8 +101,8 @@ function LockedGateway({ onVerified }) {
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 20 }}>
       <div style={{ background: 'var(--bg-elevated)', padding: 32, borderRadius: 16, border: '1px solid var(--border-bright)', textAlign: 'center', width: '100%', maxWidth: 360, boxShadow: '0 20px 50px rgba(0,0,0,0.3)' }}>
         <Shield size={48} style={{ color: 'var(--accent)', marginBottom: 16 }} />
-        <h3 style={{ fontSize: 20, fontWeight: 700, marginBottom: 8 }}>Area Terkunci</h3>
-        <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 24 }}>Masukkan PIN Anda untuk melihat konten yang dilindungi</p>
+        <h3 style={{ fontSize: 20, fontWeight: 700, marginBottom: 8 }}>{t('locked_area')}</h3>
+        <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 24 }}>{t('locked_area_desc')}</p>
         
         <form onSubmit={handleSubmit}>
           <input 
@@ -119,7 +119,7 @@ function LockedGateway({ onVerified }) {
             disabled={loading || !pin}
             style={{ width: '100%', padding: 14, background: 'var(--accent)', border: 'none', borderRadius: 12, color: 'white', fontWeight: 700, fontSize: 14, cursor: 'pointer', transition: 'all 0.2s' }}
           >
-            {loading ? 'Verifikasi...' : 'Buka Akses'}
+            {loading ? t('verifying') : t('unlock_access')}
           </button>
         </form>
       </div>
@@ -134,21 +134,32 @@ function SettingsPanel() {
     showImagePreviews, setShowImagePreviews,
     showVideoPreviews, setShowVideoPreviews,
     showRecent,
+    autoCloseTransfers,
     closeToTray, startMinimized, updatePrefs,
-    hasPin, setPin, removePin, verifyPin
+    hasPin, setPin, removePin, verifyPin,
+    language, setLanguage, t
   } = useApp();
 
   const [pinExists, setPinExists] = useState(false);
   const [showPinModal, setShowPinModal] = useState(null); // 'set', 'change', 'remove'
+  const [latestVersion, setLatestVersion] = useState('v3.0');
 
   useEffect(() => {
     hasPin().then(setPinExists);
+    
+    // Fetch latest version from GitHub
+    fetch('https://api.github.com/repos/naufal-backup/disbox/releases/latest')
+      .then(res => res.json())
+      .then(data => {
+        if (data.tag_name) setLatestVersion(data.tag_name);
+      })
+      .catch(() => {});
   }, [hasPin]);
 
   const CHUNK_OPTIONS = [
-    { label: 'Free (10MB)', value: 10 * 1024 * 1024, desc: 'Batas standar webhook Discord (Free)' },
-    { label: 'Nitro (25MB)', value: 25 * 1024 * 1024, desc: 'Batas untuk akun Discord Nitro Basic' },
-    { label: 'Nitro Premium (500MB)', value: 500 * 1024 * 1024, desc: 'Batas untuk akun Discord Nitro Premium' }
+    { label: 'Free (10MB)', value: 10 * 1024 * 1024, desc: t('chunk_free_desc') },
+    { label: 'Nitro (25MB)', value: 25 * 1024 * 1024, desc: t('chunk_nitro_desc') },
+    { label: 'Nitro Premium (500MB)', value: 500 * 1024 * 1024, desc: t('chunk_premium_desc') }
   ];
 
   const currentOptionIndex = CHUNK_OPTIONS.findIndex(opt => opt.value === chunkSize);
@@ -183,7 +194,7 @@ function SettingsPanel() {
 
   return (
     <div style={{ padding: 32, maxWidth: 900, margin: '0 auto' }}>
-      <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 700, marginBottom: 24 }}>Settings</h2>
+      <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 700, marginBottom: 24 }}>{t('settings')}</h2>
       
       <div style={{ 
         display: 'grid', 
@@ -193,60 +204,97 @@ function SettingsPanel() {
       }}>
         {/* Left Column: Configuration */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {/* Language Selection */}
+          <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 20 }}>
+            <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 16, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{t('language')}</h3>
+            <div style={{ display: 'flex', gap: 10 }}>
+              {[
+                { code: 'id', label: 'Indonesia' },
+                { code: 'en', label: 'English' },
+                { code: 'zh', label: '中国 (China)' }
+              ].map(lang => (
+                <button
+                  key={lang.code}
+                  onClick={() => setLanguage(lang.code)}
+                  style={{
+                    flex: 1,
+                    padding: '10px 12px',
+                    background: language === lang.code ? 'var(--accent)' : 'var(--bg-elevated)',
+                    border: '1px solid ' + (language === lang.code ? 'var(--accent)' : 'var(--border)'),
+                    borderRadius: 8,
+                    color: language === lang.code ? 'white' : 'var(--text-primary)',
+                    fontSize: 13,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    transition: 'all 0.2s'
+                  }}
+                >
+                  {lang.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
           {/* App Behavior Section */}
           <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 20 }}>
-            <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>App Behavior</h3>
+            <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{t('app_behavior')}</h3>
             <Toggle 
-              label="Close to Tray" 
+              label={t('close_to_tray')} 
               value={closeToTray} 
               onChange={v => updatePrefs({ closeToTray: v })}
-              description="Sembunyikan ke tray saat menekan tombol close."
+              description={t('close_to_tray_desc')}
             />
             <Toggle 
-              label="Start Minimized" 
+              label={t('start_minimized')} 
               value={startMinimized} 
               onChange={v => updatePrefs({ startMinimized: v })}
-              description="Jalankan aplikasi dalam keadaan tersembunyi."
+              description={t('start_minimized_desc')}
             />
             <Toggle 
-              label="Live File Previews" 
+              label={t('previews')} 
               value={showPreviews} 
               onChange={v => updatePrefs({ showPreviews: v })}
-              description="Tampilkan isi file (gambar & video) sebagai ikon di grid."
+              description={t('previews_desc')}
             />
             {showPreviews && (
               <div style={{ marginLeft: 24, borderLeft: '2px solid var(--border)', paddingLeft: 16 }}>
                 <Toggle 
-                  label="Pratinjau Gambar" 
+                  label={t('image_previews')} 
                   value={showImagePreviews} 
                   onChange={v => updatePrefs({ showImagePreviews: v })}
-                  description="Aktifkan thumbnail untuk file foto/gambar."
+                  description={t('image_previews_desc')}
                 />
                 <Toggle 
-                  label="Pratinjau Video" 
+                  label={t('video_previews')} 
                   value={showVideoPreviews} 
                   onChange={v => updatePrefs({ showVideoPreviews: v })}
-                  description="Aktifkan thumbnail (cuplikan) untuk file video."
+                  description={t('video_previews_desc')}
                 />
               </div>
             )}
             <Toggle 
-              label="Show Recent Tab" 
+              label={t('auto_close')} 
+              value={autoCloseTransfers} 
+              onChange={v => updatePrefs({ autoCloseTransfers: v })}
+              description={t('auto_close_desc')}
+            />
+            <Toggle 
+              label={t('show_recent')} 
               value={showRecent} 
               onChange={v => updatePrefs({ showRecent: v })}
-              description="Tampilkan tab Recent di sidebar."
+              description={t('show_recent_desc')}
             />
           </div>
 
           {/* PIN Management Section */}
           <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 20 }}>
-            <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 16, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Security</h3>
+            <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 16, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{t('security')}</h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div>
                   <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>Master PIN</p>
                   <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
-                    {pinExists ? 'PIN aktif. Item terkunci aman.' : 'PIN belum diset. Item tidak dapat dikunci.'}
+                    {pinExists ? t('pin_active') : t('pin_not_set_security')}
                   </p>
                 </div>
                 <div style={{ display: 'flex', gap: 8 }}>
@@ -255,7 +303,7 @@ function SettingsPanel() {
                       onClick={() => setShowPinModal('set')}
                       style={{ background: 'var(--accent)', border: 'none', borderRadius: 6, color: 'white', fontSize: 12, fontWeight: 600, padding: '6px 12px', cursor: 'pointer' }}
                     >
-                      Set PIN
+                      {t('set_pin')}
                     </button>
                   ) : (
                     <>
@@ -263,13 +311,13 @@ function SettingsPanel() {
                         onClick={() => setShowPinModal('change')}
                         style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', fontSize: 12, fontWeight: 600, padding: '6px 12px', cursor: 'pointer' }}
                       >
-                        Ubah PIN
+                        {t('change_pin')}
                       </button>
                       <button 
                         onClick={() => setShowPinModal('remove')}
                         style={{ background: 'rgba(237,66,69,0.1)', border: '1px solid rgba(237,66,69,0.2)', borderRadius: 6, color: 'var(--red)', fontSize: 12, fontWeight: 600, padding: '6px 12px', cursor: 'pointer' }}
                       >
-                        Hapus PIN
+                        {t('remove_pin')}
                       </button>
                     </>
                   )}
@@ -280,7 +328,7 @@ function SettingsPanel() {
 
           {/* UI Scaling Section */}
           <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 20 }}>
-            <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 16, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Interface Zoom</h3>
+            <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 16, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{t('ui_scale')}</h3>
             <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
               <input
                 type="range"
@@ -298,58 +346,68 @@ function SettingsPanel() {
                 onClick={() => setUiScale(1)}
                 style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-secondary)', fontSize: 11, padding: '4px 8px', cursor: 'pointer' }}
               >
-                Reset
+                {t('reset')}
               </button>
             </div>
-            <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 12 }}>Atur skala antarmuka aplikasi agar sesuai dengan ukuran monitor Anda.</p>
+            <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 12 }}>{t('ui_scale_desc')}</p>
           </div>
 
           {/* Chunk Size Section */}
           <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 20 }}>
-            <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 16, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Chunk Size</h3>
+            <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 16, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{t('chunk_size')}</h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               <input
                 type="range"
                 min="0"
                 max="2"
                 step="1"
-                value={safeIndex}
+                value={CHUNK_OPTIONS.findIndex(opt => opt.value === chunkSize) === -1 ? 1 : CHUNK_OPTIONS.findIndex(opt => opt.value === chunkSize)}
                 onChange={e => setChunkSize(CHUNK_OPTIONS[parseInt(e.target.value)].value)}
                 style={{ width: '100%', accentColor: 'var(--accent)' }}
               />
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                {CHUNK_OPTIONS.map((opt, i) => (
-                  <span 
-                    key={i} 
-                    style={{ 
-                      fontSize: 11, 
-                      color: i === safeIndex ? 'var(--accent-bright)' : 'var(--text-muted)',
-                      fontWeight: i === safeIndex ? 700 : 400,
-                      textAlign: i === 0 ? 'left' : i === 2 ? 'right' : 'center',
-                      flex: 1
-                    }}
-                  >
-                    {opt.label.split(' ')[0]}
-                  </span>
-                ))}
+                {CHUNK_OPTIONS.map((opt, i) => {
+                  const safeIndex = CHUNK_OPTIONS.findIndex(o => o.value === chunkSize) === -1 ? 1 : CHUNK_OPTIONS.findIndex(o => o.value === chunkSize);
+                  return (
+                    <span 
+                      key={i} 
+                      style={{ 
+                        fontSize: 11, 
+                        color: i === safeIndex ? 'var(--accent-bright)' : 'var(--text-muted)',
+                        fontWeight: i === safeIndex ? 700 : 400,
+                        textAlign: i === 0 ? 'left' : i === 2 ? 'right' : 'center',
+                        flex: 1
+                      }}
+                    >
+                      {opt.label.split(' ')[0]}
+                    </span>
+                  );
+                })}
               </div>
               <div style={{ marginTop: 8, padding: 12, background: 'var(--bg-elevated)', borderRadius: 8, borderLeft: '3px solid var(--accent)' }}>
-                <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>{CHUNK_OPTIONS[safeIndex].label}</p>
-                <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>{CHUNK_OPTIONS[safeIndex].desc}</p>
+                {(() => {
+                  const safeIndex = CHUNK_OPTIONS.findIndex(opt => opt.value === chunkSize) === -1 ? 1 : CHUNK_OPTIONS.findIndex(opt => opt.value === chunkSize);
+                  return (
+                    <>
+                      <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>{CHUNK_OPTIONS[safeIndex].label}</p>
+                      <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>{CHUNK_OPTIONS[safeIndex].desc}</p>
+                    </>
+                  );
+                })()}
               </div>
             </div>
             <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 16 }}>
-              <b>PENTING:</b> Pastikan ukuran chunk sesuai dengan limit akun Discord Anda.
+              <b>{t('important')}:</b> {t('chunk_important_desc')}
             </p>
           </div>
         </div>
 
         {/* Right Column: About Card */}
         <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 20, position: 'sticky', top: 0 }}>
-          <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.06em' }}>About Disbox</h3>
+          <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{t('about_disbox')}</h3>
           <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7 }}>
-            <p style={{ fontWeight: 700, color: 'var(--accent-bright)', fontSize: 15 }}>Disbox Linux v3.0</p>
-            <p style={{ color: 'var(--text-muted)', marginTop: 8 }}>Discord-based cloud storage with virtual file system and AES-GCM encryption.</p>
+            <p style={{ fontWeight: 700, color: 'var(--accent-bright)', fontSize: 15 }}>Disbox Linux {latestVersion}</p>
+            <p style={{ color: 'var(--text-muted)', marginTop: 8 }}>{t('about_desc')}</p>
             
             <div style={{ marginTop: 24, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
               <p style={{ fontWeight: 700, color: 'var(--text-primary)' }}>Naufal Alamsyah</p>
@@ -364,7 +422,7 @@ function SettingsPanel() {
                   style={{ fontSize: 11, color: 'var(--accent)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 6 }}
                   onClick={e => { e.preventDefault(); window.open?.(e.currentTarget.href, '_blank'); }}
                 >
-                  View Source Code
+                  {t('view_source')}
                 </a>
               </div>
             </div>
@@ -382,7 +440,7 @@ function SettingsPanel() {
 }
 
 function PinSettingsModal({ mode, onClose }) {
-  const { setPin, verifyPin, removePin } = useApp();
+  const { setPin, verifyPin, removePin, t } = useApp();
   const [step, setStep] = useState(mode === 'set' ? 'new' : 'verify');
   const [currentPin, setCurrentPin] = useState('');
   const [newPin, setNewPin] = useState('');
@@ -397,7 +455,7 @@ function PinSettingsModal({ mode, onClose }) {
     if (ok) {
       if (mode === 'remove') {
         await removePin(currentPin);
-        toast.success('PIN berhasil dihapus');
+        toast.success(t('pin_remove_success'));
         onClose();
       } else {
         setStep('new');
@@ -405,7 +463,7 @@ function PinSettingsModal({ mode, onClose }) {
         setError('');
       }
     } else {
-      setError('PIN saat ini salah');
+      setError(t('pin_error_wrong'));
     }
     setLoading(false);
   };
@@ -413,25 +471,25 @@ function PinSettingsModal({ mode, onClose }) {
   const handleSetNew = async (e) => {
     e.preventDefault();
     if (newPin.length < 4) {
-      setError('PIN minimal 4 angka');
+      setError(t('pin_error_min_length'));
       return;
     }
     if (newPin !== confirmPin) {
-      setError('Konfirmasi PIN tidak cocok');
+      setError(t('pin_error_mismatch'));
       return;
     }
     setLoading(true);
     const ok = await setPin(newPin);
     if (ok) {
-      toast.success(mode === 'set' ? 'PIN berhasil diset' : 'PIN berhasil diubah');
+      toast.success(mode === 'set' ? t('pin_set_success') : t('pin_change_success'));
       onClose();
     } else {
-      setError('Gagal menyimpan PIN');
+      setError(t('pin_error_save'));
     }
     setLoading(false);
   };
 
-  const title = mode === 'set' ? 'Set Master PIN' : mode === 'change' ? 'Ubah PIN' : 'Hapus PIN';
+  const title = mode === 'set' ? t('set_pin') : mode === 'change' ? t('change_pin') : t('remove_pin');
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }}>
@@ -440,7 +498,7 @@ function PinSettingsModal({ mode, onClose }) {
           <Shield size={32} style={{ color: 'var(--accent)', marginBottom: 12 }} />
           <h3 style={{ fontSize: 18, fontWeight: 700 }}>{title}</h3>
           <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
-            {step === 'verify' ? 'Masukkan PIN saat ini untuk melanjutkan' : 'Masukkan PIN baru (minimal 4 digit)'}
+            {step === 'verify' ? t('pin_verify_desc') : t('pin_new_desc')}
           </p>
         </div>
 
@@ -448,7 +506,7 @@ function PinSettingsModal({ mode, onClose }) {
           <form onSubmit={handleVerify}>
             <input 
               type="password" 
-              placeholder="PIN Saat Ini" 
+              placeholder={t('pin_current_placeholder')} 
               value={currentPin}
               onChange={e => setCurrentPin(e.target.value)}
               autoFocus
@@ -456,9 +514,9 @@ function PinSettingsModal({ mode, onClose }) {
             />
             {error && <p style={{ color: 'var(--red)', fontSize: 12, textAlign: 'center', marginBottom: 12 }}>{error}</p>}
             <div style={{ display: 'flex', gap: 10 }}>
-              <button type="button" onClick={onClose} style={{ flex: 1, padding: 10, background: 'transparent', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-secondary)', cursor: 'pointer' }}>Batal</button>
+              <button type="button" onClick={onClose} style={{ flex: 1, padding: 10, background: 'transparent', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-secondary)', cursor: 'pointer' }}>{t('cancel')}</button>
               <button type="submit" disabled={loading || !currentPin} style={{ flex: 1, padding: 10, background: 'var(--accent)', border: 'none', borderRadius: 8, color: 'white', fontWeight: 600, cursor: 'pointer' }}>
-                {loading ? 'Verifikasi...' : 'Lanjut'}
+                {loading ? t('verifying') : t('next')}
               </button>
             </div>
           </form>
@@ -467,7 +525,7 @@ function PinSettingsModal({ mode, onClose }) {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
               <input 
                 type="password" 
-                placeholder="PIN Baru" 
+                placeholder={t('pin_new_placeholder')} 
                 value={newPin}
                 onChange={e => setNewPin(e.target.value)}
                 autoFocus
@@ -475,7 +533,7 @@ function PinSettingsModal({ mode, onClose }) {
               />
               <input 
                 type="password" 
-                placeholder="Konfirmasi PIN" 
+                placeholder={t('pin_confirm_placeholder')} 
                 value={confirmPin}
                 onChange={e => setConfirmPin(e.target.value)}
                 style={{ width: '100%', background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 8, padding: 12, color: 'white', textAlign: 'center', fontSize: 18, letterSpacing: '0.2em', outline: 'none' }}
@@ -483,9 +541,9 @@ function PinSettingsModal({ mode, onClose }) {
             </div>
             {error && <p style={{ color: 'var(--red)', fontSize: 12, textAlign: 'center', marginBottom: 12 }}>{error}</p>}
             <div style={{ display: 'flex', gap: 10 }}>
-              <button type="button" onClick={onClose} style={{ flex: 1, padding: 10, background: 'transparent', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-secondary)', cursor: 'pointer' }}>Batal</button>
+              <button type="button" onClick={onClose} style={{ flex: 1, padding: 10, background: 'transparent', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-secondary)', cursor: 'pointer' }}>{t('cancel')}</button>
               <button type="submit" disabled={loading || !newPin || !confirmPin} style={{ flex: 1, padding: 10, background: 'var(--accent)', border: 'none', borderRadius: 8, color: 'white', fontWeight: 600, cursor: 'pointer' }}>
-                {loading ? 'Menyimpan...' : 'Simpan'}
+                {loading ? t('saving') : t('save')}
               </button>
             </div>
           </form>

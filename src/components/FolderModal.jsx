@@ -5,19 +5,42 @@ import styles from './FolderModal.module.css';
 
 // ─── Create Folder Modal ──────────────────────────────────────────────────────
 export function CreateFolderModal({ onClose }) {
-  const { createFolder } = useApp();
+  const { createFolder, files, currentPath, t } = useApp();
   const [name, setName] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   const handleCreate = async () => {
-    if (!name.trim()) { setError('Nama folder tidak boleh kosong'); return; }
-    if (/[/\\:*?"<>|]/.test(name)) { setError('Nama folder mengandung karakter tidak valid'); return; }
+    const trimmed = name.trim();
+    if (!trimmed) { setError(t('error_empty')); return; }
+    if (/[/\\:*?"<>|]/.test(trimmed)) { setError(t('error_invalid')); return; }
+    
+    // Check for duplicates
+    const dirPath = currentPath === '/' ? '' : currentPath.slice(1);
+    const exists = files.some(f => {
+      const parts = f.path.split('/');
+      const parent = parts.slice(0, -1).join('/');
+      const itemName = parts[parts.length - 1];
+      
+      // Check if it's a folder (via .keep) or a file
+      if (itemName === '.keep') {
+        const folderName = parts[parts.length - 2];
+        const folderParent = parts.slice(0, -2).join('/');
+        return folderParent === dirPath && folderName === trimmed;
+      }
+      return parent === dirPath && itemName === trimmed;
+    });
+
+    if (exists) {
+      setError(t('error_duplicate'));
+      return;
+    }
+
     setLoading(true);
-    const ok = await createFolder(name.trim());
+    const ok = await createFolder(trimmed);
     setLoading(false);
     if (ok) onClose();
-    else setError('Gagal membuat folder');
+    else setError(t('error_create_folder'));
   };
 
   return (
@@ -25,15 +48,15 @@ export function CreateFolderModal({ onClose }) {
       <div className={styles.modal}>
         <div className={styles.header}>
           <div className={styles.headerIcon}><FolderPlus size={16} /></div>
-          <span>Folder Baru</span>
+          <span>{t('new_folder')}</span>
           <button className={styles.closeBtn} onClick={onClose}><X size={14} /></button>
         </div>
 
         <div className={styles.body}>
-          <label className={styles.label}>Nama Folder</label>
+          <label className={styles.label}>{t('folder_name_placeholder')}</label>
           <input
             className={`${styles.input} ${error ? styles.inputError : ''}`}
-            placeholder="Contoh: Dokumen"
+            placeholder={t('folder_name_placeholder') + '...'}
             value={name}
             onChange={e => { setName(e.target.value); setError(''); }}
             onKeyDown={e => e.key === 'Enter' && handleCreate()}
@@ -43,9 +66,9 @@ export function CreateFolderModal({ onClose }) {
         </div>
 
         <div className={styles.footer}>
-          <button className={styles.cancelBtn} onClick={onClose}>Batal</button>
+          <button className={styles.cancelBtn} onClick={onClose}>{t('cancel')}</button>
           <button className={styles.confirmBtn} onClick={handleCreate} disabled={loading || !name.trim()}>
-            {loading ? 'Membuat…' : 'Buat Folder'}
+            {loading ? t('creating') : t('create')}
           </button>
         </div>
       </div>
@@ -55,9 +78,10 @@ export function CreateFolderModal({ onClose }) {
 
 // ─── Move / Copy Modal ────────────────────────────────────────────────────────
 export function MoveModal({ id, file, paths, mode, onClose, onUnlock }) {
-  const { getAllDirs, movePath, copyPath, bulkMove, bulkCopy, files: allFiles } = useApp();
+  const { getAllDirs, movePath, copyPath, bulkMove, bulkCopy, files: allFiles, t } = useApp();
   const [selectedDir, setSelectedDir] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
   const isBulk = Array.isArray(paths) && paths.length > 0;
   
@@ -106,8 +130,37 @@ export function MoveModal({ id, file, paths, mode, onClose, onUnlock }) {
 
   const handleConfirm = async () => {
     if (selectedDir === null) return;
-    setLoading(true);
     const destDir = selectedDir === '/' ? '' : selectedDir.slice(1);
+    
+    // Collision check
+    const itemsToMove = isBulk ? paths.map(p => {
+      const isId = p.includes('-') && p.length > 30;
+      if (isId) return allFiles.find(x => x.id === p)?.path.split('/').pop();
+      return p.split('/').pop();
+    }) : [itemPath.split('/').pop()];
+
+    const hasCollision = allFiles.some(f => {
+      const parts = f.path.split('/');
+      const parent = parts.slice(0, -1).join('/');
+      const existingName = parts[parts.length - 1];
+      
+      if (parent === destDir) {
+        if (existingName === '.keep') {
+          const folderName = parts[parts.length - 2];
+          return itemsToMove.includes(folderName);
+        }
+        return itemsToMove.includes(existingName);
+      }
+      return false;
+    });
+
+    if (hasCollision) {
+      setError(t('error_duplicate'));
+      return;
+    }
+
+    setLoading(true);
+    setError('');
     
     let ok = false;
     if (isBulk) {
@@ -122,20 +175,21 @@ export function MoveModal({ id, file, paths, mode, onClose, onUnlock }) {
 
     setLoading(false);
     if (ok) onClose();
+    else setError('Gagal memproses operasi');
   };
 
   const getTitle = () => {
-    if (mode === 'move') return 'Pindah Item';
-    if (mode === 'copy') return 'Salin Item';
-    if (mode === 'unlock') return 'Buka Kunci & Letakkan di…';
-    return 'Pindah Item';
+    if (mode === 'move') return t('move');
+    if (mode === 'copy') return t('copy');
+    if (mode === 'unlock') return t('unlock');
+    return t('move');
   };
 
   const getBtnLabel = () => {
-    if (mode === 'move') return 'Pindahkan';
-    if (mode === 'copy') return 'Salin ke sini';
-    if (mode === 'unlock') return 'Buka Kunci di Sini';
-    return 'Pindahkan';
+    if (mode === 'move') return t('move');
+    if (mode === 'copy') return t('copy');
+    if (mode === 'unlock') return t('unlock');
+    return t('move');
   };
 
   return (
@@ -151,16 +205,16 @@ export function MoveModal({ id, file, paths, mode, onClose, onUnlock }) {
 
         <div className={styles.body}>
           <p className={styles.fileLabel}>
-            <span style={{ color: 'var(--text-muted)' }}>Nama: </span>
+            <span style={{ color: 'var(--text-muted)' }}>{t('sort_name')}: </span>
             <strong>{itemName}</strong>
           </p>
-          <label className={styles.label}>Pilih Tujuan</label>
+          <label className={styles.label}>{t('pilih_tujuan')}</label>
           <div className={styles.dirList}>
             {dirs.map(dir => (
               <button
                 key={dir}
                 className={`${styles.dirItem} ${selectedDir === dir ? styles.dirSelected : ''}`}
-                onClick={() => setSelectedDir(dir)}
+                onClick={() => { setSelectedDir(dir); setError(''); }}
               >
                 <DirIcon />
                 <span className={styles.dirPath}>{dir}</span>
@@ -171,17 +225,18 @@ export function MoveModal({ id, file, paths, mode, onClose, onUnlock }) {
               <p className={styles.emptyDirs}>Tidak ada folder lain. Buat folder dulu.</p>
             )}
           </div>
+          {error && <p className={styles.error} style={{ marginTop: 12 }}>{error}</p>}
         </div>
 
         <div className={styles.footer}>
-          <button className={styles.cancelBtn} onClick={onClose}>Batal</button>
+          <button className={styles.cancelBtn} onClick={onClose}>{t('cancel')}</button>
           <button
             className={styles.confirmBtn}
             onClick={handleConfirm}
             disabled={loading || selectedDir === null}
             style={mode === 'copy' ? { background: 'var(--teal)' } : {}}
           >
-            {loading ? 'Memproses…' : getBtnLabel()}
+            {loading ? t('processing') : getBtnLabel()}
           </button>
         </div>
       </div>
@@ -191,6 +246,7 @@ export function MoveModal({ id, file, paths, mode, onClose, onUnlock }) {
 
 // ─── Confirm Modal ────────────────────────────────────────────────────────────
 export function ConfirmModal({ title, message, onConfirm, onClose, danger = false }) {
+  const { t } = useApp();
   return (
     <Backdrop onClose={onClose}>
       <div className={styles.modal} style={{ width: 360 }}>
@@ -198,7 +254,7 @@ export function ConfirmModal({ title, message, onConfirm, onClose, danger = fals
           <div className={styles.headerIcon} style={{ background: danger ? 'rgba(237,66,69,0.15)' : 'var(--accent-dim)', color: danger ? 'var(--red)' : 'var(--accent-bright)' }}>
             <AlertCircle size={16} />
           </div>
-          <span>{title || 'Konfirmasi'}</span>
+          <span>{title || t('confirm')}</span>
           <button className={styles.closeBtn} onClick={onClose}><X size={14} /></button>
         </div>
 
@@ -209,13 +265,13 @@ export function ConfirmModal({ title, message, onConfirm, onClose, danger = fals
         </div>
 
         <div className={styles.footer}>
-          <button className={styles.cancelBtn} onClick={onClose}>Batal</button>
+          <button className={styles.cancelBtn} onClick={onClose}>{t('cancel')}</button>
           <button
             className={styles.confirmBtn}
             onClick={() => { onConfirm(); onClose(); }}
             style={danger ? { background: 'var(--red)' } : {}}
           >
-            Ya, Lanjutkan
+            {t('confirm')}
           </button>
         </div>
       </div>

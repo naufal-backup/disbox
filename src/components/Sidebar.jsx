@@ -4,16 +4,16 @@ import { useApp } from '../AppContext.jsx';
 import { ConfirmModal } from './FolderModal.jsx';
 import styles from './Sidebar.module.css';
 
-const navItems = [
-  { icon: HardDrive,  label: 'My Drive',    id: 'drive' },
-  { icon: Clock,      label: 'Recent',       id: 'recent' },
-  { icon: Star,       label: 'Starred',      id: 'starred' },
-  { icon: Lock,       label: 'Locked',       id: 'locked' },
-];
-
 export default function Sidebar({ activePage, onNavigate }) {
-  const { disconnect, refresh, loading, files, theme, toggleTheme, showRecent } = useApp();
+  const { disconnect, refresh, loading, files, theme, toggleTheme, showRecent, t } = useApp();
   const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
+
+  const navItems = [
+    { icon: HardDrive,  label: t('drive'),    id: 'drive' },
+    { icon: Clock,      label: t('recent'),   id: 'recent' },
+    { icon: Star,       label: t('starred'),  id: 'starred' },
+    { icon: Lock,       label: t('locked'),   id: 'locked' },
+  ];
 
   const totalSize = files.reduce((sum, f) => sum + (f.size || 0), 0);
   const formatSizeGB = (bytes) => {
@@ -26,11 +26,8 @@ export default function Sidebar({ activePage, onNavigate }) {
       {/* Storage indicator */}
       <div className={styles.storage}>
         <div className={styles.storageLabel}>
-          <span>Storage used</span>
+          <span>{t('storage')}</span>
           <span className={styles.storageValue}>{formatSizeGB(totalSize)}</span>
-        </div>
-        <div className={styles.storageBar}>
-          <div className={styles.storageFill} style={{ width: '24%' }} />
         </div>
         <span className={styles.storageNote}>Discord Unlimited ∞</span>
       </div>
@@ -59,19 +56,19 @@ export default function Sidebar({ activePage, onNavigate }) {
           <div className={styles.navIcon}>
             {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
           </div>
-          <span>{theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>
+          <span>{theme === 'dark' ? t('light') : t('dark')}</span>
         </button>
         <button className={styles.actionBtn} onClick={refresh} disabled={loading}>
           <div className={styles.navIcon}>
             <RefreshCw size={15} className={loading ? 'spin' : ''} />
           </div>
-          <span>Refresh</span>
+          <span>{t('refresh')}</span>
         </button>
         <button className={styles.actionBtn} onClick={() => onNavigate('settings')}>
           <div className={styles.navIcon}>
             <Settings size={15} />
           </div>
-          <span>Settings</span>
+          <span>{t('settings')}</span>
         </button>
         <button 
           className={`${styles.actionBtn} ${styles.danger}`} 

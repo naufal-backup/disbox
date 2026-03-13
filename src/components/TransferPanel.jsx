@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
-import { X, Upload, Download, ChevronDown, ChevronUp, CheckCircle2, AlertCircle, Square } from 'lucide-react';
+import { useState, useEffect, useRef, useMemo } from 'react';
+import { X, Upload, Download, ChevronDown, ChevronUp, CheckCircle2, AlertCircle, Square, RefreshCw } from 'lucide-react';
 import { useApp } from '../AppContext.jsx';
 import styles from './TransferPanel.module.css';
 
@@ -130,15 +130,66 @@ function TransferItem({ t, onCancel, onRemove }) {
   );
 }
 
-export default function TransferPanel() {
-  const { transfers, removeTransfer, cancelTransfer } = useApp();
+function SyncIndicator({ status, items, panelVisible, t }) {
+  const isUploading = status === 'uploading' || status === 'dirty';
+  const isSynced = status === 'synced';
+  const isError = status === 'error';
+
+  const label = status === 'uploading' ? t('syncing_items', { count: items }) : 
+                status === 'dirty' ? t('waiting_sync') : 
+                isSynced ? t('synced') : t('sync_error');
+
+  return (
+    <div 
+      className={styles.syncIndicator} 
+      style={{ 
+        bottom: panelVisible ? 'calc(20px + 52px)' : '20px',
+      }}
+    >
+      <div className={styles.syncBadge} style={{ 
+        borderColor: isError ? 'var(--red)' : isSynced ? 'rgba(59, 165, 93, 0.4)' : '' 
+      }}>
+        <div className={`${styles.syncIcon} ${isUploading ? styles.syncIconSpin : ''}`} style={{ 
+          color: isError ? 'var(--red)' : isSynced ? 'var(--green)' : 'var(--accent-bright)' 
+        }}>
+          {isError ? <AlertCircle size={14} /> : 
+           isSynced ? <CheckCircle2 size={14} /> : 
+           <RefreshCw size={14} />}
+        </div>
+        <span className={styles.syncText}>{label}</span>
+      </div>
+    </div>
+  );
+}
+
+export default function TransferPanel({ activePage }) {
+  const { transfers, removeTransfer, cancelTransfer, autoCloseTransfers, metadataStatus, t } = useApp();
   const [collapsed, setCollapsed] = useState(false);
 
   // Filter out hidden transfers (like previews) from the UI
-  const visibleTransfers = transfers.filter(t => !t.hidden);
+  const visibleTransfers = useMemo(() => transfers.filter(t => !t.hidden), [transfers]);
 
-  if (visibleTransfers.length === 0) return null;
+  useEffect(() => {
+    if (!autoCloseTransfers || visibleTransfers.length === 0) return;
 
+    const activeCount = visibleTransfers.filter(t => t.status === 'active').length;
+    const hasError = visibleTransfers.some(t => t.status === 'error');
+
+    // Only auto-close if everything is done and there are no errors
+    if (activeCount === 0 && !hasError) {
+      const timer = setTimeout(() => {
+        // Find all transfers to remove in this snapshot
+        const toRemove = visibleTransfers
+          .filter(t => t.status === 'done' || t.status === 'cancelled')
+          .map(t => t.id);
+        
+        toRemove.forEach(id => removeTransfer(id));
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [visibleTransfers, autoCloseTransfers, removeTransfer]);
+
+  const showPanel = visibleTransfers.length > 0;
   const active = visibleTransfers.filter(t => t.status === 'active').length;
   const done   = visibleTransfers.filter(t => t.status === 'done').length;
 
@@ -147,32 +198,45 @@ export default function TransferPanel() {
     : 100;
 
   return (
-    <div className={styles.panel}>
-      <div className={styles.header} onClick={() => setCollapsed(c => !c)}>
-        <div className={styles.headerLeft}>
-          <span className={styles.title}>
-            {active > 0 ? `Mentransfer ${active} file…` : `${done} transfer selesai`}
-          </span>
-          {active > 0 && <span className={styles.headerPct}>{overallPct}%</span>}
-        </div>
-        <div className={styles.headerActions}>
-          {collapsed ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
-        </div>
-      </div>
-
-      {active > 0 && (
-        <div className={styles.headerProgress}>
-          <div className={styles.headerProgressFill} style={{ width: `${overallPct}%` }} />
-        </div>
+    <>
+      {activePage !== 'settings' && (
+        <SyncIndicator 
+          status={metadataStatus.status} 
+          items={metadataStatus.items} 
+          panelVisible={showPanel}
+          t={t}
+        />
       )}
 
-      {!collapsed && (
-        <div className={styles.list}>
-          {visibleTransfers.map(t => (
-            <TransferItem key={t.id} t={t} onCancel={cancelTransfer} onRemove={removeTransfer} />
-          ))}
+      {showPanel && (
+        <div className={styles.panel}>
+          <div className={styles.header} onClick={() => setCollapsed(c => !c)}>
+            <div className={styles.headerLeft}>
+              <span className={styles.title}>
+                {active > 0 ? t('transferring_files', { count: active }) : t('transfers_done', { count: done })}
+              </span>
+              {active > 0 && <span className={styles.headerPct}>{overallPct}%</span>}
+            </div>
+            <div className={styles.headerActions}>
+              {collapsed ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+            </div>
+          </div>
+
+          {active > 0 && (
+            <div className={styles.headerProgress}>
+              <div className={styles.headerProgressFill} style={{ width: `${overallPct}%` }} />
+            </div>
+          )}
+
+          {!collapsed && (
+            <div className={styles.list}>
+              {visibleTransfers.map(t => (
+                <TransferItem key={t.id} t={t} onCancel={cancelTransfer} onRemove={removeTransfer} />
+              ))}
+            </div>
+          )}
         </div>
       )}
-    </div>
+    </>
   );
 }

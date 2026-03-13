@@ -13,7 +13,7 @@
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 12px;
+  padding: 10px 12px;
   margin-bottom: 12px;
 }
 
@@ -23,28 +23,13 @@
   align-items: center;
   font-size: 11px;
   color: var(--text-secondary);
-  margin-bottom: 8px;
+  margin-bottom: 4px;
 }
 
 .storageValue {
   font-family: var(--font-mono);
   font-size: 10px;
   color: var(--accent-bright);
-}
-
-.storageBar {
-  height: 3px;
-  background: var(--bg-hover);
-  border-radius: 99px;
-  overflow: hidden;
-  margin-bottom: 6px;
-}
-
-.storageFill {
-  height: 100%;
-  background: linear-gradient(90deg, var(--accent), var(--teal));
-  border-radius: 99px;
-  transition: width 0.6s ease;
 }
 
 .storageNote {

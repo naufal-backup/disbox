@@ -4,7 +4,7 @@ import {
   Upload, FolderPlus, Grid3x3, List, Search,
   Download, Trash2, Edit3, Folder, Lock, Unlock, Star,
   ChevronRight, Home, Move, Copy, Check, AlertCircle, ZoomIn,
-  CheckCircle, RefreshCw, Clock
+  CheckCircle, RefreshCw, Clock, ArrowUpDown, ChevronDown
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useApp } from '../AppContext.jsx';
@@ -39,7 +39,7 @@ function enqueueThumb(id, task) {
   });
 }
 
-function FileThumbnail({ file }) {
+function FileThumbnail({ file, size = 32 }) {
   const { api, showPreviews, showImagePreviews, showVideoPreviews, addTransfer, updateTransfer, removeTransfer } = useApp();
   const [thumbUrl, setThumbUrl] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -191,32 +191,9 @@ function FileThumbnail({ file }) {
     </div>;
     if (loading) return <div className="skeleton" style={{ width: '100%', height: '100%', borderRadius: 6 }} />;
   }
-  return <span style={{ fontSize: 32 }}>{getFileIcon(name)}</span>;
+  return <span style={{ fontSize: size }}>{getFileIcon(name)}</span>;
 }
 
-function MetadataStatusIndicator() {
-  const { metadataStatus } = useApp();
-  const getIcon = () => {
-    switch (metadataStatus?.status) {
-      case 'synced': return <CheckCircle size={14} style={{ color: 'var(--teal)' }} />;
-      case 'uploading': return <RefreshCw size={14} className="spin" style={{ color: 'var(--accent-bright)' }} />;
-      case 'dirty': return <Clock size={14} style={{ color: 'var(--amber)' }} />;
-      case 'error': return <AlertCircle size={14} style={{ color: 'var(--red)' }} />;
-      default: return null;
-    }
-  };
-  const getLabel = () => {
-    switch (metadataStatus?.status) {
-      case 'synced': return 'Synced';
-      case 'uploading': return 'Uploading...';
-      case 'dirty': return 'Pending';
-      case 'error': return 'Sync Error';
-      default: return '';
-    }
-  };
-  if (!metadataStatus?.status) return null;
-  return <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--bg-elevated)', border: '1px solid var(--border)', padding: '0 10px', borderRadius: 'var(--radius-sm)', height: 32, marginRight: 4 }}>{getIcon()}<span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{getLabel()} {metadataStatus.items ? `(${metadataStatus.items})` : ''}</span></div>;
-}
 
 function PinPromptModal({ title, onSuccess, onClose }) {
   const { verifyPin, hasPin } = useApp();
@@ -284,11 +261,12 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
     addTransfer, updateTransfer, removeTransfer, cancelTransfer, 
     refresh, loading, movePath, copyPath, deletePath, 
     bulkDelete, bulkMove, bulkCopy, uiScale,
-    setLocked, setStarred, verifyPin, hasPin, isVerified
+    setLocked, setStarred, verifyPin, hasPin, isVerified, t
   } = useApp();
 
   const [viewMode, setViewMode] = useState('grid');
   const [zoom, setZoom] = useState(() => Number(localStorage.getItem('disbox_zoom')) || 1);
+  const [sortMode, setSortMode] = useState(() => localStorage.getItem('disbox_sort') || 'name');
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
 
@@ -300,6 +278,10 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
   useEffect(() => {
     localStorage.setItem('disbox_zoom', zoom.toString());
   }, [zoom]);
+
+  useEffect(() => {
+    localStorage.setItem('disbox_sort', sortMode);
+  }, [sortMode]);
 
   const [selectedFiles, setSelectedFiles] = useState(new Set());
   const [contextMenu, setContextMenu] = useState(null);
@@ -315,8 +297,35 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
   const [previewFile, setPreviewFile] = useState(null);
   const [pinPrompt, setPinPrompt] = useState(null); // { title, onSuccess }
   const [showBreadcrumbMenu, setShowBreadcrumbMenu] = useState(false);
+  const [showSortMenu, setShowSortMenu] = useState(false);
   const [isLastPartTruncated, setIsLastPartTruncated] = useState(false);
   const activeFolderRef = useRef(null);
+  const contextMenuRef = useRef(null);
+
+  useEffect(() => {
+    if (contextMenu && contextMenuRef.current) {
+      const menu = contextMenuRef.current;
+      const rect = menu.getBoundingClientRect();
+      const winW = window.innerWidth;
+      const winH = window.innerHeight;
+
+      let { x, y } = contextMenu;
+      
+      // Adjust X if menu goes off screen
+      if (x + rect.width > winW - 10) {
+        x = winW - rect.width - 10;
+      }
+      
+      // Adjust Y if menu goes off screen
+      if (y + rect.height > winH - 10) {
+        y = winH - rect.height - 10;
+      }
+
+      if (x !== contextMenu.x || y !== contextMenu.y) {
+        setContextMenu(prev => ({ ...prev, x, y }));
+      }
+    }
+  }, [contextMenu]);
 
   useEffect(() => {
     if (activeFolderRef.current) {
@@ -338,6 +347,7 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
     const dirsMap = new Map();
     const sizes = new Map();
     const locks = new Map(); // { path: { count, lockedCount } }
+    const dates = new Map(); // Track max createdAt for folders
     const starredFolders = new Set();
     const q = debouncedSearch.toLowerCase();
 
@@ -350,6 +360,10 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
         tempPath = tempPath ? `${tempPath}/${parts[i]}` : parts[i];
         sizes.set(tempPath, (sizes.get(tempPath) || 0) + (f.size || 0));
         
+        // Track dates (latest file in folder determines folder's date)
+        const currentMax = dates.get(tempPath) || 0;
+        if ((f.createdAt || 0) > currentMax) dates.set(tempPath, f.createdAt);
+
         // Track locks
         if (!locks.has(tempPath)) locks.set(tempPath, { count: 0, lockedCount: 0 });
         const l = locks.get(tempPath);
@@ -416,8 +430,13 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
         }
 
         if (shouldIncludeDir) {
-          if (q || isStarredView) {
-            // Flat list for Search or Starred
+          if (q) {
+            // Only include folder in results if its name matches the search query
+            if (dirName.toLowerCase().includes(q)) {
+              dirsMap.set(currentAcc, dirName);
+            }
+          } else if (isStarredView) {
+            // Flat list for Starred view
             dirsMap.set(currentAcc, dirName);
           } else if (isChildOfCurrent) {
             // Hierarchical for Drive and Locked
@@ -427,18 +446,40 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
       }
     });
 
+    const dirList = Array.from(dirsMap.entries()).map(([fullPath, name]) => ({
+      name,
+      fullPath,
+      createdAt: dates.get(fullPath) || 0,
+      size: sizes.get(fullPath) || 0
+    }));
+
+    // Apply Sorting
+    const sortFn = (a, b) => {
+      if (sortMode === 'name') {
+        const nameA = (a.name || a.path.split('/').pop()).toLowerCase();
+        const nameB = (b.name || b.path.split('/').pop()).toLowerCase();
+        return nameA.localeCompare(nameB);
+      }
+      if (sortMode === 'date') return (b.createdAt || 0) - (a.createdAt || 0);
+      if (sortMode === 'size') return (b.size || 0) - (a.size || 0);
+      return 0;
+    };
+
     if (isRecentView) {
       fileList.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    } else {
+      fileList.sort(sortFn);
+      dirList.sort(sortFn);
     }
 
     return {
       processedFiles: fileList,
-      processedDirs: Array.from(dirsMap.entries()).map(([fullPath, name]) => ({ name, fullPath })),
+      processedDirs: dirList,
       folderSizes: sizes,
       folderLocks: locks,
       folderStars: starredFolders
     };
-  }, [files, dirPath, debouncedSearch, isLockedView, isStarredView, isRecentView]);
+  }, [files, dirPath, debouncedSearch, isLockedView, isStarredView, isRecentView, sortMode]);
 
   const navigate = (path) => {
     setCurrentPath(path);
@@ -568,13 +609,37 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
     if (!renameTarget || !renameValue.trim()) { setRenameTarget(null); return; }
     const oldPath = renameTarget.path;
     const parts = oldPath.split('/');
-    parts[parts.length - 1] = renameValue.trim();
+    const newName = renameValue.trim();
+    parts[parts.length - 1] = newName;
     const newPath = parts.join('/');
     if (oldPath === newPath) { setRenameTarget(null); return; }
+
+    // Collision check
+    const parentDirPath = parts.slice(0, -1).join('/');
+    const exists = files.some(f => {
+      const fParts = f.path.split('/');
+      const fParent = fParts.slice(0, -1).join('/');
+      const fName = fParts[fParts.length - 1];
+      
+      if (fParent === parentDirPath) {
+        if (fName === '.keep') {
+          const folderName = fParts[fParts.length - 2];
+          return folderName === newName;
+        }
+        return fName === newName;
+      }
+      return false;
+    });
+
+    if (exists) {
+      toast.error('Nama sudah digunakan di folder ini');
+      return;
+    }
+
     try {
       await api.renamePath(oldPath, newPath, renameTarget.id);
       refresh();
-    } catch (e) { alert('Gagal rename: ' + e.message); }
+    } catch (e) { toast.error('Gagal rename: ' + e.message); }
     setRenameTarget(null);
   };
 
@@ -693,10 +758,11 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
   const handleDragStart = (e, itemPath, id = null) => {
     const itemKey = id || itemPath;
     if (isSelectionMode && selectedFiles.has(itemKey)) {
-      const payload = JSON.stringify({ bulk: true, items: [...selectedFiles] });
-      e.dataTransfer.setData('text/plain', payload);
+      const payload = { bulk: true, items: [...selectedFiles] };
+      const payloadStr = JSON.stringify(payload);
+      e.dataTransfer.setData('text/plain', payloadStr);
       e.dataTransfer.effectAllowed = 'move';
-      setDragSource('__bulk__');
+      setDragSource(payload);
       return;
     }
     const dragData = id || itemPath;
@@ -707,30 +773,68 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
 
   const handleDropMove = async (e, destDir) => {
     e.preventDefault();
-    const raw = e.dataTransfer.getData('text/plain') || dragSource;
-    if (!raw) return;
+    let raw = e.dataTransfer.getData('text/plain');
+    let data = raw;
+
+    // Fallback to dragSource if raw is empty or if we can parse it
+    if (!data || data === '') {
+      data = dragSource;
+    } else {
+      try {
+        const parsed = JSON.parse(data);
+        if (parsed && typeof parsed === 'object') data = parsed;
+      } catch (_) {
+        // Not JSON, keep as string
+      }
+    }
+
+    if (!data) return;
     if (e.dataTransfer.files.length > 0) return;
     const normalizedDest = destDir.startsWith('/') ? destDir.slice(1) : destDir;
-    let parsed = null; try { parsed = JSON.parse(raw); } catch (_) {}
-    if (parsed?.bulk && Array.isArray(parsed.items)) {
-      const items = parsed.items;
+
+    // Handle Bulk Move
+    if (data.bulk && Array.isArray(data.items)) {
+      const items = data.items;
       for (const target of items) {
         const isId = target.includes('-') && target.length > 30;
         let srcPath = target;
         if (isId) { const f = files.find(x => x.id === target); if (f) srcPath = f.path; }
-        if (normalizedDest === srcPath || normalizedDest.startsWith(srcPath + '/')) { toast.error('Tidak bisa memindahkan ke dalam folder itu sendiri'); setDragSource(null); return; }
+        if (normalizedDest === srcPath || normalizedDest.startsWith(srcPath + '/')) {
+          toast.error('Tidak bisa memindahkan ke dalam folder itu sendiri');
+          setDragSource(null); return;
+        }
       }
-      try { await api.bulkMove(items, normalizedDest); toast.success(`${items.length} item dipindahkan`); clearSelection(); } catch (err) { toast.error('Gagal pindah: ' + err.message); }
+      const ok = await bulkMove(items, normalizedDest);
+      if (ok) {
+        toast.success(`${items.length} item dipindahkan`);
+        clearSelection();
+      } else {
+        toast.error('Gagal memindahkan beberapa item');
+      }
       setDragSource(null); return;
     }
-    const source = raw; if (source.startsWith('http')) return;
+
+    // Handle Single Move
+    const source = typeof data === 'string' ? data : null;
+    if (!source || source.startsWith('http')) { setDragSource(null); return; }
+    
     const isId = source.includes('-') && source.length > 30;
     let sourcePath = source;
     if (isId) { const f = files.find(x => x.id === source); if (f) sourcePath = f.path; }
+    
     const sourceParent = sourcePath.split('/').slice(0, -1).join('/');
     if (sourceParent === normalizedDest) { setDragSource(null); return; }
-    if (sourcePath === normalizedDest || normalizedDest.startsWith(sourcePath + '/')) { toast.error('Tidak bisa memindahkan ke folder yang sama atau sub-folder'); setDragSource(null); return; }
-    try { if (isId) await api.bulkMove([source], normalizedDest); else await movePath(source, normalizedDest); toast.success('Dipindahkan'); } catch (err) { toast.error('Gagal pindah'); }
+    if (sourcePath === normalizedDest || normalizedDest.startsWith(sourcePath + '/')) {
+      toast.error('Tidak bisa memindahkan ke folder yang sama atau sub-folder');
+      setDragSource(null); return;
+    }
+    
+    const ok = await (isId ? bulkMove([source], normalizedDest) : movePath(sourcePath, normalizedDest));
+    if (ok) {
+      toast.success('Dipindahkan');
+    } else {
+      toast.error('Gagal pindah');
+    }
     setDragSource(null);
   };
 
@@ -808,11 +912,15 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
   }, [selectedFiles, contextMenu]);
 
   return (
-    <div className={`${styles.container} ${isDragOver ? styles.dragOver : ''} ${isSelectionMode ? styles.isSelectionMode : ''}`} style={{ '--zoom': zoom }} onDragOver={(e) => { e.preventDefault(); if (e.dataTransfer.types.includes('Files')) setIsDragOver(true); }} onDragLeave={() => setIsDragOver(false)} onDrop={(e) => { setIsDragOver(false); if (e.dataTransfer.files.length > 0) handleDropZone(e); }} onClick={() => { setContextMenu(null); if (!isSelectionMode) clearSelection(); }} onContextMenu={(e) => { if (e.target === e.currentTarget || e.target.classList.contains(styles.content) || e.target.classList.contains(styles.grid)) { e.preventDefault(); setContextMenu({ x: e.clientX / uiScale, y: e.clientY / uiScale, type: 'empty' }); } }}>
+    <div className={`${styles.container} ${isDragOver ? styles.dragOver : ''} ${isSelectionMode ? styles.isSelectionMode : ''}`} style={{ '--zoom': zoom }} onDragOver={(e) => { e.preventDefault(); if (e.dataTransfer.types.includes('Files')) setIsDragOver(true); }} onDragLeave={() => setIsDragOver(false)} onDrop={(e) => { setIsDragOver(false); if (e.dataTransfer.files.length > 0) handleDropZone(e); }} onClick={() => { setContextMenu(null); if (!isSelectionMode) clearSelection(); }} onContextMenu={(e) => { 
+      if (e.target.closest('.' + styles.toolbar)) return;
+      e.preventDefault(); 
+      setContextMenu({ x: e.clientX / uiScale, y: e.clientY / uiScale, type: 'empty' }); 
+    }}>
       <div className={styles.toolbar}>
         {(() => {
           const totalChars = pathParts.join('').length + (pathParts.length * 3);
-          const isCompact = totalChars > 60 && pathParts.length > 1;
+          const isCompact = (totalChars > 45 || pathParts.length > 4) && pathParts.length > 1;
           const lastPart = pathParts[pathParts.length - 1] || '';
           const displayLen = isCompact ? (10 + lastPart.length) : totalChars;
           const isShort = displayLen < 160;
@@ -827,7 +935,7 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
                 <ChevronRight size={12} className={styles.breadcrumbSep} />
                 <div style={{ position: 'relative', display: 'flex', alignItems: 'center', zIndex: showBreadcrumbMenu ? 1001 : 'auto' }}>
                   <button className={`${styles.breadcrumbItem} ${styles.breadcrumbEllipsis}`} onClick={(e) => { e.stopPropagation(); setShowBreadcrumbMenu(!showBreadcrumbMenu); }}>...</button>
-                  {showBreadcrumbMenu && <><div className={styles.breadcrumbBackdrop} onClick={() => setShowBreadcrumbMenu(false)} /><div className={styles.breadcrumbMenu}>{pathParts.slice(0, -1).map((part, i) => { const targetPath = '/' + pathParts.slice(0, i + 1).join('/'); return <button key={i} className={styles.breadcrumbMenuItem} style={{ paddingLeft: 12 + (i * 12) }} onClick={() => { navigate(targetPath); setShowBreadcrumbMenu(false); }}><div className={styles.menuBranch} style={{ left: 8 + (i * 12) }} /><Folder size={12} style={{ color: 'var(--amber)', flexShrink: 0 }} /><span className="truncate">{part}</span></button>; })}</div></>}
+                  {showBreadcrumbMenu && <><div className={styles.breadcrumbBackdrop} onClick={(e) => { e.stopPropagation(); setShowBreadcrumbMenu(false); }} /><div className={styles.breadcrumbMenu}>{pathParts.slice(0, -1).map((part, i) => { const targetPath = '/' + pathParts.slice(0, i + 1).join('/'); return <button key={i} className={styles.breadcrumbMenuItem} style={{ paddingLeft: 12 + (i * 12) }} onClick={() => { navigate(targetPath); setShowBreadcrumbMenu(false); }}><div className={styles.menuBranch} style={{ left: 8 + (i * 12) }} /><Folder size={12} style={{ color: 'var(--amber)', flexShrink: 0 }} /><span className="truncate">{part}</span></button>; })}</div></>}
                 </div>
                 <ChevronRight size={12} className={styles.breadcrumbSep} />
                 <button ref={activeFolderRef} className={`${styles.breadcrumbItem} ${styles.breadcrumbActive}`} onClick={() => navigate('/' + pathParts.join('/'))}>{lastPart}</button>
@@ -836,16 +944,43 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
           );
         })()}
         <div className={styles.toolbarRight}>
-          <div className={styles.searchBox}><Search size={13} /><input type="text" placeholder="Cari file…" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className={styles.searchInput} /></div>
+          <div className={styles.searchBox}><Search size={13} /><input type="text" placeholder={t('search')} value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className={styles.searchInput} /></div>
+          <div className={styles.sortBoxContainer}>
+            <button className={styles.sortBox} onClick={(e) => { e.stopPropagation(); setShowSortMenu(!showSortMenu); }}>
+              <ArrowUpDown size={12} className={styles.sortIconMain} />
+              <span className={styles.sortText}>
+                {sortMode === 'name' ? t('sort_name') : sortMode === 'date' ? t('sort_date') : t('sort_size')}
+              </span>
+              <ChevronDown size={12} className={`${styles.sortIconArrow} ${showSortMenu ? styles.rotated : ''}`} />
+            </button>
+            {showSortMenu && (
+              <>
+                <div className={styles.menuBackdrop} onClick={(e) => { e.stopPropagation(); setShowSortMenu(false); }} />
+                <div className={styles.sortMenu}>
+                  <button className={`${styles.sortMenuItem} ${sortMode === 'name' ? styles.active : ''}`} onClick={() => { setSortMode('name'); setShowSortMenu(false); }}>
+                    <div className={styles.checkIcon}>{sortMode === 'name' && <Check size={12} />}</div>
+                    {t('sort_name')}
+                  </button>
+                  <button className={`${styles.sortMenuItem} ${sortMode === 'date' ? styles.active : ''}`} onClick={() => { setSortMode('date'); setShowSortMenu(false); }}>
+                    <div className={styles.checkIcon}>{sortMode === 'date' && <Check size={12} />}</div>
+                    {t('sort_date')}
+                  </button>
+                  <button className={`${styles.sortMenuItem} ${sortMode === 'size' ? styles.active : ''}`} onClick={() => { setSortMode('size'); setShowSortMenu(false); }}>
+                    <div className={styles.checkIcon}>{sortMode === 'size' && <Check size={12} />}</div>
+                    {t('sort_size')}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
           <div className={styles.viewToggle}><button className={`${styles.viewBtn} ${viewMode === 'grid' ? styles.viewActive : ''}`} onClick={() => setViewMode('grid')}><Grid3x3 size={13} /></button><button className={`${styles.viewBtn} ${viewMode === 'list' ? styles.viewActive : ''}`} onClick={() => setViewMode('list')}><List size={13} /></button></div>
           <div className={styles.zoomBox}><ZoomIn size={13} /><input type="range" min="0.6" max="1.8" step="0.1" value={zoom} onChange={e => setZoom(parseFloat(e.target.value))} className={styles.zoomSlider} /></div>
-          <button className={styles.folderBtn} onClick={() => setShowCreateFolder(true)} title="Folder Baru"><FolderPlus size={14} /></button>
-          <MetadataStatusIndicator />
-          <button className={styles.uploadBtn} onClick={handlePickFiles} disabled={uploading}><Upload size={14} /><span>{uploading ? 'Uploading…' : 'Upload'}</span></button>
+          <button className={styles.folderBtn} onClick={() => setShowCreateFolder(true)} title={t('new_folder')}><FolderPlus size={14} /></button>
+          <button className={styles.uploadBtn} onClick={handlePickFiles} disabled={uploading}><Upload size={14} /><span>{uploading ? 'Uploading…' : t('upload')}</span></button>
         </div>
       </div>
       <div className={styles.content} ref={contentRef} style={{ position: 'relative' }}>
-        {loading && processedFiles.length === 0 && processedDirs.length === 0 ? <div className={styles.loading}>{[...Array(6)].map((_, i) => <div key={i} className={`skeleton ${styles.skeletonCard}`} />)}</div> : processedFiles.length === 0 && processedDirs.length === 0 ? <div className={styles.empty}><div className={styles.emptyIcon}>📂</div><p className={styles.emptyTitle}>Folder kosong</p><p className={styles.emptyHint}>Drop file di sini atau klik Upload</p></div> : viewMode === 'grid' ? (
+        {loading && processedFiles.length === 0 && processedDirs.length === 0 ? <div className={styles.loading}>{[...Array(6)].map((_, i) => <div key={i} className={`skeleton ${styles.skeletonCard}`} />)}</div> : processedFiles.length === 0 && processedDirs.length === 0 ? <div className={styles.empty}><div className={styles.emptyIcon}>📂</div><p className={styles.emptyTitle}>{t('empty_folder')}</p><p className={styles.emptyHint}>{t('empty_hint')}</p></div> : viewMode === 'grid' ? (
           <div className={styles.grid}>
             {processedDirs.map(({ name: dir, fullPath }) => {
               const folderSize = folderSizes.get(fullPath) || 0;
@@ -853,8 +988,8 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
               const isLocked = l && l.count > 0 && l.lockedCount === l.count;
               const isStarred = folderStars.has(fullPath);
               const isPartOfSelection = selectedFiles.has(fullPath);
-              const canBeDropTarget = dragSource === '__bulk__' ? !isPartOfSelection : (fullPath !== dragSource && !fullPath.startsWith((dragSource || '') + '/'));
-              return <div key={fullPath} data-item-id={fullPath} className={`${styles.card} ${isPartOfSelection ? styles.selected : ''} ${dragOverTarget === fullPath ? styles.isDragTarget : ''}`} draggable onDragStart={(e) => handleDragStart(e, fullPath)} onDragOver={(e) => { e.preventDefault(); if (canBeDropTarget) { e.dataTransfer.dropEffect = 'move'; if (dragOverTarget !== fullPath) setDragOverTarget(fullPath); } }} onDragLeave={(e) => { const rect = e.currentTarget.getBoundingClientRect(); if (e.clientX < rect.left || e.clientX >= rect.right || e.clientY < rect.top || e.clientY >= rect.bottom) setDragOverTarget(null); }} onDrop={(e) => { setDragOverTarget(null); handleDropMove(e, fullPath); }} onDoubleClick={() => handleFolderClick(fullPath)} onClick={(e) => toggleSelect(fullPath, e)} onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX / uiScale, y: e.clientY / uiScale, path: fullPath, isFolder: true }); }}><div className={styles.checkbox}><Check size={12} strokeWidth={3} /></div>{isLocked && <div className={styles.lockOverlay}><Lock size={12} /></div>}{isStarred && <div className={styles.starOverlay}><Star size={12} fill="currentColor" /></div>}<div className={styles.cardIcon}><Folder size={32} strokeWidth={1.5} style={{ color: 'var(--amber)' }} /></div><div className={styles.cardName} title={dir}>{renameTarget?.path === fullPath ? <input className={styles.renameInput} value={renameValue} onChange={e => setRenameValue(e.target.value)} onBlur={commitRename} onKeyDown={e => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setRenameTarget(null); }} autoFocus onClick={e => e.stopPropagation()} /> : dir}</div><div className={styles.cardMeta}>Folder</div><div className={styles.infoBadge}><span>{formatSize(folderSize)}</span></div></div>;
+              const canBeDropTarget = dragSource?.bulk ? !isPartOfSelection : (dragSource && fullPath !== dragSource && !fullPath.startsWith(dragSource + '/'));
+              return <div key={fullPath} data-item-id={fullPath} className={`${styles.card} ${isPartOfSelection ? styles.selected : ''} ${dragOverTarget === fullPath ? styles.isDragTarget : ''}`} draggable onDragStart={(e) => handleDragStart(e, fullPath)} onDragOver={(e) => { const types = Array.from(e.dataTransfer.types); if (canBeDropTarget || types.includes('Files')) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dragOverTarget !== fullPath) setDragOverTarget(fullPath); } }} onDragLeave={(e) => { const rect = e.currentTarget.getBoundingClientRect(); if (e.clientX < rect.left || e.clientX >= rect.right || e.clientY < rect.top || e.clientY >= rect.bottom) setDragOverTarget(null); }} onDrop={(e) => { setDragOverTarget(null); handleDropMove(e, fullPath); }} onDoubleClick={() => handleFolderClick(fullPath)} onClick={(e) => toggleSelect(fullPath, e)} onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX / uiScale, y: e.clientY / uiScale, path: fullPath, isFolder: true }); }}><div className={styles.checkbox}><Check size={12} strokeWidth={3} /></div>{isLocked && <div className={styles.lockOverlay}><Lock size={12} /></div>}{isStarred && <div className={styles.starOverlay}><Star size={12} fill="currentColor" /></div>}<div className={styles.cardIcon}><Folder size={32} strokeWidth={1.5} style={{ color: 'var(--amber)' }} /></div><div className={styles.cardName} title={dir}>{renameTarget?.path === fullPath ? <input className={styles.renameInput} value={renameValue} onChange={e => setRenameValue(e.target.value)} onBlur={commitRename} onKeyDown={e => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setRenameTarget(null); }} autoFocus onClick={e => e.stopPropagation()} /> : dir}</div><div className={styles.cardMeta}>Folder</div><div className={styles.infoBadge}><span>{formatSize(folderSize)}</span></div></div>;
             })}
             {processedFiles.map(file => {
               const name = file.path.split('/').pop();
@@ -863,34 +998,42 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
           </div>
         ) : (
           <div className={styles.list}>
-            <div className={styles.listHeader}><span style={{ width: 30 }}></span><span style={{ flex: 1 }}>Nama</span><span style={{ width: 100, textAlign: 'right' }}>Ukuran</span><span style={{ width: 120 }}></span></div>
+            <div className={styles.listHeader}>
+              <span className={styles.listColCheck}></span>
+              <span className={styles.listColName}>Nama</span>
+              <span className={styles.listColSize}>Ukuran</span>
+              <span className={styles.listColActions}></span>
+            </div>
             {processedDirs.map(({ name: dir, fullPath }) => {
               const folderSize = folderSizes.get(fullPath) || 0;
               const l = folderLocks.get(fullPath);
               const isLocked = l && l.count > 0 && l.lockedCount === l.count;
               const isStarred = folderStars.has(fullPath);
               const isPartOfSelection = selectedFiles.has(fullPath);
-              const canBeDropTarget = dragSource === '__bulk__' ? !isPartOfSelection : (fullPath !== dragSource && !fullPath.startsWith((dragSource || '') + '/'));
-              return <div key={fullPath} data-item-id={fullPath} className={`${styles.listRow} ${isPartOfSelection ? styles.selected : ''} ${dragOverTarget === fullPath ? styles.isDragTarget : ''}`} draggable onDragStart={(e) => handleDragStart(e, fullPath)} onDragOver={(e) => { e.preventDefault(); if (canBeDropTarget) { e.dataTransfer.dropEffect = 'move'; if (dragOverTarget !== fullPath) setDragOverTarget(fullPath); } }} onDragLeave={(e) => { const rect = e.currentTarget.getBoundingClientRect(); if (e.clientX < rect.left || e.clientX >= rect.right || e.clientY < rect.top || e.clientY >= rect.bottom) setDragOverTarget(null); }} onDrop={(e) => { setDragOverTarget(null); handleDropMove(e, fullPath); }} onDoubleClick={() => handleFolderClick(fullPath)} onClick={(e) => toggleSelect(fullPath, e)} onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX / uiScale, y: e.clientY / uiScale, path: fullPath, isFolder: true }); }}><div className={styles.listCheckbox}>{selectedFiles.has(fullPath) && <Check size={10} strokeWidth={4} />}</div><div className={styles.listIcon}>{isLocked ? <Lock size={14} style={{ color: 'var(--accent-bright)' }} /> : isStarred ? <Star size={14} fill="var(--amber)" style={{ color: 'var(--amber)' }} /> : <Folder size={16} style={{ color: 'var(--amber)' }} />}</div><span className={`${styles.listName} truncate`}>{renameTarget?.path === fullPath ? <input className={styles.renameInput} value={renameValue} onChange={e => setRenameValue(e.target.value)} onBlur={commitRename} onKeyDown={e => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setRenameTarget(null); }} autoFocus onClick={e => e.stopPropagation()} /> : dir}</span><span className={styles.listSize}>—</span><div className={styles.listActions} onClick={e => e.stopPropagation()}><button className={styles.iconBtn} onClick={() => setMoveModal({ path: fullPath, mode: 'move' })} title="Pindah"><Move size={13} /></button><button className={styles.iconBtn} onClick={() => setMoveModal({ path: fullPath, mode: 'copy' })} title="Salin"><Copy size={13} /></button><button className={styles.iconBtn} onClick={() => startRename(fullPath, true)} title="Rename"><Edit3 size={13} /></button></div></div>;
+              const canBeDropTarget = dragSource?.bulk ? !isPartOfSelection : (dragSource && fullPath !== dragSource && !fullPath.startsWith(dragSource + '/'));
+              const iconSize = Math.max(20, 22 * zoom);
+              return <div key={fullPath} data-item-id={fullPath} className={`${styles.listRow} ${isPartOfSelection ? styles.selected : ''} ${dragOverTarget === fullPath ? styles.isDragTarget : ''}`} draggable onDragStart={(e) => handleDragStart(e, fullPath)} onDragOver={(e) => { const types = Array.from(e.dataTransfer.types); if (canBeDropTarget || types.includes('Files')) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dragOverTarget !== fullPath) setDragOverTarget(fullPath); } }} onDragLeave={(e) => { const rect = e.currentTarget.getBoundingClientRect(); if (e.clientX < rect.left || e.clientX >= rect.right || e.clientY < rect.top || e.clientY >= rect.bottom) setDragOverTarget(null); }} onDrop={(e) => { setDragOverTarget(null); handleDropMove(e, fullPath); }} onDoubleClick={() => handleFolderClick(fullPath)} onClick={(e) => toggleSelect(fullPath, e)} onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX / uiScale, y: e.clientY / uiScale, path: fullPath, isFolder: true }); }}><div className={styles.listCheckbox}>{selectedFiles.has(fullPath) && <Check size={10} strokeWidth={4} />}</div>
+<div className={styles.listIcon} style={{ width: `calc(28px * var(--zoom))`, flexShrink: 0 }}>{isLocked ? <Lock size={iconSize - 2} style={{ color: 'var(--accent-bright)' }} /> : isStarred ? <Star size={iconSize - 2} fill="var(--amber)" style={{ color: 'var(--amber)' }} /> : <Folder size={iconSize} style={{ color: 'var(--amber)' }} />}</div><span className={`${styles.listName} truncate`} style={{ fontSize: `calc(12px * var(--zoom))`, lineHeight: 1.2 }}>{renameTarget?.path === fullPath ? <input className={styles.renameInput} value={renameValue} onChange={e => setRenameValue(e.target.value)} onBlur={commitRename} onKeyDown={e => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setRenameTarget(null); }} autoFocus onClick={e => e.stopPropagation()} /> : dir}</span><span className={styles.listSize}>{formatSize(folderSize)}</span><div className={styles.listActions} onClick={e => e.stopPropagation()}><button className={styles.iconBtn} onClick={() => setMoveModal({ path: fullPath, mode: 'move' })} title="Pindah"><Move size={13} /></button><button className={styles.iconBtn} onClick={() => setMoveModal({ path: fullPath, mode: 'copy' })} title="Salin"><Copy size={13} /></button><button className={styles.iconBtn} onClick={() => startRename(fullPath, true)} title="Rename"><Edit3 size={13} /></button></div></div>;
             })}
             {processedFiles.map(file => {
               const name = file.path.split('/').pop();
-              return <div key={file.id || file.path} data-item-id={file.id} className={`${styles.listRow} ${selectedFiles.has(file.id) ? styles.selected : ''}`} draggable onDragStart={(e) => handleDragStart(e, file.path, file.id)} onClick={(e) => toggleSelect(file.id, e)} onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX / uiScale, y: e.clientY / uiScale, path: file.path, file, isFolder: false }); }} onDoubleClick={() => handleFileClick(file)}><div className={styles.listCheckbox}>{selectedFiles.has(file.id) && <Check size={10} strokeWidth={4} />}</div><div className={styles.listIcon} style={{ width: 'calc(24px * var(--zoom))', height: 'calc(24px * var(--zoom))', display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: 4, flexShrink: 0 }}>{file.isLocked ? <Lock size={14} style={{ color: 'var(--accent-bright)' }} /> : file.isStarred ? <Star size={14} fill="var(--amber)" style={{ color: 'var(--amber)' }} /> : <FileThumbnail file={file} />}</div><span className={`${styles.listName} truncate`}>{renameTarget?.path === file.path && renameTarget?.id === file.id ? <input className={styles.renameInput} value={renameValue} onChange={e => setRenameValue(e.target.value)} onBlur={commitRename} onKeyDown={e => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setRenameTarget(null); }} autoFocus onClick={e => e.stopPropagation()} /> : name}</span><span className={styles.listSize}>{formatSize(file.size || 0)}</span><div className={styles.listActions} onClick={e => e.stopPropagation()}><button className={styles.iconBtn} onClick={() => handleDownloadClick(file)} title="Download"><Download size={13} /></button><button className={styles.iconBtn} onClick={() => setMoveModal({ id: file.id, path: file.path, mode: 'move' })} title="Pindah"><Move size={13} /></button><button className={styles.iconBtn} onClick={() => setMoveModal({ id: file.id, path: file.path, mode: 'copy' })} title="Salin"><Copy size={13} /></button><button className={styles.iconBtn} onClick={() => startRename(file.path, false, file.id)} title="Rename"><Edit3 size={13} /></button></div></div>;
+              const iconSize = Math.max(18, 20 * zoom);
+              return <div key={file.id || file.path} data-item-id={file.id} className={`${styles.listRow} ${selectedFiles.has(file.id) ? styles.selected : ''}`} draggable onDragStart={(e) => handleDragStart(e, file.path, file.id)} onClick={(e) => toggleSelect(file.id, e)} onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX / uiScale, y: e.clientY / uiScale, path: file.path, file, isFolder: false }); }} onDoubleClick={() => handleFileClick(file)}><div className={styles.listCheckbox}>{selectedFiles.has(file.id) && <Check size={10} strokeWidth={4} />}</div><div className={styles.listIcon} style={{ width: `calc(28px * var(--zoom))`, height: `calc(28px * var(--zoom))`, display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: 4, flexShrink: 0 }}>{file.isLocked ? <Lock size={iconSize} style={{ color: 'var(--accent-bright)' }} /> : file.isStarred ? <Star size={iconSize} fill="var(--amber)" style={{ color: 'var(--amber)' }} /> : <FileThumbnail file={file} size={iconSize} />}</div><span className={`${styles.listName} truncate`} style={{ fontSize: `calc(12px * var(--zoom))`, lineHeight: 1.2 }}>{renameTarget?.path === file.path && renameTarget?.id === file.id ? <input className={styles.renameInput} value={renameValue} onChange={e => setRenameValue(e.target.value)} onBlur={commitRename} onKeyDown={e => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setRenameTarget(null); }} autoFocus onClick={e => e.stopPropagation()} /> : name}</span><span className={styles.listSize}>{formatSize(file.size || 0)}</span><div className={styles.listActions} onClick={e => e.stopPropagation()}><button className={styles.iconBtn} onClick={() => handleDownloadClick(file)} title="Download"><Download size={13} /></button><button className={styles.iconBtn} onClick={() => setMoveModal({ id: file.id, path: file.path, mode: 'move' })} title="Pindah"><Move size={13} /></button><button className={styles.iconBtn} onClick={() => setMoveModal({ id: file.id, path: file.path, mode: 'copy' })} title="Salin"><Copy size={13} /></button><button className={styles.iconBtn} onClick={() => startRename(file.path, false, file.id)} title="Rename"><Edit3 size={13} /></button></div></div>;
             })}
           </div>
         )}
       </div>
       {contextMenu && <div className={styles.contextMenuBackdrop} onClick={() => setContextMenu(null)} onContextMenu={(e) => { e.preventDefault(); setContextMenu(null); }} />}
       {contextMenu && (
-        <div className={styles.contextMenu} style={{ top: contextMenu.y, left: contextMenu.x }} onClick={e => e.stopPropagation()}>
-          {contextMenu.type === 'empty' ? (<><button onClick={() => { setShowCreateFolder(true); setContextMenu(null); }}><FolderPlus size={13} /> Folder Baru</button><button onClick={() => { handlePickFiles(); setContextMenu(null); }}><Upload size={13} /> Upload File</button><div className={styles.contextDivider} /><button onClick={() => { refresh(); setContextMenu(null); }}><RefreshCw size={13} /> Refresh</button></>) : selectedFiles.size > 1 && selectedFiles.has(contextMenu.isFolder ? contextMenu.path : contextMenu.file?.id) ? (<><button onClick={() => { handleBulkMove('move'); setContextMenu(null); }}><Move size={13} /> Pindah {selectedFiles.size} item…</button><button onClick={() => { handleBulkMove('copy'); setContextMenu(null); }}><Copy size={13} /> Salin {selectedFiles.size} item…</button><div className={styles.contextDivider} /><button className={styles.dangerItem} onClick={() => { handleBulkDelete(); setContextMenu(null); }}><Trash2 size={13} /> Hapus {selectedFiles.size} item</button></>) : (<>{!contextMenu.isFolder && (<button onClick={() => { downloadFile(contextMenu.file); setContextMenu(null); }}><Download size={13} /> Download</button>)}<button onClick={() => { setMoveModal({ id: contextMenu.isFolder ? null : contextMenu.file?.id, path: contextMenu.path, mode: 'move' }); setContextMenu(null); }}><Move size={13} /> Pindah ke…</button><button onClick={() => { setMoveModal({ id: contextMenu.isFolder ? null : contextMenu.file?.id, path: contextMenu.path, mode: 'copy' }); setContextMenu(null); }}><Copy size={13} /> Salin ke…</button><button onClick={() => startRename(contextMenu.path, contextMenu.isFolder, contextMenu.isFolder ? null : contextMenu.file?.id)}><Edit3 size={13} /> Rename</button>{contextMenu.isFolder ? (() => {
+        <div ref={contextMenuRef} className={styles.contextMenu} style={{ top: contextMenu.y, left: contextMenu.x }} onClick={e => e.stopPropagation()}>
+          {contextMenu.type === 'empty' ? (<><button onClick={() => { setShowCreateFolder(true); setContextMenu(null); }}><FolderPlus size={13} /> {t('new_folder')}</button><button onClick={() => { handlePickFiles(); setContextMenu(null); }}><Upload size={13} /> {t('upload')} File</button><div className={styles.contextDivider} /><button onClick={() => { refresh(); setContextMenu(null); }}><RefreshCw size={13} /> {t('refresh')}</button></>) : selectedFiles.size > 1 && selectedFiles.has(contextMenu.isFolder ? contextMenu.path : contextMenu.file?.id) ? (<><button onClick={() => { handleBulkMove('move'); setContextMenu(null); }}><Move size={13} /> {t('pindah_item', { count: selectedFiles.size })}</button><button onClick={() => { handleBulkMove('copy'); setContextMenu(null); }}><Copy size={13} /> {t('salin_item', { count: selectedFiles.size })}</button><div className={styles.contextDivider} /><button className={styles.dangerItem} onClick={() => { handleBulkDelete(); setContextMenu(null); }}><Trash2 size={13} /> {t('hapus_item', { count: selectedFiles.size })}</button></>) : (<>{!contextMenu.isFolder && (<button onClick={() => { downloadFile(contextMenu.file); setContextMenu(null); }}><Download size={13} /> {t('download')}</button>)}<button onClick={() => { setMoveModal({ id: contextMenu.isFolder ? null : contextMenu.file?.id, path: contextMenu.path, mode: 'move' }); setContextMenu(null); }}><Move size={13} /> {t('move')}</button><button onClick={() => { setMoveModal({ id: contextMenu.isFolder ? null : contextMenu.file?.id, path: contextMenu.path, mode: 'copy' }); setContextMenu(null); }}><Copy size={13} /> {t('copy')}</button><button onClick={() => startRename(contextMenu.path, contextMenu.isFolder, contextMenu.isFolder ? null : contextMenu.file?.id)}><Edit3 size={13} /> {t('rename')}</button>{contextMenu.isFolder ? (() => {
             const l = folderLocks.get(contextMenu.path);
             const isLocked = l && l.count > 0 && l.lockedCount === l.count;
-            return <button onClick={() => handleToggleLock(contextMenu.path, null, !isLocked)}>{isLocked ? <><Unlock size={13} /> Buka Kunci</> : <><Lock size={13} /> Kunci Folder</>}</button>;
-          })() : <button onClick={() => handleToggleLock(contextMenu.path, contextMenu.file?.id, !contextMenu.file?.isLocked)}>{contextMenu.file?.isLocked ? <><Unlock size={13} /> Buka Kunci</> : <><Lock size={13} /> Kunci File</>}</button>}{contextMenu.isFolder ? (() => {
+            return <button onClick={() => handleToggleLock(contextMenu.path, null, !isLocked)}>{isLocked ? <><Unlock size={13} /> {t('unlock')}</> : <><Lock size={13} /> {t('lock')}</>}</button>;
+          })() : <button onClick={() => handleToggleLock(contextMenu.path, contextMenu.file?.id, !contextMenu.file?.isLocked)}>{contextMenu.file?.isLocked ? <><Unlock size={13} /> {t('unlock')}</> : <><Lock size={13} /> {t('lock')}</>}</button>}{contextMenu.isFolder ? (() => {
             const isStarred = folderStars.has(contextMenu.path);
-            return <button onClick={() => handleToggleStar(contextMenu.path, null, !isStarred)}>{isStarred ? <><Star size={13} fill="currentColor" /> Hapus Star</> : <><Star size={13} /> Beri Star</>}</button>;
-          })() : <button onClick={() => handleToggleStar(contextMenu.path, contextMenu.file?.id, !contextMenu.file?.isStarred)}>{contextMenu.file?.isStarred ? <><Star size={13} fill="currentColor" /> Hapus Star</> : <><Star size={13} /> Beri Star</>}</button>}<div className={styles.contextDivider} /><button className={styles.dangerItem} onClick={() => { handleDelete(contextMenu.path, contextMenu.isFolder ? null : contextMenu.file?.id); setContextMenu(null); }}><Trash2 size={13} /> Hapus</button></>)}
+            return <button onClick={() => handleToggleStar(contextMenu.path, null, !isStarred)}>{isStarred ? <><Star size={13} fill="currentColor" /> {t('unstar')}</> : <><Star size={13} /> {t('star')}</>}</button>;
+          })() : <button onClick={() => handleToggleStar(contextMenu.path, contextMenu.file?.id, !contextMenu.file?.isStarred)}>{contextMenu.file?.isStarred ? <><Star size={13} fill="currentColor" /> {t('unstar')}</> : <><Star size={13} /> {t('star')}</>}</button>}<div className={styles.contextDivider} /><button className={styles.dangerItem} onClick={() => { handleDelete(contextMenu.path, contextMenu.isFolder ? null : contextMenu.file?.id); setContextMenu(null); }}><Trash2 size={13} /> {t('delete')}</button></>)}
         </div>
       )}
       {isDragOver && <div className={styles.dropOverlay}><Upload size={40} /><p>Drop untuk upload</p></div>}

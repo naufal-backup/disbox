@@ -70,6 +70,14 @@ const Database = require('better-sqlite3');
 const DB_PATH = path.join(METADATA_DIR, 'disbox.db');
 const db = new Database(DB_PATH);
 
+// [OPTIMIZATION] Enable WAL mode and other performance tweaks
+db.exec(`
+  PRAGMA journal_mode = WAL;
+  PRAGMA synchronous = NORMAL;
+  PRAGMA cache_size = -16000; -- 16MB cache
+  PRAGMA journal_size_limit = 67108864; -- 64MB journal limit
+`);
+
 // [FIX] Cek dan migrate tabel files SEBELUM membuat index yang butuh kolom hash
 // Ini harus jalan duluan karena CREATE INDEX IF NOT EXISTS akan error
 // jika tabel sudah ada tapi belum punya kolom hash
@@ -230,7 +238,8 @@ migrateJsonToSqlite();
 // Preferensi default
 let prefs = {
   closeToTray: false,
-  startMinimized: false
+  startMinimized: false,
+  autoCloseTransfers: true
 };
 
 const PREFS_PATH = path.join(METADATA_DIR, 'preferences.json');
