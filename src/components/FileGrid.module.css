@@ -554,8 +554,8 @@
 }
 
 .cardName {
-  font-size: calc(11px * var(--zoom));
-  font-weight: 500;
+  font-size: calc(10.5px * var(--zoom));
+  font-weight: 400;
   text-align: center;
   color: var(--text-primary);
   width: 100%;
@@ -563,24 +563,24 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.cardMeta { font-size: calc(10px * var(--zoom)); color: var(--text-muted); font-family: var(--font-mono); }
+.cardMeta { font-size: calc(9px * var(--zoom)); color: var(--text-muted); font-family: var(--font-mono); opacity: 0.8; }
 
 /* ── List View ── */
 .list { 
   display: flex; 
   flex-direction: column; 
-  font-size: calc(11.5px * var(--zoom));
+  font-size: calc(11px * var(--zoom));
 }
 
 .listHeader {
   display: flex;
   align-items: center;
   padding: 6px 12px;
-  font-size: calc(9.5px * var(--zoom));
-  font-weight: 600;
+  font-size: calc(9px * var(--zoom));
+  font-weight: 500;
   color: var(--text-muted);
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.04em;
   border-bottom: 1px solid var(--border);
   margin-bottom: 4px;
 }
@@ -588,7 +588,7 @@
 .listRow {
   display: flex;
   align-items: center;
-  padding: calc(6px * var(--zoom)) 12px;
+  padding: calc(5px * var(--zoom)) 12px;
   border-radius: var(--radius-sm);
   cursor: pointer;
   gap: 10px;
