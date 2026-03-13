@@ -43,6 +43,8 @@ export function AppProvider({ children }) {
   const [uiScale, setUiScale] = useState(() => Number(localStorage.getItem('disbox_ui_scale')) || 1);
   const [chunkSize, setChunkSize] = useState(() => Number(localStorage.getItem('disbox_chunk_size')) || 8 * 1024 * 1024);
   const [showPreviews, setShowPreviews] = useState(() => localStorage.getItem('disbox_show_previews') !== 'false');
+  const [showImagePreviews, setShowImagePreviews] = useState(() => localStorage.getItem('disbox_show_image_previews') !== 'false');
+  const [showVideoPreviews, setShowVideoPreviews] = useState(() => localStorage.getItem('disbox_show_video_previews') !== 'false');
   const [showRecent, setShowRecent] = useState(() => localStorage.getItem('disbox_show_recent') !== 'false');
   const [metadataStatus, setMetadataStatus] = useState({ status: 'synced', items: 0 });
   const [closeToTray, setCloseToTray] = useState(true);
@@ -66,6 +68,18 @@ export function AppProvider({ children }) {
     if (prefs.showRecent !== undefined) {
       setShowRecent(prefs.showRecent);
       localStorage.setItem('disbox_show_recent', prefs.showRecent.toString());
+    }
+    if (prefs.showPreviews !== undefined) {
+      setShowPreviews(prefs.showPreviews);
+      localStorage.setItem('disbox_show_previews', prefs.showPreviews.toString());
+    }
+    if (prefs.showImagePreviews !== undefined) {
+      setShowImagePreviews(prefs.showImagePreviews);
+      localStorage.setItem('disbox_show_image_previews', prefs.showImagePreviews.toString());
+    }
+    if (prefs.showVideoPreviews !== undefined) {
+      setShowVideoPreviews(prefs.showVideoPreviews);
+      localStorage.setItem('disbox_show_video_previews', prefs.showVideoPreviews.toString());
     }
     if (window.electron?.setPrefs) window.electron.setPrefs(prefs);
   }, []);
@@ -418,6 +432,8 @@ export function AppProvider({ children }) {
       uiScale, setUiScale,
       chunkSize, setChunkSize,
       showPreviews, setShowPreviews,
+      showImagePreviews, setShowImagePreviews,
+      showVideoPreviews, setShowVideoPreviews,
       showRecent, setShowRecent,
       metadataStatus,
       closeToTray, startMinimized, updatePrefs,

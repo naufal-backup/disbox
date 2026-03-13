@@ -121,7 +121,7 @@ export class DisboxAPI {
       const res = await window.electron.fetch(this.webhookUrl);
       if (res.ok) {
         const info = JSON.parse(res.body);
-        const match = info.name?.match(/dbx[:\s]+(\d+)/);
+        const match = info.name?.match(/(?:dbx|disbox|db)[:\s]+(\d+)/i);
         webhookMsgId = match?.[1] || null;
       }
     } catch (_) {}
@@ -150,9 +150,13 @@ export class DisboxAPI {
     const bytes = await window.electron.proxyDownload(attachmentUrl);
     const decryptedBytes = await this.decrypt(bytes);
     const jsonStr = new TextDecoder().decode(decryptedBytes);
-    const files = JSON.parse(jsonStr);
-    if (!Array.isArray(files)) throw new Error('Format metadata tidak valid');
-    return files;
+    const data = JSON.parse(jsonStr);
+    
+    // Support MetadataContainer object or legacy array
+    const isValid = Array.isArray(data) || (data !== null && typeof data === 'object');
+    if (!isValid) throw new Error('Format metadata tidak valid');
+    
+    return data;
   }
 
   async syncMetadata(forceId = null) {
@@ -185,10 +189,10 @@ export class DisboxAPI {
       }
 
       console.log('[sync] Downloading metadata dari Discord, msgId:', msgId);
-      let files;
+      let data;
       let resolvedMsgId = msgId;
       try {
-        files = await this._downloadMetadataFromMsg(msgId);
+        data = await this._downloadMetadataFromMsg(msgId);
       } catch (e) {
         console.error('[sync] Download gagal untuk msgId:', msgId, e.message);
         
@@ -201,7 +205,7 @@ export class DisboxAPI {
         for (const fallbackId of fallbackCandidates) {
           console.log('[sync] Fallback: mencoba download dari msgId:', fallbackId);
           try {
-            files = await this._downloadMetadataFromMsg(fallbackId);
+            data = await this._downloadMetadataFromMsg(fallbackId);
             resolvedMsgId = fallbackId;
             console.log('[sync] Fallback BERHASIL menggunakan msgId:', fallbackId);
             success = true;
@@ -217,10 +221,12 @@ export class DisboxAPI {
         }
       }
 
-      await window.electron.saveMetadata(this.hashedWebhook, files, resolvedMsgId);
+      await window.electron.saveMetadata(this.hashedWebhook, data, resolvedMsgId);
       this.lastSyncedId = resolvedMsgId;
       localStorage.setItem(`dbx_last_sync_${this.hashedWebhook}`, this.lastSyncedId);
-      console.log('[sync] ✓ Berhasil sync. msgId:', this.lastSyncedId, '| items:', files.length);
+      
+      const itemCount = Array.isArray(data) ? data.length : (data.files?.length || 0);
+      console.log('[sync] ✓ Berhasil sync. msgId:', this.lastSyncedId, '| items:', itemCount);
       return true;
     } catch (e) {
       console.error('[sync] Fatal error:', e.message);

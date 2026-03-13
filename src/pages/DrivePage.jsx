@@ -37,7 +37,11 @@ export default function DrivePage({ activePage, onNavigate }) {
         )}
         {activePage === 'recent' && <FileGrid isRecentView={true} onNavigate={onNavigate} />}
         {activePage === 'starred' && <FileGrid isStarredView={true} onNavigate={onNavigate} />}
-        {activePage === 'settings' && <SettingsPanel />}
+        {activePage === 'settings' && (
+          <div className={styles.settingsContainer}>
+            <SettingsPanel />
+          </div>
+        )}
       </main>
       <TransferPanel />
     </div>
@@ -127,6 +131,8 @@ function SettingsPanel() {
   const { 
     uiScale, setUiScale, chunkSize, setChunkSize, 
     showPreviews, setShowPreviews,
+    showImagePreviews, setShowImagePreviews,
+    showVideoPreviews, setShowVideoPreviews,
     showRecent,
     closeToTray, startMinimized, updatePrefs,
     hasPin, setPin, removePin, verifyPin
@@ -205,9 +211,25 @@ function SettingsPanel() {
             <Toggle 
               label="Live File Previews" 
               value={showPreviews} 
-              onChange={setShowPreviews}
-              description="Tampilkan isi file (gambar) sebagai ikon di grid."
+              onChange={v => updatePrefs({ showPreviews: v })}
+              description="Tampilkan isi file (gambar & video) sebagai ikon di grid."
             />
+            {showPreviews && (
+              <div style={{ marginLeft: 24, borderLeft: '2px solid var(--border)', paddingLeft: 16 }}>
+                <Toggle 
+                  label="Pratinjau Gambar" 
+                  value={showImagePreviews} 
+                  onChange={v => updatePrefs({ showImagePreviews: v })}
+                  description="Aktifkan thumbnail untuk file foto/gambar."
+                />
+                <Toggle 
+                  label="Pratinjau Video" 
+                  value={showVideoPreviews} 
+                  onChange={v => updatePrefs({ showVideoPreviews: v })}
+                  description="Aktifkan thumbnail (cuplikan) untuk file video."
+                />
+              </div>
+            )}
             <Toggle 
               label="Show Recent Tab" 
               value={showRecent} 

@@ -40,15 +40,19 @@ function enqueueThumb(id, task) {
 }
 
 function FileThumbnail({ file }) {
-  const { api, showPreviews, addTransfer, updateTransfer, removeTransfer } = useApp();
+  const { api, showPreviews, showImagePreviews, showVideoPreviews, addTransfer, updateTransfer, removeTransfer } = useApp();
   const [thumbUrl, setThumbUrl] = useState(null);
   const [loading, setLoading] = useState(false);
   const name = file.path.split('/').pop();
   const ext = name.split('.').pop().toLowerCase();
   const isImage = ['png', 'jpg', 'jpeg', 'webp', 'svg'].includes(ext);
+  const isVideo = ['mp4', 'webm', 'ogg', 'mkv', 'mov', 'avi'].includes(ext);
 
   useEffect(() => {
-    if (!showPreviews || !isImage) {
+    const canShowImage = showPreviews && showImagePreviews && isImage;
+    const canShowVideo = showPreviews && showVideoPreviews && isVideo;
+
+    if (!canShowImage && !canShowVideo) {
       if (thumbUrl) {
         URL.revokeObjectURL(thumbUrl);
         setThumbUrl(null);
@@ -89,6 +93,53 @@ function FileThumbnail({ file }) {
       });
     };
 
+    const captureVideoFrame = (blob) => {
+      return new Promise((resolve) => {
+        const video = document.createElement('video');
+        video.preload = 'metadata';
+        video.muted = true;
+        video.playsInline = true;
+        const url = URL.createObjectURL(blob);
+        
+        video.onloadedmetadata = () => {
+          video.currentTime = Math.min(1, video.duration / 2);
+        };
+
+        video.onseeked = () => {
+          const canvas = document.createElement('canvas');
+          const MAX_SIZE = 256;
+          let width = video.videoWidth;
+          let height = video.videoHeight;
+          if (width > height) {
+            if (width > MAX_SIZE) {
+              height *= MAX_SIZE / width;
+              width = MAX_SIZE;
+            }
+          } else {
+            if (height > MAX_SIZE) {
+              width *= MAX_SIZE / height;
+              height = MAX_SIZE;
+            }
+          }
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(video, 0, 0, width, height);
+          canvas.toBlob((resultBlob) => {
+            URL.revokeObjectURL(url);
+            resolve(resultBlob);
+          }, 'image/webp', 0.7);
+        };
+
+        video.onerror = () => {
+          URL.revokeObjectURL(url);
+          resolve(null);
+        };
+
+        video.src = url;
+      });
+    };
+
     const loadThumb = async () => {
       setLoading(true);
       try {
@@ -98,9 +149,17 @@ function FileThumbnail({ file }) {
           const buffer = await api.downloadFile(file, (p) => updateTransfer(transferId, { progress: p }), signal, transferId);
           if (isMounted && !signal.aborted) {
             const originalBlob = new Blob([buffer], { type: getMimeType(name) });
-            const compressedBlob = await compressImage(originalBlob);
-            objectUrl = URL.createObjectURL(compressedBlob);
-            setThumbUrl(objectUrl);
+            let compressedBlob;
+            if (isVideo) {
+              compressedBlob = await captureVideoFrame(originalBlob);
+            } else {
+              compressedBlob = await compressImage(originalBlob);
+            }
+
+            if (compressedBlob && isMounted) {
+              objectUrl = URL.createObjectURL(compressedBlob);
+              setThumbUrl(objectUrl);
+            }
             updateTransfer(transferId, { status: 'done', progress: 1 });
             setTimeout(() => removeTransfer(transferId), 500);
           }
@@ -120,10 +179,16 @@ function FileThumbnail({ file }) {
       const idx = thumbQueue.findIndex(q => q.id === transferId);
       if (idx >= 0) thumbQueue.splice(idx, 1);
     };
-  }, [file.id, showPreviews, isImage]);
+  }, [file.id, showPreviews, showImagePreviews, showVideoPreviews, isImage, isVideo]);
 
-  if (showPreviews && isImage) {
-    if (thumbUrl) return <div style={{ width: '100%', height: '100%', overflow: 'hidden', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-elevated)', flexShrink: 0 }}><img src={thumbUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /></div>;
+  const canShowImage = showPreviews && showImagePreviews && isImage;
+  const canShowVideo = showPreviews && showVideoPreviews && isVideo;
+
+  if (canShowImage || canShowVideo) {
+    if (thumbUrl) return <div style={{ width: '100%', height: '100%', overflow: 'hidden', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-elevated)', flexShrink: 0, position: 'relative' }}>
+      <img src={thumbUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+      {isVideo && <div style={{ position: 'absolute', bottom: 4, right: 4, background: 'rgba(0,0,0,0.6)', borderRadius: 4, padding: '2px 4px', fontSize: 10, color: 'white', display: 'flex', alignItems: 'center' }}>▶</div>}
+    </div>;
     if (loading) return <div className="skeleton" style={{ width: '100%', height: '100%', borderRadius: 6 }} />;
   }
   return <span style={{ fontSize: 32 }}>{getFileIcon(name)}</span>;

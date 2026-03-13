@@ -596,9 +596,32 @@ ipcMain.handle('load-metadata', async (_, hash) => {
   }
 });
 
+// Helper to mark metadata as dirty and trigger timer
+function markMetadataDirty(hash) {
+  try {
+    db.prepare(`
+      UPDATE metadata_sync SET is_dirty = 1, updated_at = ? WHERE hash = ?
+    `).run(Date.now(), hash);
+
+    const check = db.prepare('SELECT hash FROM metadata_sync WHERE hash = ?').get(hash);
+    if (!check) {
+      db.prepare('INSERT INTO metadata_sync (hash, is_dirty, updated_at) VALUES (?, 1, ?)').run(hash, Date.now());
+    }
+
+    if (metadataUploadTimer) clearTimeout(metadataUploadTimer);
+    metadataUploadTimer = setTimeout(() => {
+      metadataUploadTimer = null;
+      uploadMetadataToDiscord(hash);
+    }, 2000);
+  } catch (e) {
+    console.error('[metadata] mark-dirty error:', e.message);
+  }
+}
+
 ipcMain.handle('set-starred', async (_, id, hash, isStarred) => {
   try {
     db.prepare('UPDATE files SET is_starred = ? WHERE id = ? AND hash = ?').run(isStarred ? 1 : 0, id, hash);
+    markMetadataDirty(hash);
     return true;
   } catch (e) {
     console.error('[set-starred] error:', e.message);
@@ -609,6 +632,7 @@ ipcMain.handle('set-starred', async (_, id, hash, isStarred) => {
 ipcMain.handle('set-locked', async (_, id, hash, isLocked) => {
   try {
     db.prepare('UPDATE files SET is_locked = ? WHERE id = ? AND hash = ?').run(isLocked ? 1 : 0, id, hash);
+    markMetadataDirty(hash);
     return true;
   } catch (e) {
     console.error('[set-locked] error:', e.message);
@@ -623,6 +647,7 @@ ipcMain.handle('set-pin', async (_, hash, pin) => {
       INSERT INTO settings (hash, key, value) VALUES (?, 'pin_hash', ?)
       ON CONFLICT(hash, key) DO UPDATE SET value = excluded.value
     `).run(hash, hashedPin);
+    markMetadataDirty(hash);
     return true;
   } catch (e) {
     console.error('[set-pin] error:', e.message);
@@ -655,6 +680,7 @@ ipcMain.handle('has-pin', async (_, hash) => {
 ipcMain.handle('remove-pin', async (_, hash) => {
   try {
     db.prepare("DELETE FROM settings WHERE hash = ? AND key = 'pin_hash'").run(hash);
+    markMetadataDirty(hash);
     return true;
   } catch (e) {
     console.error('[remove-pin] error:', e.message);
@@ -669,6 +695,7 @@ async function uploadMetadataToDiscord(hash) {
   if (!activeWebhookUrl || activeWebhookHash !== hash) return;
 
   let files;
+  let pinHash = null;
   try {
     const rows = db.prepare(
       'SELECT id, path, message_ids as messageIds, size, created_at as createdAt, is_locked as isLocked, is_starred as isStarred FROM files WHERE hash = ?'
@@ -679,7 +706,11 @@ async function uploadMetadataToDiscord(hash) {
       isLocked: !!f.isLocked,
       isStarred: !!f.isStarred
     }));
-    if (files.length === 0) return;
+    
+    const pinRow = db.prepare("SELECT value FROM settings WHERE hash = ? AND key = 'pin_hash'").get(hash);
+    if (pinRow) pinHash = pinRow.value;
+
+    if (files.length === 0 && !pinHash) return;
   } catch { return; }
 
   console.log(`[metadata] UPLOADING …${hash.slice(-8)} (${files.length} items)`);
@@ -691,7 +722,15 @@ async function uploadMetadataToDiscord(hash) {
   while (retryCount <= maxRetries) {
     try {
       const key = getEncryptionKey(activeWebhookUrl);
-      const jsonBuf = Buffer.from(JSON.stringify(files));
+      
+      // MetadataContainer format
+      const container = {
+        files,
+        pinHash,
+        updatedAt: Date.now()
+      };
+      
+      const jsonBuf = Buffer.from(JSON.stringify(container));
       const encryptedBuf = encrypt(jsonBuf, key);
       const bodyBuf = buildMetadataFormData(encryptedBuf, 'disbox_metadata.json');
       
@@ -766,22 +805,27 @@ async function uploadMetadataToDiscord(hash) {
 ipcMain.handle('save-metadata', async (_, hash, data, msgId = null) => {
   try {
     db.transaction(() => {
+      // Handle both MetadataContainer object and legacy array format
+      const isContainer = !Array.isArray(data) && data !== null && typeof data === 'object';
+      const filesToSave = isContainer ? (data.files || []) : (data || []);
+      const pinHashToSync = isContainer ? data.pinHash : null;
+
       if (msgId) {
-        // Sync dari cloud: hapus HANYA file milik hash ini, bukan semua
-        db.prepare('DELETE FROM files WHERE hash = ?').run(hash); // [FIX]
+        // Sync dari cloud: hapus HANYA file milik hash ini
+        db.prepare('DELETE FROM files WHERE hash = ?').run(hash);
         
         const insertFile = db.prepare(`
           INSERT INTO files (id, hash, path, parent_path, name, size, created_at, message_ids, is_locked, is_starred)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
 
-        for (const f of data) {
+        for (const f of filesToSave) {
           const parts = f.path.split('/');
           const name = parts.pop();
           const parent_path = parts.join('/') || '/';
           insertFile.run(
             f.id || Math.random().toString(36).substring(7),
-            hash, // [FIX]
+            hash,
             f.path,
             parent_path,
             name,
@@ -791,6 +835,17 @@ ipcMain.handle('save-metadata', async (_, hash, data, msgId = null) => {
             f.isLocked ? 1 : 0,
             f.isStarred ? 1 : 0
           );
+        }
+
+        // Sync pinHash jika ada (khusus saat download dari cloud)
+        if (pinHashToSync) {
+          db.prepare(`
+            INSERT INTO settings (hash, key, value) VALUES (?, 'pin_hash', ?)
+            ON CONFLICT(hash, key) DO UPDATE SET value = excluded.value
+          `).run(hash, pinHashToSync);
+        } else if (isContainer) {
+          // Jika container eksplisit tapi pinHash null/kosong, hapus pin lokal agar sync
+          db.prepare("DELETE FROM settings WHERE hash = ? AND key = 'pin_hash'").run(hash);
         }
 
         const meta = db.prepare('SELECT snapshot_history FROM metadata_sync WHERE hash = ?').get(hash);
@@ -810,24 +865,24 @@ ipcMain.handle('save-metadata', async (_, hash, data, msgId = null) => {
             updated_at=excluded.updated_at
         `).run(hash, msgId, JSON.stringify(snapshotHistory), Date.now());
 
-        console.log(`[metadata] SYNCED & RESTORED …${hash.slice(-8)} → ${data.length} items`);
-        mainWindow?.webContents.send('metadata-status', { hash, status: 'synced', items: data.length });
+        console.log(`[metadata] SYNCED & RESTORED …${hash.slice(-8)} → ${filesToSave.length} items`);
+        mainWindow?.webContents.send('metadata-status', { hash, status: 'synced', items: filesToSave.length });
       } else {
         // Perubahan lokal: hapus HANYA file milik hash ini
-        db.prepare('DELETE FROM files WHERE hash = ?').run(hash); // [FIX]
+        db.prepare('DELETE FROM files WHERE hash = ?').run(hash);
         
         const insertFile = db.prepare(`
           INSERT INTO files (id, hash, path, parent_path, name, size, created_at, message_ids, is_locked, is_starred)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
 
-        for (const f of data) {
+        for (const f of filesToSave) {
           const parts = f.path.split('/');
           const name = parts.pop();
           const parent_path = parts.join('/') || '/';
           insertFile.run(
             f.id,
-            hash, // [FIX]
+            hash,
             f.path,
             parent_path,
             name,
@@ -839,23 +894,10 @@ ipcMain.handle('save-metadata', async (_, hash, data, msgId = null) => {
           );
         }
 
-        db.prepare(`
-          UPDATE metadata_sync SET is_dirty = 1, updated_at = ? WHERE hash = ?
-        `).run(Date.now(), hash);
+        markMetadataDirty(hash);
 
-        const check = db.prepare('SELECT hash FROM metadata_sync WHERE hash = ?').get(hash);
-        if (!check) {
-          db.prepare('INSERT INTO metadata_sync (hash, is_dirty, updated_at) VALUES (?, 1, ?)').run(hash, Date.now());
-        }
-
-        console.log(`[metadata] LOCAL SAVE …${hash.slice(-8)} → ${data.length} items (dirty)`);
-        mainWindow?.webContents.send('metadata-status', { hash, status: 'dirty', items: data.length });
-
-        if (metadataUploadTimer) clearTimeout(metadataUploadTimer);
-        metadataUploadTimer = setTimeout(() => {
-          metadataUploadTimer = null;
-          uploadMetadataToDiscord(hash);
-        }, 2000);
+        console.log(`[metadata] LOCAL SAVE …${hash.slice(-8)} → ${filesToSave.length} items (dirty)`);
+        mainWindow?.webContents.send('metadata-status', { hash, status: 'dirty', items: filesToSave.length });
       }
     })();
     return true;

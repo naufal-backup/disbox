@@ -11,3 +11,9 @@
   overflow: hidden;
   background: var(--bg-base);
 }
+
+.settingsContainer {
+  flex: 1;
+  overflow-y: auto;
+  padding-bottom: 40px;
+}

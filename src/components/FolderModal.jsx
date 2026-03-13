@@ -80,14 +80,25 @@ export function MoveModal({ id, file, paths, mode, onClose, onUnlock }) {
           const f = allFiles.find(x => x.id === p);
           if (f) pPath = f.path;
         }
-        return d === pPath || d.startsWith(pPath + '/');
+        const absPPath = '/' + pPath;
+        
+        // Cannot move/copy into self or subfolders
+        if (d === absPPath || d.startsWith(absPPath + '/')) return true;
+        
+        // Cannot move/copy to same directory (unless unlocking)
+        if (mode !== 'unlock') {
+          const pDirPath = '/' + pPath.split('/').slice(0, -1).join('/');
+          if (d === pDirPath) return true;
+        }
+        
+        return false;
       });
     }
     const itemDirPath = '/' + itemPath.split('/').slice(0, -1).join('/');
     const targetDir = d === '/' ? '' : d.slice(1);
     
-    // Cannot move/copy to same directory
-    if (targetDir === itemPath.split('/').slice(0, -1).join('/')) return false;
+    // Cannot move/copy to same directory (unless unlocking)
+    if (mode !== 'unlock' && targetDir === itemPath.split('/').slice(0, -1).join('/')) return false;
     
     // Cannot move/copy into self or subfolders
     return d !== '/' + itemPath && !d.startsWith('/' + itemPath + '/');
