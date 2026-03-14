@@ -10,7 +10,10 @@ Disbox adalah aplikasi desktop penyimpanan awan (cloud storage) modern yang mema
 *   **Virtual File System:** Kelola file Anda dengan struktur folder, layaknya Google Drive atau Dropbox.
 *   **SQLite Engine (Optimized):** Metadata dikelola menggunakan SQLite dengan **WAL (Write-Ahead Logging) Mode** untuk sinkronisasi kilat dan integritas data yang sangat stabil.
 *   **Dukungan Multi-Bahasa:** [BARU] Tersedia dalam bahasa **Indonesia**, **English**, dan **Mandarin (China)** untuk kenyamanan pengguna global.
-*   **Validasi Integritas Data:** [BARU] Sistem pengecekan otomatis untuk mencegah duplikasi nama file/folder di lokasi yang sama saat pembuatan, pemindahan, atau pengubahan nama.
+*   **Cloud Save (Sync Otomatis):** [BARU] Pantau folder penyimpanan game (game saves) secara real-time dan sinkronisasikan secara otomatis ke Discord. Mendukung ekspor ZIP dan sinkronisasi antar perangkat.
+*   **Animasi Antarmuka:** [BARU] Transisi visual yang halus dan modern menggunakan `framer-motion` (dapat diaktifkan/dimatikan melalui Settings).
+*   **Smart Help Bubbles:** [BARU] Penjelasan detail untuk setiap pengaturan dalam bentuk bubble mengambang cerdas yang menyesuaikan posisi agar tidak terpotong layar.
+*   **Validasi Integritas Data:** System pengecekan otomatis untuk mencegah duplikasi nama file/folder di lokasi yang sama.
 *   **Enkripsi AES-GCM:** Keamanan tingkat tinggi untuk setiap file dan folder dengan enkripsi *end-to-end* menggunakan kunci yang diturunkan dari URL Webhook Anda.
 *   **Sistem Kunci (Locking) v3.0:** Lindungi file sensitif dengan Master PIN. Fitur buka kunci kini mendukung penempatan ke folder tujuan manapun.
 *   **UI/UX Modern & Responsif:** 
