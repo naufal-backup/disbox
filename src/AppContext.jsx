@@ -63,7 +63,7 @@ export function AppProvider({ children }) {
 
   // ── Share & Privacy ────────────────────────────────────────────────────────
   const [shareEnabled, setShareEnabled] = useState(
-    () => localStorage.getItem('disbox_share_enabled') === 'true'
+    () => localStorage.getItem('disbox_share_enabled') !== 'false'
   );
   const [shareMode, setShareMode] = useState(
     () => localStorage.getItem('disbox_share_mode') || 'public'
@@ -203,6 +203,25 @@ export function AppProvider({ children }) {
           setShareEnabled(!!shareSettings.enabled);
           setShareMode(shareSettings.mode || 'public');
           setCfWorkerUrl(shareSettings.cf_worker_url || '');
+          
+          // [FIX] Always update/save current webhook URL in share settings to ensure backend can fetch metadata
+          await window.electron.shareSaveSettings(instance.hashedWebhook, {
+            enabled: shareSettings.enabled,
+            mode: shareSettings.mode || 'public',
+            cf_worker_url: shareSettings.cf_worker_url || '',
+            webhook_url: url
+          });
+        } else {
+          // Default: public enabled
+          await window.electron.shareSaveSettings(instance.hashedWebhook, {
+            enabled: 1,
+            mode: 'public',
+            cf_worker_url: '',
+            webhook_url: url
+          });
+          setShareEnabled(true);
+          setShareMode('public');
+          setCfWorkerUrl('');
         }
         const links = await window.electron.shareGetLinks(instance.hashedWebhook);
         setShareLinks(links || []);
@@ -579,7 +598,7 @@ export function AppProvider({ children }) {
 
   const saveShareSettings = useCallback(async (settings) => {
     if (!api) return false;
-    const ok = await window.electron.shareSaveSettings(api.hashedWebhook, settings);
+    const ok = await window.electron.shareSaveSettings(api.hashedWebhook, { ...settings, webhook_url: webhookUrl });
     if (ok) {
       if (settings.enabled !== undefined) setShareEnabled(!!settings.enabled);
       if (settings.mode) setShareMode(settings.mode);

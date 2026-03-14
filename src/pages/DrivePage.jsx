@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useLayoutEffect } from 'react';
 import { 
   CheckCircle, Cloud, Clock, AlertCircle, RefreshCw, Lock, Shield, 
-  Key, Unlock, Menu, X 
+  Key, Unlock, Menu, X, Activity 
 } from 'lucide-react';
 import Sidebar from '../components/Sidebar.jsx';
 import FileGrid from '../components/FileGrid.jsx';
@@ -168,6 +168,91 @@ function LockedGateway({ onVerified }) {
             {loading ? t('verifying') : t('unlock_access')}
           </button>
         </form>
+      </div>
+    </div>
+  );
+}
+
+function WorkerUsageCard({ t }) {
+  const [workerUsage, setWorkerUsage] = useState({});
+  const [loading, setLoading] = useState(true);
+
+  const PUBLIC_WORKERS = [
+    { label: 'Disbox Public #1 (Main)', url: 'https://disbox-shared-link.naufal-backup.workers.dev' },
+    { label: 'Disbox Public #2 (New)', url: 'https://disbox-shared-link.alamsyahnaufal453.workers.dev' },
+    { label: 'Disbox Public #3', url: 'https://disbox-worker-2.naufal-backup.workers.dev' },
+    { label: 'Disbox Public #4', url: 'https://disbox-worker-3.naufal-backup.workers.dev' },
+  ];
+
+  useEffect(() => {
+    let isMounted = true;
+    const fetchUsage = async () => {
+      setLoading(true);
+      const results = {};
+      
+      // Fetch stats for all workers in parallel
+      await Promise.all(PUBLIC_WORKERS.map(async (worker) => {
+        try {
+          const res = await window.electron.fetch(`${worker.url}/share/stats`);
+          if (res.ok && isMounted) {
+            const data = JSON.parse(res.body);
+            results[worker.url] = data; // Store full object { links, requests }
+          } else if (isMounted) {
+            results[worker.url] = { status: 'Online' };
+          }
+        } catch (e) {
+          if (isMounted) {
+            try {
+              const ping = await window.electron.fetch(worker.url);
+              if (ping.status < 500) results[worker.url] = { status: 'Online' };
+            } catch (_) {}
+          }
+        }
+      }));
+
+      if (isMounted) {
+        setWorkerUsage(results);
+        setLoading(false);
+      }
+    };
+
+    fetchUsage();
+    return () => { isMounted = false; };
+  }, []);
+
+  return (
+    <div className={styles.aboutCard} style={{ marginTop: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+        <Activity size={16} style={{ color: 'var(--accent)' }} />
+        <h3 className={styles.sectionTitle} style={{ marginBottom: 0 }}>Worker Usage</h3>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {PUBLIC_WORKERS.map(worker => (
+          <div key={worker.url} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)' }}>{worker.label}</span>
+              <span style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{worker.url.replace('https://', '')}</span>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
+              {workerUsage[worker.url] ? (
+                <>
+                  {workerUsage[worker.url].links !== undefined && (
+                    <span style={{ fontSize: 11, color: 'var(--text-primary)', fontWeight: 600 }}>
+                      {workerUsage[worker.url].links} links
+                    </span>
+                  )}
+                  {workerUsage[worker.url].requests !== undefined && (
+                    <span style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                      {workerUsage[worker.url].requests} reqs
+                    </span>
+                  )}
+                </>
+              ) : loading ? (
+                <div className="skeleton" style={{ width: 40, height: 16, borderRadius: 4 }} />
+              ) : null}
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -379,17 +464,58 @@ function SettingsPanel({ onNavigate }) {
           </motion.div>
           <motion.div variants={itemVariants} className={styles.settingsSection}>
             <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16 }}><h3 className={styles.sectionTitle} style={{ marginBottom: 0 }}>{t('chunk_size')}</h3><InfoIcon helpKey="chunk_size" /></div>
-            <input type="range" min="0" max="2" step="1" value={CHUNK_OPTIONS.findIndex(opt => opt.value === chunkSize) === -1 ? 1 : CHUNK_OPTIONS.findIndex(opt => opt.value === chunkSize)} onChange={e => setChunkSize(CHUNK_OPTIONS[parseInt(e.target.value)].value)} className={styles.sliderInput} />
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }}>
-              {CHUNK_OPTIONS.map((opt, i) => (
-                <span key={i} style={{ fontSize: 11, color: i === CHUNK_OPTIONS.findIndex(o => o.value === chunkSize) ? 'var(--accent-bright)' : 'var(--text-muted)', fontWeight: i === CHUNK_OPTIONS.findIndex(o => o.value === chunkSize) ? 700 : 400, flex: 1, textAlign: i === 0 ? 'left' : i === 2 ? 'right' : 'center' }}>{opt.label.split(' ')[0]}</span>
-              ))}
+            
+            <div style={{ padding: '0 10px' }}>
+              <input 
+                type="range" min="0" max="2" step="1" 
+                value={CHUNK_OPTIONS.findIndex(opt => opt.value === chunkSize) === -1 ? 1 : CHUNK_OPTIONS.findIndex(opt => opt.value === chunkSize)} 
+                onChange={e => setChunkSize(CHUNK_OPTIONS[parseInt(e.target.value)].value)} 
+                className={styles.sliderInput}
+                style={{ width: '100%', display: 'block' }}
+              />
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 10, position: 'relative', height: 14 }}>
+                {CHUNK_OPTIONS.map((opt, i) => {
+                  const isActive = i === CHUNK_OPTIONS.findIndex(o => o.value === chunkSize);
+                  return (
+                    <span 
+                      key={i} 
+                      style={{ 
+                        fontSize: 11, 
+                        color: isActive ? 'var(--accent-bright)' : 'var(--text-muted)', 
+                        fontWeight: isActive ? 700 : 400,
+                        position: 'absolute',
+                        left: i === 0 ? '0%' : i === 1 ? '50%' : '100%',
+                        transform: i === 0 ? 'none' : i === 1 ? 'translateX(-50%)' : 'translateX(-100%)',
+                        transition: 'all 0.2s ease',
+                        whiteSpace: 'nowrap'
+                      }}
+                    >
+                      {opt.label.split(' ')[0]}
+                    </span>
+                  );
+                })}
+              </div>
             </div>
+
+            {CHUNK_OPTIONS.find(opt => opt.value === chunkSize) && (
+              <div className={styles.chunkInfo} style={{ marginTop: 24 }}>
+                <p style={{ fontSize: 12, color: 'var(--text-primary)', fontWeight: 600, marginBottom: 4 }}>{CHUNK_OPTIONS.find(opt => opt.value === chunkSize).label}</p>
+                <p style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>{CHUNK_OPTIONS.find(opt => opt.value === chunkSize).desc}</p>
+              </div>
+            )}
           </motion.div>
         </div>
         <motion.div variants={itemVariants} className={styles.aboutCard}>
           <h3 className={styles.sectionTitle}>{t('about_disbox')}</h3>
           <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7 }}>{t('about_desc')}</p>
+          <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--border)', fontSize: 11, color: 'var(--text-dim)', fontFamily: 'var(--font-mono)' }}>
+            <div>Disbox {latestVersion || 'v2.0'}</div>
+            <div style={{ marginTop: 4 }}>Created by <b>naufal-backup</b></div>
+          </div>
+        </motion.div>
+
+        <motion.div variants={itemVariants}>
+          <WorkerUsageCard t={t} />
         </motion.div>
       </div>
       <AnimatePresence>

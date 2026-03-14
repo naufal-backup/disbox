@@ -15,8 +15,8 @@
 // 4. Tambahkan komponen ShareSettingsSection di dalam SettingsPanel,
 //    setelah Cloud Save section:
 
-import { useState } from 'react';
-import { Link2, ExternalLink, CheckCircle, AlertCircle } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Link2, ExternalLink, CheckCircle, AlertCircle, ChevronDown, Check, Activity } from 'lucide-react';
 import { useApp } from '../AppContext.jsx';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -59,6 +59,29 @@ export function ShareSettingsSection() {
 
   const transition = animationsEnabled ? {} : { duration: 0 };
 
+  const [showWorkerMenu, setShowWorkerMenu] = useState(false);
+  const [workerUsage, setWorkerUsage] = useState({});
+
+  useEffect(() => {
+    if (!shareEnabled) return;
+    const fetchUsage = async () => {
+      const results = {};
+      for (const worker of PUBLIC_WORKERS) {
+        try {
+          const res = await window.electron.fetch(`${worker.url}/share/stats`);
+          if (res.ok) {
+            const data = JSON.parse(res.body);
+            results[worker.url] = data.count;
+          }
+        } catch (e) {
+          console.warn(`[share] Failed to fetch usage for ${worker.label}:`, e.message);
+        }
+      }
+      setWorkerUsage(results);
+    };
+    fetchUsage();
+  }, [shareEnabled]);
+
   const handleToggleShare = async (val) => {
     if (!val && shareLinks.length > 0) {
       setShowRevokeWarning(true);
@@ -68,46 +91,34 @@ export function ShareSettingsSection() {
     setShareEnabled(val);
   };
 
+  const PUBLIC_WORKERS = [
+    { label: 'Disbox Public #1 (Main)', url: 'https://disbox-shared-link.naufal-backup.workers.dev' },
+    { label: 'Disbox Public #2 (New)', url: 'https://disbox-shared-link.alamsyahnaufal453.workers.dev' },
+    { label: 'Disbox Public #3', url: 'https://disbox-worker-2.naufal-backup.workers.dev' },
+    { label: 'Disbox Public #4', url: 'https://disbox-worker-3.naufal-backup.workers.dev' },
+  ];
+
   const handleModeChange = async (mode) => {
+    // Force public mode
+    if (mode === 'private') {
+      toast.error('Private mode is currently disabled');
+      return;
+    }
     setShareMode(mode);
     await saveShareSettings({ enabled: shareEnabled, mode, cf_worker_url: cfWorkerUrl });
   };
 
-  const handleDeploy = async () => {
-    if (!apiToken.trim()) return;
-    setDeploying(true);
-    setDeployError('');
-    const result = await deployWorker(apiToken.trim());
-    if (result.ok) {
-      setCfInput(result.workerUrl);
-      setCfWorkerUrl(result.workerUrl);
-      await saveShareSettings({
-        enabled: shareEnabled,
-        mode: 'private',
-        cf_worker_url: result.workerUrl,
-        cf_api_token: result.userApiKey || ''
-      });
-      setDeploySuccess(true);
-      setShowWorkerSetup(false);
-      setApiToken('');
-    } else {
-      setDeployError(result.message || `Gagal: ${result.reason}`);
-      if (result.reason === 'no_subdomain') {
-        setTimeout(() => {
-          window.electron?.openExternal?.('https://dash.cloudflare.com/?to=/:account/workers/subdomain');
-        }, 3000);
-      }
-    }
-    setDeploying(false);
+  const handleWorkerSelect = async (url) => {
+    setCfInput(url);
+    setCfWorkerUrl(url);
+    await saveShareSettings({ enabled: shareEnabled, mode: 'public', cf_worker_url: url });
+    setShowWorkerMenu(false);
   };
 
-  const handleSaveCfUrl = async () => {
-    setCfWorkerUrl(cfInput);
-    await saveShareSettings({ enabled: shareEnabled, mode: shareMode, cf_worker_url: cfInput });
-  };
+  const selectedWorkerLabel = PUBLIC_WORKERS.find(w => w.url === cfWorkerUrl)?.label || (cfWorkerUrl ? 'Custom Worker' : 'Select Worker...');
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }} onClick={() => setShowWorkerMenu(false)}>
       {/* Toggle */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
         <div>
@@ -154,63 +165,149 @@ export function ShareSettingsSection() {
             </button>
             <button
               onClick={() => handleModeChange('private')}
+              disabled
               style={{
-                flex: 1, padding: '8px 0', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s',
-                background: shareMode === 'private' ? 'var(--accent)' : 'var(--bg-surface)',
-                border: shareMode === 'private' ? '1px solid var(--accent)' : '1px solid var(--border)',
-                color: shareMode === 'private' ? 'white' : 'var(--text-secondary)'
+                flex: 1, padding: '8px 0', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'not-allowed', transition: 'all 0.2s',
+                background: 'var(--bg-surface)',
+                border: '1px solid var(--border)',
+                color: 'var(--text-muted)',
+                opacity: 0.5
               }}
             >
-              Private
+              Private (Disabled)
             </button>
           </div>
-          <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 8 }}>
-            {shareMode === 'public'
-              ? 'Menggunakan server Disbox. Tidak perlu setup.'
-              : 'CF Worker di akun Cloudflare kamu sendiri.'}
-          </p>
+          
+          <div style={{ marginTop: 14 }}>
+            <p style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>Select Worker</p>
+            <div style={{ position: 'relative' }}>
+              <button
+                onClick={(e) => { e.stopPropagation(); setShowWorkerMenu(!showWorkerMenu); }}
+                style={{
+                  width: '100%',
+                  padding: '10px 12px',
+                  borderRadius: 10,
+                  background: 'var(--bg-surface)',
+                  border: `1px solid ${showWorkerMenu ? 'var(--accent)' : 'var(--border)'}`,
+                  color: 'var(--text-primary)',
+                  fontSize: 12,
+                  fontWeight: 500,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                  outline: 'none',
+                  boxShadow: showWorkerMenu ? '0 0 0 3px var(--accent-dim)' : 'none'
+                }}
+              >
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginRight: 8 }}>
+                  {selectedWorkerLabel}
+                </span>
+                <ChevronDown size={14} style={{ transform: showWorkerMenu ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s', color: 'var(--text-muted)' }} />
+              </button>
 
-          {/* Private mode — worker setup */}
-          {shareMode === 'private' && (
-            <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {deploySuccess || cfWorkerUrl ? (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: 'rgba(0, 212, 170, 0.1)', border: '1px solid rgba(0, 212, 170, 0.3)', borderRadius: 8 }}>
-                  <CheckCircle size={14} style={{ color: '#00d4aa', flexShrink: 0 }} />
-                  <span style={{ fontSize: 11, color: '#00d4aa', flex: 1, wordBreak: 'break-all' }}>{cfWorkerUrl}</span>
-                  <button
-                    onClick={() => setShowWorkerSetup(true)}
-                    style={{ fontSize: 10, color: 'var(--text-muted)', background: 'transparent', border: 'none', cursor: 'pointer', flexShrink: 0 }}
+              <AnimatePresence>
+                {showWorkerMenu && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 8, scale: 0.95 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 8, scale: 0.95 }}
+                    transition={{ duration: 0.15, ease: 'easeOut' }}
+                    style={{
+                      position: 'absolute',
+                      top: '42px',
+                      left: 0,
+                      right: 0,
+                      marginTop: 6,
+                      background: 'var(--bg-elevated)',
+                      border: '1px solid var(--border-bright)',
+                      borderRadius: 12,
+                      padding: 6,
+                      zIndex: 1000,
+                      boxShadow: '0 12px 32px rgba(0,0,0,0.4)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 2
+                    }}
+                    onClick={(e) => e.stopPropagation()}
                   >
-                    Redeploy
-                  </button>
-                </div>
-              ) : (
-                <button
-                  onClick={() => setShowWorkerSetup(true)}
-                  style={{ padding: '10px 0', background: 'var(--accent)', border: 'none', borderRadius: 8, color: 'white', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}
-                >
-                  Setup Worker
-                </button>
-              )}
-
-              {/* Manual URL input */}
-              <div style={{ display: 'flex', gap: 6 }}>
-                <input
-                  type="text"
-                  placeholder="https://disbox-worker.xxx.workers.dev"
-                  value={cfInput}
-                  onChange={e => setCfInput(e.target.value)}
-                  style={{ flex: 1, padding: '8px 10px', background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 11, outline: 'none' }}
-                />
-                <button
-                  onClick={handleSaveCfUrl}
-                  style={{ padding: '8px 12px', background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-secondary)', fontSize: 11, cursor: 'pointer' }}
-                >
-                  Simpan
-                </button>
-              </div>
+                    {PUBLIC_WORKERS.map(worker => (
+                      <button
+                        key={worker.url}
+                        onClick={() => handleWorkerSelect(worker.url)}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '10px',
+                          padding: '8px 12px',
+                          width: '100%',
+                          border: 'none',
+                          background: cfWorkerUrl === worker.url ? 'var(--accent-dim)' : 'transparent',
+                          color: cfWorkerUrl === worker.url ? 'var(--accent-bright)' : 'var(--text-secondary)',
+                          fontSize: '13px',
+                          fontFamily: 'var(--font-body)',
+                          cursor: 'pointer',
+                          borderRadius: '6px',
+                          transition: 'all 0.1s',
+                          textAlign: 'left'
+                        }}
+                        onMouseEnter={(e) => {
+                          if (cfWorkerUrl !== worker.url) {
+                            e.currentTarget.style.background = 'var(--bg-hover)';
+                            e.currentTarget.style.color = 'var(--text-primary)';
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          if (cfWorkerUrl !== worker.url) {
+                            e.currentTarget.style.background = 'transparent';
+                            e.currentTarget.style.color = 'var(--text-secondary)';
+                          }
+                        }}
+                      >
+                        <div style={{ width: 14, height: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                          {cfWorkerUrl === worker.url && <Check size={12} />}
+                        </div>
+                        <span style={{ flex: 1 }}>{worker.label}</span>
+                        {workerUsage[worker.url] !== undefined && (
+                          <span style={{ fontSize: 10, opacity: 0.5, background: 'rgba(255,255,255,0.05)', padding: '2px 6px', borderRadius: 4, fontFamily: 'var(--font-mono)' }}>
+                            {typeof workerUsage[worker.url] === 'object' ? workerUsage[worker.url].links : workerUsage[worker.url]} links
+                          </span>
+                        )}
+                      </button>
+                    ))}
+                    
+                    {cfWorkerUrl && !PUBLIC_WORKERS.find(w => w.url === cfWorkerUrl) && (
+                      <>
+                        <div style={{ height: 1, background: 'var(--border)', margin: '4px 6px' }} />
+                        <div style={{ padding: '4px 10px', fontSize: 10, color: 'var(--text-dim)', textTransform: 'uppercase' }}>Custom URL</div>
+                        <button
+                          style={{
+                            width: '100%',
+                            padding: '8px 10px',
+                            borderRadius: 8,
+                            background: 'var(--accent-dim)',
+                            border: 'none',
+                            color: 'var(--accent-bright)',
+                            fontSize: 11,
+                            textAlign: 'left',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis'
+                          }}
+                        >
+                          {cfWorkerUrl}
+                        </button>
+                      </>
+                    )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
-          )}
+          </div>
+
+          <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 12 }}>
+            Menggunakan server Disbox. Tidak perlu setup sendiri.
+          </p>
         </div>
       )}
 

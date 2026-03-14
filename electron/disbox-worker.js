@@ -14,7 +14,21 @@ async function handleRequest(request) {
   
   if (request.method === 'OPTIONS') return new Response(null, { headers: cors });
 
-  // Note: SHARE_KV dan DISBOX_API_KEY tersedia secara global
+  // Increment total requests counter (Usage)
+  try {
+    const stats = await SHARE_KV.get('internal_stats', 'json') || { requests: 0 };
+    stats.requests++;
+    await SHARE_KV.put('internal_stats', JSON.stringify(stats));
+  } catch (e) {}
+
+  if (path === '/share/stats' && request.method === 'GET') {
+    const list = await SHARE_KV.list({ prefix: 'share_' });
+    const stats = await SHARE_KV.get('internal_stats', 'json') || { requests: 0 };
+    return new Response(JSON.stringify({ 
+      links: list.keys.length,
+      requests: stats.requests 
+    }), { headers: { ...cors, 'Content-Type': 'application/json' } });
+  }
 
   if (path === '/share/create' && request.method === 'POST') {
     if (request.headers.get('X-Disbox-Key') !== DISBOX_API_KEY)
@@ -29,11 +43,15 @@ async function handleRequest(request) {
     if (request.headers.get('X-Disbox-Key') !== DISBOX_API_KEY)
       return new Response('Unauthorized', { status: 401, headers: cors });
     const hash = path.replace('/share/revoke-all/', '');
-    const list = await SHARE_KV.list({ prefix: 'share_' });
-    for (const key of list.keys) {
-      const d = await SHARE_KV.get(key.name, 'json');
-      if (d && d.webhookHash === hash) await SHARE_KV.delete(key.name);
-    }
+    let cursor = undefined;
+    do {
+      const list = await SHARE_KV.list({ prefix: 'share_', cursor });
+      for (const key of list.keys) {
+        const d = await SHARE_KV.get(key.name, 'json');
+        if (d && d.webhookHash === hash) await SHARE_KV.delete(key.name);
+      }
+      cursor = list.cursor;
+    } while (cursor);
     return new Response(JSON.stringify({ ok: true }), { headers: { ...cors, 'Content-Type': 'application/json' } });
   }
 
@@ -58,8 +76,38 @@ async function handleRequest(request) {
       return (typeof m === 'string' ? m : m.msgId) === msgId;
     });
     if (!entry) return new Response('Chunk not found', { status: 404, headers: cors });
-    const attachmentUrl = typeof entry === 'object' ? entry.attachmentUrl : null;
+    
+    let attachmentUrl = typeof entry === 'object' ? entry.attachmentUrl : null;
+    
+    // logic refresh Discord CDN URL jika expired (Discord link biasanya cuma tahan 24 jam)
+    const isExpired = function(u) {
+      if (!u) return true;
+      const m = u.match(/[?&]ex=([0-9a-fA-F]+)/);
+      if (!m) return false;
+      return (parseInt(m[1], 16) * 1000) < (Date.now() + 300000); // Expire dalam 5 menit
+    };
+
+    if ((!attachmentUrl || isExpired(attachmentUrl)) && data.webhookUrl) {
+      try {
+        const msgRes = await fetch(data.webhookUrl.split('?')[0] + '/messages/' + msgId);
+        if (msgRes.ok) {
+          const msg = await msgRes.json();
+          attachmentUrl = msg.attachments?.[0]?.url || null;
+          // Update KV agar chunk berikutnya tidak perlu fetch Discord lagi
+          if (attachmentUrl) {
+            const entryIdx = data.messageIds.findIndex(m => (typeof m === 'string' ? m : m.msgId) === msgId);
+            if (entryIdx >= 0) {
+              data.messageIds[entryIdx].attachmentUrl = attachmentUrl;
+              await SHARE_KV.put('share_' + token, JSON.stringify(data),
+                data.expiresAt ? { expiration: Math.floor(data.expiresAt / 1000) } : undefined);
+            }
+          }
+        }
+      } catch (e) {}
+    }
+
     if (!attachmentUrl) return new Response('Attachment URL not available', { status: 404, headers: cors });
+    
     const cdnRes = await fetch(attachmentUrl);
     if (!cdnRes.ok) return new Response('CDN error', { status: 502, headers: cors });
     return new Response(cdnRes.body, { headers: { ...cors, 'Content-Type': 'application/octet-stream' } });
@@ -72,7 +120,10 @@ async function handleRequest(request) {
     if (!data) return new Response('Not found', { status: 404, headers: cors });
     if (data.expiresAt && Date.now() > data.expiresAt)
       return new Response('Expired', { status: 410, headers: cors });
-    return new Response(JSON.stringify(data), { headers: { ...cors, 'Content-Type': 'application/json' } });
+    
+    // Sembunyikan webhookUrl dari public info
+    const { webhookUrl, ...safeData } = data;
+    return new Response(JSON.stringify(safeData), { headers: { ...cors, 'Content-Type': 'application/json' } });
   }
 
   if (path.match(/^\/share\/[^\/]+$/) && request.method === 'GET') {
@@ -136,7 +187,16 @@ function previewPage(d) {
     'var MAGIC=new Uint8Array([68,66,88,95,69,78,67,58]);' +
     'function hasHeader(b){var u=new Uint8Array(b);if(u.length<8)return false;for(var i=0;i<8;i++)if(u[i]!==MAGIC[i])return false;return true;}' +
     'function b64ToBytes(s){var bin=atob(s);var u=new Uint8Array(bin.length);for(var i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);return u;}' +
-    'function decryptChunk(buf,key){if(!hasHeader(buf))return Promise.resolve(buf);var u=new Uint8Array(buf);var iv=u.slice(8,20);var ct=u.slice(20);return crypto.subtle.decrypt({name:"AES-GCM",iv:iv},key,ct).catch(function(){return buf;});}' +
+    'function decryptChunk(buf,key){' +
+    '  if(!hasHeader(buf))return Promise.resolve(buf);' +
+    '  var u=new Uint8Array(buf);' +
+    '  var iv=u.slice(8,20);' +
+    '  var dataWithTag=u.slice(20);' +
+    '  return crypto.subtle.decrypt({name:"AES-GCM",iv:iv},key,dataWithTag).catch(function(e){' +
+    '    console.error("Decryption failed:",e);' +
+    '    return buf;' +
+    '  });' +
+    '}' +
     'function fetchAll(onProgress){' +
     '  var keyP=ENC_KEY_B64?crypto.subtle.importKey("raw",b64ToBytes(ENC_KEY_B64),{name:"AES-GCM"},false,["decrypt"]):Promise.resolve(null);' +
     '  return keyP.then(function(key){' +

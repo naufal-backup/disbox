@@ -27,8 +27,14 @@ const abortControllers = new Map();
 const cryptoNode = require('crypto');
 
 // ─── Share & Privacy Constants ───────────────────────────────────────────────
-const PUBLIC_WORKER_URL = 'https://disbox-worker.naufal-backup.workers.dev';
-const PUBLIC_API_KEY = 'disbox-naufal-xK9mP3qR';
+const PUBLIC_WORKER_URL = 'https://disbox-shared-link.naufal-backup.workers.dev';
+const PUBLIC_API_KEYS = {
+  'https://disbox-shared-link.alamsyahnaufal453.workers.dev': 'disbox-shared-link-0002',
+  'https://disbox-shared-link.naufal-backup.workers.dev': 'disbox-shared-link-0001',
+  'https://disbox-worker-2.naufal-backup.workers.dev': 'disbox-shared-link-0001',
+  'https://disbox-worker-3.naufal-backup.workers.dev': 'disbox-shared-link-0001'
+};
+const DEFAULT_PUBLIC_API_KEY = 'disbox-shared-link-0001';
 const MAGIC_HEADER = Buffer.from('DBX_ENC:');
 
 function getEncryptionKey(url) {
@@ -130,6 +136,7 @@ try {
       mode TEXT DEFAULT 'public',
       cf_worker_url TEXT,
       cf_api_token TEXT,
+      webhook_url TEXT,
       enabled INTEGER DEFAULT 0
     );
     CREATE TABLE IF NOT EXISTS share_links (
@@ -143,6 +150,11 @@ try {
       created_at INTEGER NOT NULL
     );
   `);
+
+  // Tambahkan kolom webhook_url ke share_settings jika belum ada (migrasi)
+  try {
+    db.prepare("ALTER TABLE share_settings ADD COLUMN webhook_url TEXT").run();
+  } catch (_) {}
 
   // Sekarang cek apakah kolom hash sudah ada
   const cols = db.prepare("PRAGMA table_info(files)").all();
@@ -956,24 +968,25 @@ setInterval(() => {
 ipcMain.handle('share-get-settings', async (_, hash) => {
   try {
     const row = db.prepare('SELECT * FROM share_settings WHERE hash = ?').get(hash);
-    return row || { hash, mode: 'public', cf_worker_url: PUBLIC_WORKER_URL, enabled: 0 };
+    return row || { hash, mode: 'public', cf_worker_url: PUBLIC_WORKER_URL, enabled: 1 };
   } catch (e) {
     console.error('[share] get-settings error:', e.message);
-    return { hash, mode: 'public', cf_worker_url: PUBLIC_WORKER_URL, enabled: 0 };
+    return { hash, mode: 'public', cf_worker_url: PUBLIC_WORKER_URL, enabled: 1 };
   }
 });
 
 ipcMain.handle('share-save-settings', async (_, hash, settings) => {
   try {
     db.prepare(`
-      INSERT INTO share_settings (hash, mode, cf_worker_url, cf_api_token, enabled)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO share_settings (hash, mode, cf_worker_url, cf_api_token, webhook_url, enabled)
+      VALUES (?, ?, ?, ?, ?, ?)
       ON CONFLICT(hash) DO UPDATE SET
         mode = excluded.mode,
         cf_worker_url = excluded.cf_worker_url,
         cf_api_token = excluded.cf_api_token,
+        webhook_url = excluded.webhook_url,
         enabled = excluded.enabled
-    `).run(hash, settings.mode || 'public', settings.cf_worker_url || null, settings.cf_api_token || null, settings.enabled ? 1 : 0);
+    `).run(hash, settings.mode || 'public', settings.cf_worker_url || null, settings.cf_api_token || null, settings.webhook_url || null, settings.enabled ? 1 : 0);
     return true;
   } catch (e) {
     console.error('[share] save-settings error:', e.message);
@@ -1148,11 +1161,6 @@ ipcMain.handle('share-deploy-worker', async (_, { apiToken }) => {
     return { ok: false, reason: 'fatal_error', message: e.message };
   }
 });
-  } catch (e) {
-    console.error('[share] Fatal deployment error:', e);
-    return { ok: false, reason: 'fatal_error', message: e.message };
-  }
-});
 
 ipcMain.handle('share-get-links', async (_, hash) => {
   try {
@@ -1163,26 +1171,54 @@ ipcMain.handle('share-get-links', async (_, hash) => {
   }
 });
 
+function getApiKey(settings, cfWorkerUrl) {
+  if (settings?.mode === 'private' && settings?.cf_api_token) {
+    return settings.cf_api_token.trim();
+  }
+  
+  const normalize = (u) => u?.toLowerCase().replace(/^https?:\/\//, '').replace(/\/+$/, '').trim();
+  const target = normalize(cfWorkerUrl);
+  
+  console.log(`[share] Mapping key for worker: ${cfWorkerUrl} (normalized: ${target})`);
+  
+  for (const [url, key] of Object.entries(PUBLIC_API_KEYS)) {
+    if (normalize(url) === target) {
+      console.log(`[share] Found match! Using key: ${key.slice(0, 8)}...`);
+      return key.trim();
+    }
+  }
+
+  console.log(`[share] No specific mapping found, using default key: ${DEFAULT_PUBLIC_API_KEY.slice(0, 8)}...`);
+  return DEFAULT_PUBLIC_API_KEY.trim();
+}
+
 ipcMain.handle('share-create-link', async (_, hash, { filePath, fileId, permission, expiresAt }) => {
   try {
     const token = cryptoNode.randomUUID().replace(/-/g, '');
     const settings = db.prepare('SELECT * FROM share_settings WHERE hash = ?').get(hash);
-    let cfWorkerUrl = settings?.cf_worker_url || PUBLIC_WORKER_URL;
     
-    // Validasi URL sederhana
+    if (!activeWebhookUrl && settings?.webhook_url) {
+      activeWebhookUrl = settings.webhook_url;
+    }
+    
+    if (activeWebhookUrl) {
+      activeWebhookUrl = activeWebhookUrl.split('?')[0].replace(/\/+$/, '');
+    }
+
+    let cfWorkerUrl = settings?.cf_worker_url || PUBLIC_WORKER_URL;
     if (!cfWorkerUrl || cfWorkerUrl.includes('.xxx.') || !cfWorkerUrl.startsWith('http')) {
       return { ok: false, reason: 'invalid_worker_url', message: 'URL Cloudflare Worker belum diset dengan benar. Silakan cek tab Settings.' };
     }
-
-    // Pastikan tidak ada trailing slash agar path join tidak dobel //
     cfWorkerUrl = cfWorkerUrl.replace(/\/+$/, '');
 
-    // Private mode pakai API key milik user, public mode pakai key developer
-    const apiKey = (settings?.mode === 'private' && settings?.cf_api_token)
-      ? settings.cf_api_token
-      : PUBLIC_API_KEY;
+    let apiKey = getApiKey(settings, cfWorkerUrl);
 
-    // Ambil messageIds + attachment URLs dari Discord agar CF Worker bisa proxy download
+    console.log(`[share] PREPARING REQUEST:`);
+    console.log(`[share] > Worker: ${cfWorkerUrl}`);
+    console.log(`[share] > API Key (first 8): ${apiKey?.slice(0, 8)}...`);
+    console.log(`[share] > Mode: ${settings?.mode || 'public'}`);
+
+    // Ambil messageIds + attachment URLs dari Discord
     let messageIds = [];
     try {
       const fileRow = fileId
@@ -1191,21 +1227,55 @@ ipcMain.handle('share-create-link', async (_, hash, { filePath, fileId, permissi
 
       if (fileRow) {
         const rawIds = JSON.parse(fileRow.message_ids || '[]');
-        // Fetch attachment URL tiap chunk dari Discord untuk di-proxy oleh CF Worker
-        messageIds = await Promise.all(rawIds.map(async (item) => {
+        console.log(`[share] > Chunks to fetch: ${rawIds.length}`);
+        const https = require('https');
+        
+        for (let i = 0; i < rawIds.length; i++) {
+          const item = rawIds[i];
           const msgId = typeof item === 'string' ? item : item.msgId;
-          try {
-            const msgRes = await net.fetch(`${activeWebhookUrl}/messages/${msgId}`, {
-              headers: { 'User-Agent': 'Mozilla/5.0 Disbox/2.0' }
+          const msgUrl = `${activeWebhookUrl}/messages/${msgId}`;
+          
+          console.log(`[share] > Fetching chunk ${i+1}/${rawIds.length}: ${msgId}`);
+          
+          let retryCount = 0;
+          let success = false;
+          while (retryCount < 3 && !success) {
+            const result = await new Promise((resolve) => {
+              https.get(msgUrl, { headers: { 'User-Agent': 'Mozilla/5.0 Disbox/2.0' } }, (res) => {
+                let data = '';
+                res.on('data', (c) => data += c);
+                res.on('end', () => {
+                  if (res.statusCode === 200) {
+                    try {
+                      const msg = JSON.parse(data);
+                      resolve({ ok: true, attachmentUrl: msg.attachments?.[0]?.url || null });
+                    } catch (e) { resolve({ ok: false, retry: false }); }
+                  } else if (res.statusCode === 429) {
+                    try {
+                      const backoff = (JSON.parse(data).retry_after || 1) * 1000 + 500;
+                      resolve({ ok: false, retry: true, delay: backoff, reason: '429' });
+                    } catch (e) { resolve({ ok: false, retry: true, delay: 2000, reason: '429' }); }
+                  } else {
+                    resolve({ ok: false, retry: false, status: res.statusCode });
+                  }
+                });
+              }).on('error', (err) => resolve({ ok: false, retry: true, delay: 1000, reason: err.message }));
             });
-            if (msgRes.ok) {
-              const msg = JSON.parse(await msgRes.text());
-              const attachmentUrl = msg.attachments?.[0]?.url || null;
-              return { msgId, attachmentUrl };
+
+            if (result.ok) {
+              messageIds.push({ msgId, attachmentUrl: result.attachmentUrl });
+              success = true;
+            } else if (result.retry) {
+              console.warn(`[share] > Retry ${retryCount+1}/3 for ${msgId} due to ${result.reason}. Waiting ${result.delay}ms...`);
+              retryCount++;
+              await new Promise(r => setTimeout(r, result.delay));
+            } else {
+              console.error(`[share] > Failed to fetch ${msgId} (Status: ${result.status})`);
+              messageIds.push({ msgId, attachmentUrl: null });
+              break;
             }
-          } catch (e) { console.warn('[share] Could not fetch attachment URL for', msgId); }
-          return { msgId, attachmentUrl: null };
-        }));
+          }
+        }
       }
     } catch (e) { console.warn('[share] Could not fetch messageIds:', e.message); }
 
@@ -1217,10 +1287,19 @@ ipcMain.handle('share-create-link', async (_, hash, { filePath, fileId, permissi
       if (encKey) encryptionKeyB64 = encKey.toString('base64');
     } catch (e) { console.warn('[share] Could not get encryption key:', e.message); }
 
+    console.log(`[share] > All messageIds prepared. Sending to Cloudflare...`);
+    console.log(`[share] > Target: ${cfWorkerUrl}/share/create`);
+    console.log(`[share] > Key: ${apiKey.trim().slice(0, 8)}...`);
+
+    const headers = {
+      'Content-Type': 'application/json',
+      'X-Disbox-Key': apiKey.trim()
+    };
+
     const res = await net.fetch(`${cfWorkerUrl}/share/create`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Disbox-Key': apiKey },
-      body: JSON.stringify({ token, fileId, filePath, permission, expiresAt, webhookHash: hash, messageIds, encryptionKeyB64 })
+      headers: headers,
+      body: JSON.stringify({ token, fileId, filePath, permission, expiresAt, webhookHash: hash, messageIds, encryptionKeyB64, webhookUrl: activeWebhookUrl })
     }).catch(e => {
       if (e.message.includes('ERR_SSL') || e.message.includes('ERR_CERT')) {
         throw new Error('SSL Cloudflare belum siap. Tunggu 1-2 menit agar sertifikat aktif.');
@@ -1253,10 +1332,9 @@ ipcMain.handle('share-create-link', async (_, hash, { filePath, fileId, permissi
 ipcMain.handle('share-revoke-link', async (_, hash, { id, token }) => {
   try {
     const settings = db.prepare('SELECT * FROM share_settings WHERE hash = ?').get(hash);
-    const cfWorkerUrl = settings?.cf_worker_url || PUBLIC_WORKER_URL;
-    const apiKey = (settings?.mode === 'private' && settings?.cf_api_token)
-      ? settings.cf_api_token
-      : PUBLIC_API_KEY;
+    const cfWorkerUrl = (settings?.cf_worker_url || PUBLIC_WORKER_URL).replace(/\/+$/, '');
+    let apiKey = getApiKey(settings, cfWorkerUrl);
+    
     await net.fetch(`${cfWorkerUrl}/share/revoke/${token}`, {
       method: 'DELETE',
       headers: { 'X-Disbox-Key': apiKey }
@@ -1272,10 +1350,9 @@ ipcMain.handle('share-revoke-link', async (_, hash, { id, token }) => {
 ipcMain.handle('share-revoke-all', async (_, hash) => {
   try {
     const settings = db.prepare('SELECT * FROM share_settings WHERE hash = ?').get(hash);
-    const cfWorkerUrl = settings?.cf_worker_url || PUBLIC_WORKER_URL;
-    const apiKey = (settings?.mode === 'private' && settings?.cf_api_token)
-      ? settings.cf_api_token
-      : PUBLIC_API_KEY;
+    const cfWorkerUrl = (settings?.cf_worker_url || PUBLIC_WORKER_URL).replace(/\/+$/, '');
+    let apiKey = getApiKey(settings, cfWorkerUrl);
+
     await net.fetch(`${cfWorkerUrl}/share/revoke-all/${hash}`, {
       method: 'DELETE',
       headers: { 'X-Disbox-Key': apiKey }

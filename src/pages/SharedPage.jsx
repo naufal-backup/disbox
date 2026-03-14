@@ -195,7 +195,7 @@ function FileThumbnail({ file, size = 32 }) {
 export default function SharedPage({ onNavigateToSettings }) {
   const { 
     shareEnabled, shareLinks, loadShareLinks, revokeShareLink, revokeAllLinks, 
-    api, files, t, uiScale, animationsEnabled 
+    cfWorkerUrl, api, files, t, uiScale, animationsEnabled 
   } = useApp();
 
   const [viewMode, setViewMode] = useState(() => localStorage.getItem('disbox_shared_view') || 'list');
@@ -415,7 +415,7 @@ export default function SharedPage({ onNavigateToSettings }) {
                     </div>
                   </div>
                   <div className={styles.gridActions}>
-                    <button onClick={() => handleCopy(link.share_url || `https://disbox-worker.naufal-backup.workers.dev/share/${link.token}`, link.id)}>
+                    <button onClick={() => handleCopy(link.share_url || `${cfWorkerUrl}/share/${link.token}`, link.id)}>
                       {copied === link.id ? <Check size={14} /> : <Copy size={14} />}
                     </button>
                     <button className={styles.revokeBtn} onClick={() => handleRevoke(link.id, link.token)} disabled={revoking === link.id}>
@@ -449,7 +449,7 @@ export default function SharedPage({ onNavigateToSettings }) {
                       <Eye size={14} />
                     </button>
                   )}
-                  <button className={styles.actionBtn} onClick={() => handleCopy(link.share_url || `https://disbox-worker.naufal-backup.workers.dev/share/${link.token}`, link.id)}>
+                  <button className={styles.actionBtn} onClick={() => handleCopy(link.share_url || `${cfWorkerUrl}/share/${link.token}`, link.id)}>
                     {copied === link.id ? <Check size={14} /> : <Copy size={14} />}
                   </button>
                   <button className={styles.revokeBtn} onClick={() => handleRevoke(link.id, link.token)} disabled={revoking === link.id}>

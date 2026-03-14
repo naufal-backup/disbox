@@ -1,14 +1,14 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { X, Download, Maximize2, Minimize2, Loader2, AlertCircle } from 'lucide-react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import vscDarkPlus from 'react-syntax-highlighter/dist/esm/styles/prism/vsc-dark-plus';
 import { useApp } from '../AppContext.jsx';
 import { getMimeType, formatSize } from '../utils/disbox.js';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import styles from './FilePreview.module.css';
 
 export default function FilePreview({ file, onClose }) {
-  const { api, addTransfer, updateTransfer, cancelTransfer, removeTransfer, animationsEnabled } = useApp();
+  const { api, addTransfer, updateTransfer, removeTransfer, animationsEnabled } = useApp();
   const [loading, setLoading] = useState(true);
   const [content, setContent] = useState(null); // { type, url, text }
   const [error, setError] = useState('');
@@ -20,7 +20,95 @@ export default function FilePreview({ file, onClose }) {
   const ext = name.split('.').pop().toLowerCase();
   const mime = getMimeType(name);
 
-  // ... (keep useEffect logic)
+  const handleDownload = useCallback(async () => {
+    const fileName = file.path.split('/').pop();
+    const transferId = `preview-dl-${file.id}-${Date.now()}`;
+    const totalBytes = file.size || 0;
+    const CHUNK_SIZE = 8 * 1024 * 1024;
+    const totalChunks = Math.ceil(totalBytes / CHUNK_SIZE) || 1;
+    const signal = addTransfer({ id: transferId, name: fileName, progress: 0, type: 'download', status: 'active', totalBytes, totalChunks, chunk: 0 });
+    try {
+      const buffer = await api.downloadFile(file, (p) => {
+        if (!signal.aborted) {
+          const chunk = totalChunks ? Math.min(Math.floor(p * totalChunks), totalChunks - 1) : 0;
+          updateTransfer(transferId, { progress: p, chunk });
+        }
+      }, signal, transferId);
+      if (signal.aborted) return;
+      const blob = new Blob([buffer], { type: getMimeType(fileName) });
+      const url = URL.createObjectURL(blob);
+      if (window.electron) {
+        const savePath = await window.electron.saveFile(fileName);
+        if (savePath) await window.electron.writeFile(savePath, new Uint8Array(buffer));
+      } else {
+        const a = document.createElement('a'); a.href = url; a.download = fileName; a.click();
+      }
+      URL.revokeObjectURL(url);
+      updateTransfer(transferId, { status: 'done', progress: 1 });
+      setTimeout(() => removeTransfer(transferId), 1000);
+    } catch (e) {
+      if (e.name !== 'AbortError' && !signal.aborted) {
+        updateTransfer(transferId, { status: 'error', error: e.message });
+      }
+    }
+  }, [file, api, addTransfer, updateTransfer, removeTransfer]);
+
+  useEffect(() => {
+    let isMounted = true;
+    let objectUrl = null;
+    const transferId = `preview-${file.id}`;
+
+    const loadContent = async () => {
+      setLoading(true);
+      setError('');
+      try {
+        const signal = addTransfer({ id: transferId, name: `Preview: ${name}`, progress: 0, type: 'download', status: 'active', hidden: true });
+        const buffer = await api.downloadFile(file, (p) => {
+          if (isMounted) {
+            setDownloadProgress(Math.round(p * 100));
+            updateTransfer(transferId, { progress: p });
+          }
+        }, signal, transferId);
+
+        if (!isMounted || signal.aborted) return;
+
+        const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(ext);
+        const isVideo = ['mp4', 'webm', 'ogg', 'mov', 'mkv', 'avi'].includes(ext);
+        const isAudio = ['mp3', 'wav', 'flac', 'ogg'].includes(ext);
+        const isPdf = ext === 'pdf';
+        const isText = ['txt', 'md', 'js', 'jsx', 'ts', 'tsx', 'py', 'rs', 'html', 'css', 'json', 'yml', 'yaml', 'sql', 'sh', 'bash', 'xml', 'cpp', 'c', 'java'].includes(ext);
+
+        if (isImage || isVideo || isAudio || isPdf) {
+          const blob = new Blob([buffer], { type: mime });
+          objectUrl = URL.createObjectURL(blob);
+          setContent({ type: isImage ? 'image' : isVideo ? 'video' : isAudio ? 'audio' : 'pdf', url: objectUrl });
+        } else if (isText) {
+          const text = new TextDecoder().decode(buffer);
+          setContent({ type: 'text', text });
+        } else {
+          setContent({ type: 'unsupported' });
+        }
+        updateTransfer(transferId, { status: 'done', progress: 1 });
+        setTimeout(() => removeTransfer(transferId), 500);
+      } catch (e) {
+        if (isMounted) {
+          console.error('Preview failed:', e);
+          setError('Gagal memuat pratinjau: ' + e.message);
+        }
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    };
+
+    loadContent();
+
+    return () => {
+      isMounted = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      window.electron?.cancelUpload?.(transferId);
+      removeTransfer(transferId);
+    };
+  }, [file.id, api]);
 
   const backdropVariants = {
     initial: { opacity: 0 },
