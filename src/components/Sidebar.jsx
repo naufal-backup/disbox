@@ -1,4 +1,4 @@
-import { HardDrive, Upload, Clock, Star, Trash2, Settings, RefreshCw, LogOut, Sun, Moon, Lock } from 'lucide-react';
+import { HardDrive, Upload, Clock, Star, Trash2, Settings, RefreshCw, LogOut, Sun, Moon, Lock, Cloud } from 'lucide-react';
 import { useState } from 'react';
 import { useApp } from '../AppContext.jsx';
 import { ConfirmModal } from './FolderModal.jsx';
@@ -13,6 +13,7 @@ export default function Sidebar({ activePage, onNavigate }) {
     { icon: Clock,      label: t('recent'),   id: 'recent' },
     { icon: Star,       label: t('starred'),  id: 'starred' },
     { icon: Lock,       label: t('locked'),   id: 'locked' },
+    { icon: Cloud,      label: t('cloud_save'), id: 'cloud-save' },
   ];
 
   const totalSize = files.reduce((sum, f) => sum + (f.size || 0), 0);
@@ -34,7 +35,13 @@ export default function Sidebar({ activePage, onNavigate }) {
 
       {/* Nav */}
       <nav className={styles.nav}>
-        {navItems.filter(item => item.id !== 'recent' || showRecent).map(({ icon: Icon, label, id }) => (
+        {navItems
+          .filter(item => {
+            if (item.id === 'recent' && !showRecent) return false;
+            if (item.id === 'cloud-save' && !useApp().cloudSaveEnabled) return false;
+            return true;
+          })
+          .map(({ icon: Icon, label, id }) => (
           <button
             key={id}
             className={`${styles.navItem} ${activePage === id ? styles.active : ''}`}
@@ -64,7 +71,10 @@ export default function Sidebar({ activePage, onNavigate }) {
           </div>
           <span>{t('refresh')}</span>
         </button>
-        <button className={styles.actionBtn} onClick={() => onNavigate('settings')}>
+        <button 
+          className={`${styles.actionBtn} ${activePage === 'settings' ? styles.active : ''}`} 
+          onClick={() => onNavigate('settings')}
+        >
           <div className={styles.navIcon}>
             <Settings size={15} />
           </div>

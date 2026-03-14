@@ -122,6 +122,15 @@
   color: var(--text-primary);
 }
 
+.actionBtn.active {
+  background: var(--accent-dim);
+  color: var(--accent-bright);
+}
+
+.actionBtn.active .navIcon {
+  color: var(--accent-bright);
+}
+
 .actionBtn:disabled {
   opacity: 0.5;
   cursor: not-allowed;

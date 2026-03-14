@@ -12,6 +12,7 @@ import { formatSize, getFileIcon, getMimeType } from '../utils/disbox.js';
 import { CreateFolderModal, MoveModal, ConfirmModal } from './FolderModal.jsx';
 import FilePreview from './FilePreview.jsx';
 import styles from './FileGrid.module.css';
+import { motion, AnimatePresence } from 'framer-motion';
 
 // ─── Thumbnail Concurrency Control ──────────────────────────────────────────
 const MAX_CONCURRENT_THUMBS = 3;
@@ -261,7 +262,7 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
     addTransfer, updateTransfer, removeTransfer, cancelTransfer, 
     refresh, loading, movePath, copyPath, deletePath, 
     bulkDelete, bulkMove, bulkCopy, uiScale,
-    setLocked, setStarred, verifyPin, hasPin, isVerified, t
+    setLocked, setStarred, verifyPin, hasPin, isVerified, t, animationsEnabled
   } = useApp();
 
   const [viewMode, setViewMode] = useState('grid');
@@ -982,19 +983,41 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
       <div className={styles.content} ref={contentRef} style={{ position: 'relative' }}>
         {loading && processedFiles.length === 0 && processedDirs.length === 0 ? <div className={styles.loading}>{[...Array(6)].map((_, i) => <div key={i} className={`skeleton ${styles.skeletonCard}`} />)}</div> : processedFiles.length === 0 && processedDirs.length === 0 ? <div className={styles.empty}><div className={styles.emptyIcon}>📂</div><p className={styles.emptyTitle}>{t('empty_folder')}</p><p className={styles.emptyHint}>{t('empty_hint')}</p></div> : viewMode === 'grid' ? (
           <div className={styles.grid}>
-            {processedDirs.map(({ name: dir, fullPath }) => {
-              const folderSize = folderSizes.get(fullPath) || 0;
-              const l = folderLocks.get(fullPath);
-              const isLocked = l && l.count > 0 && l.lockedCount === l.count;
-              const isStarred = folderStars.has(fullPath);
-              const isPartOfSelection = selectedFiles.has(fullPath);
-              const canBeDropTarget = dragSource?.bulk ? !isPartOfSelection : (dragSource && fullPath !== dragSource && !fullPath.startsWith(dragSource + '/'));
-              return <div key={fullPath} data-item-id={fullPath} className={`${styles.card} ${isPartOfSelection ? styles.selected : ''} ${dragOverTarget === fullPath ? styles.isDragTarget : ''}`} draggable onDragStart={(e) => handleDragStart(e, fullPath)} onDragOver={(e) => { const types = Array.from(e.dataTransfer.types); if (canBeDropTarget || types.includes('Files')) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dragOverTarget !== fullPath) setDragOverTarget(fullPath); } }} onDragLeave={(e) => { const rect = e.currentTarget.getBoundingClientRect(); if (e.clientX < rect.left || e.clientX >= rect.right || e.clientY < rect.top || e.clientY >= rect.bottom) setDragOverTarget(null); }} onDrop={(e) => { setDragOverTarget(null); handleDropMove(e, fullPath); }} onDoubleClick={() => handleFolderClick(fullPath)} onClick={(e) => toggleSelect(fullPath, e)} onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX / uiScale, y: e.clientY / uiScale, path: fullPath, isFolder: true }); }}><div className={styles.checkbox}><Check size={12} strokeWidth={3} /></div>{isLocked && <div className={styles.lockOverlay}><Lock size={12} /></div>}{isStarred && <div className={styles.starOverlay}><Star size={12} fill="currentColor" /></div>}<div className={styles.cardIcon}><Folder size={32} strokeWidth={1.5} style={{ color: 'var(--amber)' }} /></div><div className={styles.cardName} title={dir}>{renameTarget?.path === fullPath ? <input className={styles.renameInput} value={renameValue} onChange={e => setRenameValue(e.target.value)} onBlur={commitRename} onKeyDown={e => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setRenameTarget(null); }} autoFocus onClick={e => e.stopPropagation()} /> : dir}</div><div className={styles.cardMeta}>Folder</div><div className={styles.infoBadge}><span>{formatSize(folderSize)}</span></div></div>;
-            })}
-            {processedFiles.map(file => {
-              const name = file.path.split('/').pop();
-              return <div key={file.id || file.path} data-item-id={file.id} className={`${styles.card} ${selectedFiles.has(file.id) ? styles.selected : ''}`} draggable onDragStart={(e) => handleDragStart(e, file.path, file.id)} onClick={(e) => toggleSelect(file.id, e)} onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX / uiScale, y: e.clientY / uiScale, path: file.path, file, isFolder: false }); }} onDoubleClick={() => handleFileClick(file)}><div className={styles.checkbox}><Check size={12} strokeWidth={3} /></div>{file.isLocked && <div className={styles.lockOverlay}><Lock size={12} /></div>}{file.isStarred && <div className={styles.starOverlay}><Star size={12} fill="currentColor" /></div>}<div className={styles.cardIcon} style={{ padding: 4 }}><FileThumbnail file={file} /></div><div className={styles.cardName} title={name}>{renameTarget?.path === file.path && renameTarget?.id === file.id ? <input className={styles.renameInput} value={renameValue} onChange={e => setRenameValue(e.target.value)} onBlur={commitRename} onKeyDown={e => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setRenameTarget(null); }} autoFocus onClick={e => e.stopPropagation()} /> : name}</div><div className={styles.cardMeta}>{formatSize(file.size || 0)}</div></div>;
-            })}
+            <AnimatePresence>
+              {processedDirs.map(({ name: dir, fullPath }, idx) => {
+                const folderSize = folderSizes.get(fullPath) || 0;
+                const l = folderLocks.get(fullPath);
+                const isLocked = l && l.count > 0 && l.lockedCount === l.count;
+                const isStarred = folderStars.has(fullPath);
+                const isPartOfSelection = selectedFiles.has(fullPath);
+                const canBeDropTarget = dragSource?.bulk ? !isPartOfSelection : (dragSource && fullPath !== dragSource && !fullPath.startsWith(dragSource + '/'));
+                return (
+                  <motion.div
+                    key={fullPath}
+                    initial={animationsEnabled ? { opacity: 0, scale: 0.95 } : false}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={animationsEnabled ? { opacity: 0, scale: 0.95 } : false}
+                    transition={animationsEnabled ? { duration: 0.15, delay: Math.min(idx * 0.015, 0.2) } : { duration: 0 }}
+                  >
+                    <div data-item-id={fullPath} className={`${styles.card} ${isPartOfSelection ? styles.selected : ''} ${dragOverTarget === fullPath ? styles.isDragTarget : ''}`} draggable onDragStart={(e) => handleDragStart(e, fullPath)} onDragOver={(e) => { const types = Array.from(e.dataTransfer.types); if (canBeDropTarget || types.includes('Files')) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dragOverTarget !== fullPath) setDragOverTarget(fullPath); } }} onDragLeave={(e) => { const rect = e.currentTarget.getBoundingClientRect(); if (e.clientX < rect.left || e.clientX >= rect.right || e.clientY < rect.top || e.clientY >= rect.bottom) setDragOverTarget(null); }} onDrop={(e) => { setDragOverTarget(null); handleDropMove(e, fullPath); }} onDoubleClick={() => handleFolderClick(fullPath)} onClick={(e) => toggleSelect(fullPath, e)} onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX / uiScale, y: e.clientY / uiScale, path: fullPath, isFolder: true }); }}><div className={styles.checkbox}><Check size={12} strokeWidth={3} /></div>{isLocked && <div className={styles.lockOverlay}><Lock size={12} /></div>}{isStarred && <div className={styles.starOverlay}><Star size={12} fill="currentColor" /></div>}<div className={styles.cardIcon}><Folder size={32} strokeWidth={1.5} style={{ color: 'var(--amber)' }} /></div><div className={styles.cardName} title={dir}>{renameTarget?.path === fullPath ? <input className={styles.renameInput} value={renameValue} onChange={e => setRenameValue(e.target.value)} onBlur={commitRename} onKeyDown={e => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setRenameTarget(null); }} autoFocus onClick={e => e.stopPropagation()} /> : dir}</div><div className={styles.cardMeta}>Folder</div><div className={styles.infoBadge}><span>{formatSize(folderSize)}</span></div></div>
+                  </motion.div>
+                );
+              })}
+              {processedFiles.map((file, idx) => {
+                const name = file.path.split('/').pop();
+                return (
+                  <motion.div
+                    key={file.id || file.path}
+                    initial={animationsEnabled ? { opacity: 0, scale: 0.95 } : false}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={animationsEnabled ? { opacity: 0, scale: 0.95 } : false}
+                    transition={animationsEnabled ? { duration: 0.15, delay: Math.min((processedDirs.length + idx) * 0.015, 0.2) } : { duration: 0 }}
+                  >
+                    <div data-item-id={file.id} className={`${styles.card} ${selectedFiles.has(file.id) ? styles.selected : ''}`} draggable onDragStart={(e) => handleDragStart(e, file.path, file.id)} onClick={(e) => toggleSelect(file.id, e)} onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX / uiScale, y: e.clientY / uiScale, path: file.path, file, isFolder: false }); }} onDoubleClick={() => handleFileClick(file)}><div className={styles.checkbox}><Check size={12} strokeWidth={3} /></div>{file.isLocked && <div className={styles.lockOverlay}><Lock size={12} /></div>}{file.isStarred && <div className={styles.starOverlay}><Star size={12} fill="currentColor" /></div>}<div className={styles.cardIcon} style={{ padding: 4 }}><FileThumbnail file={file} /></div><div className={styles.cardName} title={name}>{renameTarget?.path === file.path && renameTarget?.id === file.id ? <input className={styles.renameInput} value={renameValue} onChange={e => setRenameValue(e.target.value)} onBlur={commitRename} onKeyDown={e => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setRenameTarget(null); }} autoFocus onClick={e => e.stopPropagation()} /> : name}</div><div className={styles.cardMeta}>{formatSize(file.size || 0)}</div></div>
+                  </motion.div>
+                );
+              })}
+            </AnimatePresence>
           </div>
         ) : (
           <div className={styles.list}>
@@ -1004,22 +1027,44 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
               <span className={styles.listColSize}>Ukuran</span>
               <span className={styles.listColActions}></span>
             </div>
-            {processedDirs.map(({ name: dir, fullPath }) => {
-              const folderSize = folderSizes.get(fullPath) || 0;
-              const l = folderLocks.get(fullPath);
-              const isLocked = l && l.count > 0 && l.lockedCount === l.count;
-              const isStarred = folderStars.has(fullPath);
-              const isPartOfSelection = selectedFiles.has(fullPath);
-              const canBeDropTarget = dragSource?.bulk ? !isPartOfSelection : (dragSource && fullPath !== dragSource && !fullPath.startsWith(dragSource + '/'));
-              const iconSize = Math.max(20, 22 * zoom);
-              return <div key={fullPath} data-item-id={fullPath} className={`${styles.listRow} ${isPartOfSelection ? styles.selected : ''} ${dragOverTarget === fullPath ? styles.isDragTarget : ''}`} draggable onDragStart={(e) => handleDragStart(e, fullPath)} onDragOver={(e) => { const types = Array.from(e.dataTransfer.types); if (canBeDropTarget || types.includes('Files')) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dragOverTarget !== fullPath) setDragOverTarget(fullPath); } }} onDragLeave={(e) => { const rect = e.currentTarget.getBoundingClientRect(); if (e.clientX < rect.left || e.clientX >= rect.right || e.clientY < rect.top || e.clientY >= rect.bottom) setDragOverTarget(null); }} onDrop={(e) => { setDragOverTarget(null); handleDropMove(e, fullPath); }} onDoubleClick={() => handleFolderClick(fullPath)} onClick={(e) => toggleSelect(fullPath, e)} onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX / uiScale, y: e.clientY / uiScale, path: fullPath, isFolder: true }); }}><div className={styles.listCheckbox}>{selectedFiles.has(fullPath) && <Check size={10} strokeWidth={4} />}</div>
-<div className={styles.listIcon} style={{ width: `calc(28px * var(--zoom))`, flexShrink: 0 }}>{isLocked ? <Lock size={iconSize - 2} style={{ color: 'var(--accent-bright)' }} /> : isStarred ? <Star size={iconSize - 2} fill="var(--amber)" style={{ color: 'var(--amber)' }} /> : <Folder size={iconSize} style={{ color: 'var(--amber)' }} />}</div><span className={`${styles.listName} truncate`} style={{ fontSize: `calc(12px * var(--zoom))`, lineHeight: 1.2 }}>{renameTarget?.path === fullPath ? <input className={styles.renameInput} value={renameValue} onChange={e => setRenameValue(e.target.value)} onBlur={commitRename} onKeyDown={e => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setRenameTarget(null); }} autoFocus onClick={e => e.stopPropagation()} /> : dir}</span><span className={styles.listSize}>{formatSize(folderSize)}</span><div className={styles.listActions} onClick={e => e.stopPropagation()}><button className={styles.iconBtn} onClick={() => setMoveModal({ path: fullPath, mode: 'move' })} title="Pindah"><Move size={13} /></button><button className={styles.iconBtn} onClick={() => setMoveModal({ path: fullPath, mode: 'copy' })} title="Salin"><Copy size={13} /></button><button className={styles.iconBtn} onClick={() => startRename(fullPath, true)} title="Rename"><Edit3 size={13} /></button></div></div>;
-            })}
-            {processedFiles.map(file => {
-              const name = file.path.split('/').pop();
-              const iconSize = Math.max(18, 20 * zoom);
-              return <div key={file.id || file.path} data-item-id={file.id} className={`${styles.listRow} ${selectedFiles.has(file.id) ? styles.selected : ''}`} draggable onDragStart={(e) => handleDragStart(e, file.path, file.id)} onClick={(e) => toggleSelect(file.id, e)} onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX / uiScale, y: e.clientY / uiScale, path: file.path, file, isFolder: false }); }} onDoubleClick={() => handleFileClick(file)}><div className={styles.listCheckbox}>{selectedFiles.has(file.id) && <Check size={10} strokeWidth={4} />}</div><div className={styles.listIcon} style={{ width: `calc(28px * var(--zoom))`, height: `calc(28px * var(--zoom))`, display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: 4, flexShrink: 0 }}>{file.isLocked ? <Lock size={iconSize} style={{ color: 'var(--accent-bright)' }} /> : file.isStarred ? <Star size={iconSize} fill="var(--amber)" style={{ color: 'var(--amber)' }} /> : <FileThumbnail file={file} size={iconSize} />}</div><span className={`${styles.listName} truncate`} style={{ fontSize: `calc(12px * var(--zoom))`, lineHeight: 1.2 }}>{renameTarget?.path === file.path && renameTarget?.id === file.id ? <input className={styles.renameInput} value={renameValue} onChange={e => setRenameValue(e.target.value)} onBlur={commitRename} onKeyDown={e => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setRenameTarget(null); }} autoFocus onClick={e => e.stopPropagation()} /> : name}</span><span className={styles.listSize}>{formatSize(file.size || 0)}</span><div className={styles.listActions} onClick={e => e.stopPropagation()}><button className={styles.iconBtn} onClick={() => handleDownloadClick(file)} title="Download"><Download size={13} /></button><button className={styles.iconBtn} onClick={() => setMoveModal({ id: file.id, path: file.path, mode: 'move' })} title="Pindah"><Move size={13} /></button><button className={styles.iconBtn} onClick={() => setMoveModal({ id: file.id, path: file.path, mode: 'copy' })} title="Salin"><Copy size={13} /></button><button className={styles.iconBtn} onClick={() => startRename(file.path, false, file.id)} title="Rename"><Edit3 size={13} /></button></div></div>;
-            })}
+            <AnimatePresence>
+              {processedDirs.map(({ name: dir, fullPath }, idx) => {
+                const folderSize = folderSizes.get(fullPath) || 0;
+                const l = folderLocks.get(fullPath);
+                const isLocked = l && l.count > 0 && l.lockedCount === l.count;
+                const isStarred = folderStars.has(fullPath);
+                const isPartOfSelection = selectedFiles.has(fullPath);
+                const canBeDropTarget = dragSource?.bulk ? !isPartOfSelection : (dragSource && fullPath !== dragSource && !fullPath.startsWith(dragSource + '/'));
+                const iconSize = Math.max(20, 22 * zoom);
+                return (
+                  <motion.div
+                    key={fullPath}
+                    initial={animationsEnabled ? { opacity: 0, x: -5 } : false}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={animationsEnabled ? { opacity: 0, x: 5 } : false}
+                    transition={animationsEnabled ? { duration: 0.15, delay: Math.min(idx * 0.01, 0.15) } : { duration: 0 }}
+                  >
+                    <div data-item-id={fullPath} className={`${styles.listRow} ${isPartOfSelection ? styles.selected : ''} ${dragOverTarget === fullPath ? styles.isDragTarget : ''}`} draggable onDragStart={(e) => handleDragStart(e, fullPath)} onDragOver={(e) => { const types = Array.from(e.dataTransfer.types); if (canBeDropTarget || types.includes('Files')) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dragOverTarget !== fullPath) setDragOverTarget(fullPath); } }} onDragLeave={(e) => { const rect = e.currentTarget.getBoundingClientRect(); if (e.clientX < rect.left || e.clientX >= rect.right || e.clientY < rect.top || e.clientY >= rect.bottom) setDragOverTarget(null); }} onDrop={(e) => { setDragOverTarget(null); handleDropMove(e, fullPath); }} onDoubleClick={() => handleFolderClick(fullPath)} onClick={(e) => toggleSelect(fullPath, e)} onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX / uiScale, y: e.clientY / uiScale, path: fullPath, isFolder: true }); }}><div className={styles.listCheckbox}>{selectedFiles.has(fullPath) && <Check size={10} strokeWidth={4} />}</div>
+<div className={styles.listIcon} style={{ width: `calc(28px * var(--zoom))`, flexShrink: 0 }}>{isLocked ? <Lock size={iconSize - 2} style={{ color: 'var(--accent-bright)' }} /> : isStarred ? <Star size={iconSize - 2} fill="var(--amber)" style={{ color: 'var(--amber)' }} /> : <Folder size={iconSize} style={{ color: 'var(--amber)' }} />}</div><span className={`${styles.listName} truncate`} style={{ fontSize: `calc(12px * var(--zoom))`, lineHeight: 1.2 }}>{renameTarget?.path === fullPath ? <input className={styles.renameInput} value={renameValue} onChange={e => setRenameValue(e.target.value)} onBlur={commitRename} onKeyDown={e => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setRenameTarget(null); }} autoFocus onClick={e => e.stopPropagation()} /> : dir}</span><span className={styles.listSize}>{formatSize(folderSize)}</span><div className={styles.listActions} onClick={e => e.stopPropagation()}><button className={styles.iconBtn} onClick={() => setMoveModal({ path: fullPath, mode: 'move' })} title="Pindah"><Move size={13} /></button><button className={styles.iconBtn} onClick={() => setMoveModal({ path: fullPath, mode: 'copy' })} title="Salin"><Copy size={13} /></button><button className={styles.iconBtn} onClick={() => startRename(fullPath, true)} title="Rename"><Edit3 size={13} /></button></div></div>
+                  </motion.div>
+                );
+              })}
+              {processedFiles.map((file, idx) => {
+                const name = file.path.split('/').pop();
+                const iconSize = Math.max(18, 20 * zoom);
+                return (
+                  <motion.div
+                    key={file.id || file.path}
+                    initial={animationsEnabled ? { opacity: 0, x: -5 } : false}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={animationsEnabled ? { opacity: 0, x: 5 } : false}
+                    transition={animationsEnabled ? { duration: 0.15, delay: Math.min((processedDirs.length + idx) * 0.01, 0.15) } : { duration: 0 }}
+                  >
+                    <div data-item-id={file.id} className={`${styles.listRow} ${selectedFiles.has(file.id) ? styles.selected : ''}`} draggable onDragStart={(e) => handleDragStart(e, file.path, file.id)} onClick={(e) => toggleSelect(file.id, e)} onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX / uiScale, y: e.clientY / uiScale, path: file.path, file, isFolder: false }); }} onDoubleClick={() => handleFileClick(file)}><div className={styles.listCheckbox}>{selectedFiles.has(file.id) && <Check size={10} strokeWidth={4} />}</div><div className={styles.listIcon} style={{ width: `calc(28px * var(--zoom))`, height: `calc(28px * var(--zoom))`, display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: 4, flexShrink: 0 }}>{file.isLocked ? <Lock size={iconSize} style={{ color: 'var(--accent-bright)' }} /> : file.isStarred ? <Star size={iconSize} fill="var(--amber)" style={{ color: 'var(--amber)' }} /> : <FileThumbnail file={file} size={iconSize} />}</div><span className={`${styles.listName} truncate`} style={{ fontSize: `calc(12px * var(--zoom))`, lineHeight: 1.2 }}>{renameTarget?.path === file.path && renameTarget?.id === file.id ? <input className={styles.renameInput} value={renameValue} onChange={e => setRenameValue(e.target.value)} onBlur={commitRename} onKeyDown={e => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setRenameTarget(null); }} autoFocus onClick={e => e.stopPropagation()} /> : name}</span><span className={styles.listSize}>{formatSize(file.size || 0)}</span><div className={styles.listActions} onClick={e => e.stopPropagation()}><button className={styles.iconBtn} onClick={() => handleDownloadClick(file)} title="Download"><Download size={13} /></button><button className={styles.iconBtn} onClick={() => setMoveModal({ id: file.id, path: file.path, mode: 'move' })} title="Pindah"><Move size={13} /></button><button className={styles.iconBtn} onClick={() => setMoveModal({ id: file.id, path: file.path, mode: 'copy' })} title="Salin"><Copy size={13} /></button><button className={styles.iconBtn} onClick={() => startRename(file.path, false, file.id)} title="Rename"><Edit3 size={13} /></button></div></div>
+                  </motion.div>
+                );
+              })}
+            </AnimatePresence>
           </div>
         )}
       </div>

@@ -1,14 +1,16 @@
 import Sidebar from '../components/Sidebar.jsx';
 import FileGrid from '../components/FileGrid.jsx';
 import TransferPanel from '../components/TransferPanel.jsx';
+import CloudSavePage from './CloudSavePage.jsx';
 import { useApp } from '../AppContext.jsx';
 import { CheckCircle, Cloud, Clock, AlertCircle, RefreshCw, Lock, Shield, Key, Unlock } from 'lucide-react';
 import styles from './DrivePage.module.css';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useLayoutEffect } from 'react';
 import toast from 'react-hot-toast';
+import { motion, AnimatePresence } from 'framer-motion';
 
 export default function DrivePage({ activePage, onNavigate }) {
-  const { isVerified, setIsVerified, hasPin, setCurrentPath, t } = useApp();
+  const { isVerified, setIsVerified, hasPin, setCurrentPath, t, animationsEnabled } = useApp();
   const [checkingPin, setCheckingPin] = useState(false);
 
   // Reset verification and path when switching tabs
@@ -23,25 +25,46 @@ export default function DrivePage({ activePage, onNavigate }) {
     onNavigate(page);
   };
 
+  const pageVariants = {
+    initial: { opacity: 0, y: 5 },
+    animate: { opacity: 1, y: 0 },
+    exit: { opacity: 0, y: -5 }
+  };
+
+  const transition = animationsEnabled ? { duration: 0.2 } : { duration: 0 };
+
   return (
     <div className={styles.layout}>
       <Sidebar activePage={activePage} onNavigate={handleNavigate} />
       <main className={styles.main}>
-        {activePage === 'drive' && <FileGrid onNavigate={onNavigate} />}
-        {activePage === 'locked' && (
-          isVerified ? (
-            <FileGrid isLockedView={true} onNavigate={onNavigate} />
-          ) : (
-            <LockedGateway onVerified={() => setIsVerified(true)} />
-          )
-        )}
-        {activePage === 'recent' && <FileGrid isRecentView={true} onNavigate={onNavigate} />}
-        {activePage === 'starred' && <FileGrid isStarredView={true} onNavigate={onNavigate} />}
-        {activePage === 'settings' && (
-          <div className={styles.settingsContainer}>
-            <SettingsPanel />
-          </div>
-        )}
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={activePage}
+            initial="initial"
+            animate="animate"
+            exit="exit"
+            variants={pageVariants}
+            transition={transition}
+            style={{ height: '100%', display: 'flex', flexDirection: 'column' }}
+          >
+            {activePage === 'drive' && <FileGrid onNavigate={onNavigate} />}
+            {activePage === 'locked' && (
+              isVerified ? (
+                <FileGrid isLockedView={true} onNavigate={onNavigate} />
+              ) : (
+                <LockedGateway onVerified={() => setIsVerified(true)} />
+              )
+            )}
+            {activePage === 'recent' && <FileGrid isRecentView={true} onNavigate={onNavigate} />}
+            {activePage === 'starred' && <FileGrid isStarredView={true} onNavigate={onNavigate} />}
+            {activePage === 'cloud-save' && <CloudSavePage />}
+            {activePage === 'settings' && (
+              <div className={styles.settingsContainer}>
+                <SettingsPanel />
+              </div>
+            )}
+          </motion.div>
+        </AnimatePresence>
       </main>
       <TransferPanel activePage={activePage} />
     </div>
@@ -135,26 +158,37 @@ function SettingsPanel() {
     showVideoPreviews, setShowVideoPreviews,
     showRecent,
     autoCloseTransfers,
+    animationsEnabled, setAnimationsEnabled,
     closeToTray, startMinimized, updatePrefs,
-    hasPin, setPin, removePin, verifyPin,
-    language, setLanguage, t
+    cloudSaveEnabled, setCloudSaveEnabled,
+    hasPin, pinExists, setPinExists, setPin, removePin, verifyPin,
+    language, setLanguage, t, api
   } = useApp();
 
-  const [pinExists, setPinExists] = useState(false);
   const [showPinModal, setShowPinModal] = useState(null); // 'set', 'change', 'remove'
   const [latestVersion, setLatestVersion] = useState('v3.0');
+  const [activeHelp, setActiveHelp] = useState(null);
+  const [isPinLoaded, setIsPinLoaded] = useState(!!api);
 
   useEffect(() => {
-    hasPin().then(setPinExists);
-    
-    // Fetch latest version from GitHub
-    fetch('https://api.github.com/repos/naufal-backup/disbox/releases/latest')
-      .then(res => res.json())
-      .then(data => {
-        if (data.tag_name) setLatestVersion(data.tag_name);
-      })
-      .catch(() => {});
-  }, [hasPin]);
+    if (!api) {
+      setIsPinLoaded(false);
+      return;
+    }
+    hasPin().then(() => {
+      setIsPinLoaded(true);
+    });
+  }, [api, hasPin]);
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (activeHelp && !e.target.closest('.help-trigger')) {
+        setActiveHelp(null);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [activeHelp]);
 
   const CHUNK_OPTIONS = [
     { label: 'Free (10MB)', value: 10 * 1024 * 1024, desc: t('chunk_free_desc') },
@@ -165,30 +199,184 @@ function SettingsPanel() {
   const currentOptionIndex = CHUNK_OPTIONS.findIndex(opt => opt.value === chunkSize);
   const safeIndex = currentOptionIndex === -1 ? 1 : currentOptionIndex; // Default ke 25MB jika tidak cocok
 
-  const Toggle = ({ label, value, onChange, description }) => (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-      <div>
-        <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{label}</p>
-        <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{description}</p>
+  const InfoIcon = ({ helpKey }) => {
+    const isOpen = activeHelp === helpKey;
+    const triggerRef = useRef(null);
+    const [verticalPos, setVerticalPos] = useState('top'); // 'top' or 'bottom'
+    const [bubbleStyle, setBubbleStyle] = useState({
+      left: '50%',
+      transform: 'translateX(-50%)',
+      width: 260
+    });
+    const [arrowStyle, setArrowStyle] = useState({ left: '50%' });
+
+    useLayoutEffect(() => {
+      if (isOpen && triggerRef.current) {
+        const rect = triggerRef.current.getBoundingClientRect();
+        const width = 260;
+        const padding = 20;
+        const bubbleHeightThreshold = 120; // Estimated max height
+        const halfWidth = width / 2;
+        
+        let newLeft = '50%';
+        let newTransform = 'translateX(-50%)';
+        let newArrowLeft = '50%';
+        let newRight = 'auto';
+        let newVertical = 'top';
+
+        // Check vertical boundary
+        if (rect.top < bubbleHeightThreshold) {
+          newVertical = 'bottom';
+        }
+
+        // Check left boundary
+        if (rect.left < halfWidth + padding) {
+          newLeft = `-${rect.left - padding}px`;
+          newTransform = 'none';
+          newArrowLeft = `${rect.left - padding + 10}px`;
+        } 
+        // Check right boundary
+        else if (window.innerWidth - rect.right < halfWidth + padding) {
+          newLeft = 'auto';
+          newRight = `-${window.innerWidth - rect.right - padding}px`;
+          newTransform = 'none';
+          newArrowLeft = `calc(100% - ${window.innerWidth - rect.right - padding + 10}px)`;
+        }
+
+        setVerticalPos(newVertical);
+        setBubbleStyle({
+          left: newLeft,
+          right: newRight,
+          transform: newTransform,
+          width: width,
+          top: newVertical === 'bottom' ? 'calc(100% + 12px)' : 'auto',
+          bottom: newVertical === 'top' ? 'calc(100% + 12px)' : 'auto'
+        });
+        setArrowStyle({ left: newArrowLeft });
+      }
+    }, [isOpen]);
+
+    return (
+      <div className="help-trigger" style={{ position: 'relative', display: 'inline-flex' }}>
+        <button 
+          ref={triggerRef}
+          onClick={() => setActiveHelp(isOpen ? null : helpKey)}
+          style={{
+            background: 'transparent',
+            border: 'none',
+            padding: 4,
+            cursor: 'pointer',
+            color: isOpen ? 'var(--accent-bright)' : 'var(--text-muted)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            borderRadius: '50%',
+            transition: 'all 0.2s',
+            marginLeft: 6
+          }}
+        >
+          <AlertCircle size={14} />
+        </button>
+        {isOpen && (
+          <div style={{
+            position: 'absolute',
+            ...bubbleStyle,
+            background: 'var(--bg-elevated)',
+            border: '1px solid var(--border-bright)',
+            borderRadius: 14,
+            padding: '12px 16px',
+            boxShadow: '0 10px 40px rgba(0,0,0,0.6)',
+            zIndex: 1000,
+            fontSize: 12,
+            color: 'var(--text-primary)',
+            lineHeight: 1.6,
+            textAlign: 'left',
+            pointerEvents: 'auto',
+            animation: verticalPos === 'top' ? 'fadeInScale 0.2s ease-out' : 'fadeInScaleDown 0.2s ease-out'
+          }}>
+            {t(helpKey + '_help')}
+            
+            {/* Bubble Arrow */}
+            {verticalPos === 'top' ? (
+              <>
+                <div style={{
+                  position: 'absolute',
+                  top: '100%',
+                  ...arrowStyle,
+                  marginLeft: -8,
+                  borderWidth: 8,
+                  borderStyle: 'solid',
+                  borderColor: 'var(--border-bright) transparent transparent transparent'
+                }} />
+                <div style={{
+                  position: 'absolute',
+                  top: '100%',
+                  ...arrowStyle,
+                  marginLeft: -7,
+                  borderWidth: 7,
+                  borderStyle: 'solid',
+                  borderColor: 'var(--bg-elevated) transparent transparent transparent',
+                  marginTop: -1
+                }} />
+              </>
+            ) : (
+              <>
+                <div style={{
+                  position: 'absolute',
+                  bottom: '100%',
+                  ...arrowStyle,
+                  marginLeft: -8,
+                  borderWidth: 8,
+                  borderStyle: 'solid',
+                  borderColor: 'transparent transparent var(--border-bright) transparent'
+                }} />
+                <div style={{
+                  position: 'absolute',
+                  bottom: '100%',
+                  ...arrowStyle,
+                  marginLeft: -7,
+                  borderWidth: 7,
+                  borderStyle: 'solid',
+                  borderColor: 'transparent transparent var(--bg-elevated) transparent',
+                  marginBottom: -1
+                }} />
+              </>
+            )}
+          </div>
+        )}
       </div>
-      <label style={{ position: 'relative', display: 'inline-block', width: 36, height: 20 }}>
-        <input 
-          type="checkbox" 
-          checked={value} 
-          onChange={e => onChange(e.target.checked)}
-          style={{ opacity: 0, width: 0, height: 0 }}
-        />
-        <span style={{
-          position: 'absolute', cursor: 'pointer', inset: 0,
-          backgroundColor: value ? 'var(--accent)' : '#333',
-          transition: '.3s', borderRadius: 20
-        }}>
+    );
+  };
+
+  const Toggle = ({ label, value, onChange, description, helpKey }) => (
+    <div style={{ padding: '12px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center' }}>
+            <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{label}</p>
+            {helpKey && <InfoIcon helpKey={helpKey} />}
+          </div>
+          <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{description}</p>
+        </div>
+        <label style={{ position: 'relative', display: 'inline-block', width: 36, height: 20, flexShrink: 0 }}>
+          <input 
+            type="checkbox" 
+            checked={value} 
+            onChange={e => onChange(e.target.checked)}
+            style={{ opacity: 0, width: 0, height: 0 }}
+          />
           <span style={{
-            position: 'absolute', height: 14, width: 14, left: value ? 19 : 3, bottom: 3,
-            backgroundColor: 'white', transition: '.3s', borderRadius: '50%'
-          }} />
-        </span>
-      </label>
+            position: 'absolute', cursor: 'pointer', inset: 0,
+            backgroundColor: value ? 'var(--accent)' : '#333',
+            transition: '.3s', borderRadius: 20
+          }}>
+            <span style={{
+              position: 'absolute', height: 14, width: 14, left: value ? 19 : 3, bottom: 3,
+              backgroundColor: 'white', transition: '.3s', borderRadius: '50%'
+            }} />
+          </span>
+        </label>
+      </div>
     </div>
   );
 
@@ -243,18 +431,21 @@ function SettingsPanel() {
               value={closeToTray} 
               onChange={v => updatePrefs({ closeToTray: v })}
               description={t('close_to_tray_desc')}
+              helpKey="close_to_tray"
             />
             <Toggle 
               label={t('start_minimized')} 
               value={startMinimized} 
               onChange={v => updatePrefs({ startMinimized: v })}
               description={t('start_minimized_desc')}
+              helpKey="start_minimized"
             />
             <Toggle 
               label={t('previews')} 
               value={showPreviews} 
               onChange={v => updatePrefs({ showPreviews: v })}
               description={t('previews_desc')}
+              helpKey="previews"
             />
             {showPreviews && (
               <div style={{ marginLeft: 24, borderLeft: '2px solid var(--border)', paddingLeft: 16 }}>
@@ -263,12 +454,14 @@ function SettingsPanel() {
                   value={showImagePreviews} 
                   onChange={v => updatePrefs({ showImagePreviews: v })}
                   description={t('image_previews_desc')}
+                  helpKey="image_previews"
                 />
                 <Toggle 
                   label={t('video_previews')} 
                   value={showVideoPreviews} 
                   onChange={v => updatePrefs({ showVideoPreviews: v })}
                   description={t('video_previews_desc')}
+                  helpKey="video_previews"
                 />
               </div>
             )}
@@ -277,28 +470,54 @@ function SettingsPanel() {
               value={autoCloseTransfers} 
               onChange={v => updatePrefs({ autoCloseTransfers: v })}
               description={t('auto_close_desc')}
+              helpKey="auto_close"
+            />
+            <Toggle 
+              label={t('animations')} 
+              value={animationsEnabled} 
+              onChange={v => setAnimationsEnabled(v)}
+              description={t('animations_desc')}
+              helpKey="animations"
             />
             <Toggle 
               label={t('show_recent')} 
               value={showRecent} 
               onChange={v => updatePrefs({ showRecent: v })}
               description={t('show_recent_desc')}
+              helpKey="show_recent"
+            />
+          </div>
+
+          {/* Cloud Save Section */}
+          <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 20 }}>
+            <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{t('cloud_save')}</h3>
+            <Toggle 
+              label={t('cloud_save')} 
+              value={cloudSaveEnabled} 
+              onChange={v => setCloudSaveEnabled(v)}
+              description={t('cloud_save_desc')}
+              helpKey="cloud_save"
             />
           </div>
 
           {/* PIN Management Section */}
           <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 20 }}>
-            <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 16, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{t('security')}</h3>
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16 }}>
+              <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.06em', margin: 0 }}>{t('security')}</h3>
+              <InfoIcon helpKey="security" />
+            </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div>
                   <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>Master PIN</p>
                   <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
-                    {pinExists ? t('pin_active') : t('pin_not_set_security')}
+                    {!isPinLoaded ? t('loading') : (pinExists ? t('pin_active') : t('pin_not_set_security'))}
                   </p>
                 </div>
                 <div style={{ display: 'flex', gap: 8 }}>
-                  {!pinExists ? (
+                  {!isPinLoaded ? (
+                    <div style={{ width: 80, height: 28, background: 'var(--bg-elevated)', borderRadius: 6, opacity: 0.5, animation: 'pulse 1.5s infinite' }} />
+                  ) : !pinExists ? (
                     <button 
                       onClick={() => setShowPinModal('set')}
                       style={{ background: 'var(--accent)', border: 'none', borderRadius: 6, color: 'white', fontSize: 12, fontWeight: 600, padding: '6px 12px', cursor: 'pointer' }}
@@ -306,7 +525,7 @@ function SettingsPanel() {
                       {t('set_pin')}
                     </button>
                   ) : (
-                    <>
+                    <div style={{ display: 'flex', gap: 8 }}>
                       <button 
                         onClick={() => setShowPinModal('change')}
                         style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', fontSize: 12, fontWeight: 600, padding: '6px 12px', cursor: 'pointer' }}
@@ -319,7 +538,7 @@ function SettingsPanel() {
                       >
                         {t('remove_pin')}
                       </button>
-                    </>
+                    </div>
                   )}
                 </div>
               </div>
@@ -328,7 +547,10 @@ function SettingsPanel() {
 
           {/* UI Scaling Section */}
           <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 20 }}>
-            <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 16, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{t('ui_scale')}</h3>
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16 }}>
+              <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.06em', margin: 0 }}>{t('ui_scale')}</h3>
+              <InfoIcon helpKey="ui_scale" />
+            </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
               <input
                 type="range"
@@ -354,7 +576,10 @@ function SettingsPanel() {
 
           {/* Chunk Size Section */}
           <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 20 }}>
-            <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 16, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{t('chunk_size')}</h3>
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16 }}>
+              <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.06em', margin: 0 }}>{t('chunk_size')}</h3>
+              <InfoIcon helpKey="chunk_size" />
+            </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               <input
                 type="range"

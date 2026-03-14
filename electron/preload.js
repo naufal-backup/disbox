@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld('electron', {
   openFiles:  ()               => ipcRenderer.invoke('dialog-open-files'),
   saveFile:   (filename)       => ipcRenderer.invoke('dialog-save-file', filename),
   readFile:   (filePath)       => ipcRenderer.invoke('read-file', filePath),
+  listDirectory: (dirPath)      => ipcRenderer.invoke('list-directory', dirPath),
   statFile:   (filePath)       => ipcRenderer.invoke('stat-file', filePath),
   writeFile:  (savePath, data) => ipcRenderer.invoke('save-file', { savePath, data }),
   openPath:   (filePath)       => ipcRenderer.invoke('open-path', filePath),
@@ -71,5 +72,26 @@ contextBridge.exposeInMainWorld('electron', {
     ipcRenderer.on('metadata-status', listener);
     return () => ipcRenderer.removeListener('metadata-status', listener);
   },
+
+  // Cloud Save
+  cloudsaveGetAll: (hash) => ipcRenderer.invoke('cloudsave-get-all', hash),
+  cloudsaveAdd: (hash, entry) => ipcRenderer.invoke('cloudsave-add', hash, entry),
+  cloudsaveUpdate: (id, fields) => ipcRenderer.invoke('cloudsave-update', id, fields),
+  cloudsaveRemove: (id) => ipcRenderer.invoke('cloudsave-remove', id),
+  cloudsaveExportZip: (id) => ipcRenderer.invoke('cloudsave-export-zip', id),
+  cloudsaveSyncEntry: (id) => ipcRenderer.invoke('cloudsave-sync-entry', id),
+  cloudsaveChooseFolder: () => ipcRenderer.invoke('cloudsave-choose-folder'),
+  
+  onCloudSaveSyncStatus: (callback) => {
+    const listener = (_, data) => callback(data);
+    ipcRenderer.on('cloudsave-sync-status', listener);
+    return () => ipcRenderer.removeListener('cloudsave-sync-status', listener);
+  },
+  onCloudSaveDoUpload: (callback) => {
+    const listener = (_, entry) => callback(entry);
+    ipcRenderer.on('cloudsave-do-upload', listener);
+    return () => ipcRenderer.removeListener('cloudsave-do-upload', listener);
+  },
+  cloudsaveUploadResult: (id, success) => ipcRenderer.send(`cloudsave-upload-result-${id}`, success),
 
 });

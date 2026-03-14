@@ -49,12 +49,23 @@ export function AppProvider({ children }) {
   const [showVideoPreviews, setShowVideoPreviews] = useState(() => localStorage.getItem('disbox_show_video_previews') !== 'false');
   const [showRecent, setShowRecent] = useState(() => localStorage.getItem('disbox_show_recent') !== 'false');
   const [autoCloseTransfers, setAutoCloseTransfers] = useState(() => localStorage.getItem('disbox_auto_close_transfers') !== 'false');
+  const [animationsEnabled, setAnimationsEnabled] = useState(() => localStorage.getItem('disbox_animations_enabled') !== 'false');
   const [metadataStatus, setMetadataStatus] = useState({ status: 'synced', items: 0 });
   const [closeToTray, setCloseToTray] = useState(true);
   const [startMinimized, setStartMinimized] = useState(false);
   const [isVerified, setIsVerified] = useState(false);
+  const [pinExists, setPinExists] = useState(null);
+
+  const [cloudSaveEnabled, setCloudSaveEnabled] = useState(
+    () => localStorage.getItem('disbox_cloudsave_enabled') === 'true'
+  );
+  const [cloudSaves, setCloudSaves] = useState([]);
 
   const abortControllersRef = useRef(new Map());
+
+  useEffect(() => {
+    localStorage.setItem('disbox_animations_enabled', animationsEnabled.toString());
+  }, [animationsEnabled]);
 
   useEffect(() => {
     if (window.electron?.getPrefs) {
@@ -139,6 +150,7 @@ export function AppProvider({ children }) {
   const connect = useCallback(async (url, metadataId = null) => {
     setLoading(true);
     setIsConnected(false);
+    setPinExists(null);
     setFiles([]);
     setFileTree(null);
     setCurrentPath('/');
@@ -181,6 +193,7 @@ export function AppProvider({ children }) {
     setApi(null);
     setWebhookUrl('');
     setIsConnected(false);
+    setPinExists(null);
     setFiles([]);
     setFileTree(null);
     setCurrentPath('/');
@@ -357,8 +370,23 @@ export function AppProvider({ children }) {
 
   const hasPin = useCallback(async () => {
     if (!api) return false;
-    return await window.electron.hasPin(api.hashedWebhook);
+    const exists = await window.electron.hasPin(api.hashedWebhook);
+    setPinExists(exists);
+    return exists;
   }, [api]);
+
+  useEffect(() => {
+    if (isConnected) hasPin();
+  }, [isConnected, hasPin]);
+
+  // Background check for PIN (useful if metadata syncs in background)
+  useEffect(() => {
+    if (!isConnected || !api) return;
+    const interval = setInterval(() => {
+      hasPin();
+    }, 10000);
+    return () => clearInterval(interval);
+  }, [isConnected, api, hasPin]);
 
   const removePin = useCallback(async (pin) => {
     if (!api) return false;
@@ -441,6 +469,90 @@ export function AppProvider({ children }) {
     }, 2000);
   }, []);
 
+  useEffect(() => {
+    localStorage.setItem('disbox_cloudsave_enabled', cloudSaveEnabled.toString());
+  }, [cloudSaveEnabled]);
+
+  const loadCloudSaves = useCallback(async () => {
+    if (!api) return;
+    const entries = await window.electron.cloudsaveGetAll(api.hashedWebhook);
+    setCloudSaves(entries);
+  }, [api]);
+
+  useEffect(() => {
+    if (isConnected) loadCloudSaves();
+  }, [isConnected, loadCloudSaves]);
+
+  const addCloudSave = useCallback(async (name, localPath) => {
+    if (!api) return;
+    const discordPath = `cloudsave/${name}/`;
+    const id = await window.electron.cloudsaveAdd(api.hashedWebhook, {
+      name,
+      local_path: localPath,
+      discord_path: discordPath
+    });
+    await loadCloudSaves();
+    return id;
+  }, [api, loadCloudSaves]);
+
+  const removeCloudSave = useCallback(async (id) => {
+    await window.electron.cloudsaveRemove(id);
+    await loadCloudSaves();
+  }, [loadCloudSaves]);
+
+  const exportCloudSave = useCallback(async (id) => {
+    return await window.electron.cloudsaveExportZip(id);
+  }, []);
+
+  const syncCloudSave = useCallback(async (id) => {
+    return await window.electron.cloudsaveSyncEntry(id);
+  }, []);
+
+  const setLocalPath = useCallback(async (id, localPath) => {
+    await window.electron.cloudsaveUpdate(id, { local_path: localPath });
+    await loadCloudSaves();
+  }, [loadCloudSaves]);
+
+  // Handle Cloud Save Upload trigger from main process
+  useEffect(() => {
+    if (!window.electron?.onCloudSaveDoUpload || !api) return;
+    
+    const cleanup = window.electron.onCloudSaveDoUpload(async (entry) => {
+      console.log('[cloudsave] Uploading folder:', entry.local_path);
+      try {
+        const uploadRecursive = async (localDir, remoteDir) => {
+          const items = await window.electron.listDirectory(localDir);
+          for (const item of items) {
+            const remotePath = `${remoteDir}${item.name}`;
+            if (item.isDirectory) {
+              await uploadRecursive(item.path, `${remotePath}/`);
+            } else {
+              const fileData = await window.electron.readFile(item.path);
+              const buffer = Uint8Array.from(atob(fileData.data), c => c.charCodeAt(0)).buffer;
+              await api.uploadFile({ buffer, nativePath: item.path }, remotePath);
+            }
+          }
+        };
+
+        await uploadRecursive(entry.local_path, entry.discord_path);
+        window.electron.cloudsaveUploadResult(entry.id, true);
+      } catch (e) {
+        console.error('[cloudsave] Upload failed:', e);
+        window.electron.cloudsaveUploadResult(entry.id, false);
+      }
+    });
+    
+    return cleanup;
+  }, [api]);
+
+  useEffect(() => {
+    if (!window.electron?.onCloudSaveSyncStatus) return;
+    const cleanup = window.electron.onCloudSaveSyncStatus((data) => {
+      setCloudSaves(prev => prev.map(s => s.id === data.id ? { ...s, ...data } : s));
+    });
+    return cleanup;
+  }, []);
+
   const getTransferSignal = useCallback((id) => {
     return abortControllersRef.current.get(id)?.signal ?? null;
   }, []);
@@ -459,10 +571,15 @@ export function AppProvider({ children }) {
       showVideoPreviews, setShowVideoPreviews,
       showRecent, setShowRecent,
       autoCloseTransfers, setAutoCloseTransfers,
+      animationsEnabled, setAnimationsEnabled,
       metadataStatus,
       closeToTray, startMinimized, updatePrefs,
       isVerified, setIsVerified,
+      pinExists, setPinExists,
       isTransferring,
+      cloudSaveEnabled, setCloudSaveEnabled,
+      cloudSaves, loadCloudSaves, addCloudSave, removeCloudSave,
+      exportCloudSave, syncCloudSave, setLocalPath,
       connect, disconnect, refresh,
       createFolder, movePath, copyPath, deletePath,
       bulkDelete, bulkMove, bulkCopy,
