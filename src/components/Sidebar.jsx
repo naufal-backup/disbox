@@ -3,9 +3,10 @@ import { useState } from 'react';
 import { useApp } from '../AppContext.jsx';
 import { ConfirmModal } from './FolderModal.jsx';
 import styles from './Sidebar.module.css';
+import { motion } from 'framer-motion';
 
 export default function Sidebar({ activePage, onNavigate }) {
-  const { disconnect, refresh, loading, files, theme, toggleTheme, showRecent, t } = useApp();
+  const { disconnect, refresh, loading, files, theme, toggleTheme, showRecent, t, animationsEnabled, cloudSaveEnabled } = useApp();
   const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
 
   const navItems = [
@@ -20,6 +21,11 @@ export default function Sidebar({ activePage, onNavigate }) {
   const formatSizeGB = (bytes) => {
     if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(0) + ' MB';
     return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+  };
+
+  const btnVariants = {
+    hover: { x: 4 },
+    tap: { scale: 0.98 }
   };
 
   return (
@@ -38,12 +44,15 @@ export default function Sidebar({ activePage, onNavigate }) {
         {navItems
           .filter(item => {
             if (item.id === 'recent' && !showRecent) return false;
-            if (item.id === 'cloud-save' && !useApp().cloudSaveEnabled) return false;
+            if (item.id === 'cloud-save' && !cloudSaveEnabled) return false;
             return true;
           })
           .map(({ icon: Icon, label, id }) => (
-          <button
+          <motion.button
             key={id}
+            whileHover={animationsEnabled ? "hover" : ""}
+            whileTap={animationsEnabled ? "tap" : ""}
+            variants={btnVariants}
             className={`${styles.navItem} ${activePage === id ? styles.active : ''}`}
             onClick={() => onNavigate(id)}
           >
@@ -51,7 +60,7 @@ export default function Sidebar({ activePage, onNavigate }) {
               <Icon size={15} />
             </div>
             <span>{label}</span>
-          </button>
+          </motion.button>
         ))}
       </nav>
 
@@ -59,19 +68,35 @@ export default function Sidebar({ activePage, onNavigate }) {
 
       {/* Actions */}
       <div className={styles.actions}>
-        <button className={styles.actionBtn} onClick={toggleTheme}>
+        <motion.button 
+          whileHover={animationsEnabled ? "hover" : ""}
+          whileTap={animationsEnabled ? "tap" : ""}
+          variants={btnVariants}
+          className={styles.actionBtn} 
+          onClick={toggleTheme}
+        >
           <div className={styles.navIcon}>
             {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
           </div>
           <span>{theme === 'dark' ? t('light') : t('dark')}</span>
-        </button>
-        <button className={styles.actionBtn} onClick={refresh} disabled={loading}>
+        </motion.button>
+        <motion.button 
+          whileHover={animationsEnabled ? "hover" : ""}
+          whileTap={animationsEnabled ? "tap" : ""}
+          variants={btnVariants}
+          className={styles.actionBtn} 
+          onClick={refresh} 
+          disabled={loading}
+        >
           <div className={styles.navIcon}>
             <RefreshCw size={15} className={loading ? 'spin' : ''} />
           </div>
           <span>{t('refresh')}</span>
-        </button>
-        <button 
+        </motion.button>
+        <motion.button 
+          whileHover={animationsEnabled ? "hover" : ""}
+          whileTap={animationsEnabled ? "tap" : ""}
+          variants={btnVariants}
           className={`${styles.actionBtn} ${activePage === 'settings' ? styles.active : ''}`} 
           onClick={() => onNavigate('settings')}
         >
@@ -79,8 +104,11 @@ export default function Sidebar({ activePage, onNavigate }) {
             <Settings size={15} />
           </div>
           <span>{t('settings')}</span>
-        </button>
-        <button 
+        </motion.button>
+        <motion.button 
+          whileHover={animationsEnabled ? "hover" : ""}
+          whileTap={animationsEnabled ? "tap" : ""}
+          variants={btnVariants}
           className={`${styles.actionBtn} ${styles.danger}`} 
           onClick={() => setShowDisconnectConfirm(true)}
         >
@@ -88,7 +116,7 @@ export default function Sidebar({ activePage, onNavigate }) {
             <LogOut size={15} />
           </div>
           <span>Disconnect</span>
-        </button>
+        </motion.button>
       </div>
 
       {showDisconnectConfirm && (
