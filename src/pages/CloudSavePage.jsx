@@ -1,15 +1,20 @@
 import { useState, useEffect } from 'react';
 import { useApp } from '../AppContext.jsx';
 import { Plus, Folder, RefreshCw, Download, Trash2, AlertCircle, CheckCircle2, Cloud } from 'lucide-react';
+import { ConfirmModal } from '../components/FolderModal.jsx';
 import styles from './CloudSavePage.module.css';
 import toast from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export default function CloudSavePage() {
-  const { cloudSaves, addCloudSave, removeCloudSave, exportCloudSave, syncCloudSave, setLocalPath, t, animationsEnabled } = useApp();
+  const { cloudSaves, addCloudSave, removeCloudSave, exportCloudSave, syncCloudSave, setLocalPath, restoreCloudSave, t, animationsEnabled } = useApp();
   const [showAddModal, setShowAddModal] = useState(false);
   const [newName, setNewName] = useState('');
   const [newPath, setNewPath] = useState('');
+
+  // Confirmation states
+  const [confirmRemove, setConfirmRemove] = useState(null); // save entry
+  const [confirmRestore, setConfirmRestore] = useState(null); // { id }
 
   const handleAdd = async () => {
     if (!newName || !newPath) return;
@@ -25,14 +30,16 @@ export default function CloudSavePage() {
     if (path) setNewPath(path);
   };
 
-  const handleSetPath = async (id) => {
-    const path = await window.electron.cloudsaveChooseFolder();
-    if (path) {
-      // Check if folder is empty (this is a simplified check)
-      // On new device flow
-      await setLocalPath(id, path);
-      toast.success('Local folder set');
-      syncCloudSave(id);
+  const handleRestore = async (id, force = false) => {
+    const res = await restoreCloudSave(id, force);
+    if (!res.ok) {
+      if (res.reason === 'folder_not_empty') {
+        setConfirmRestore({ id });
+      } else if (res.reason !== 'cancelled') {
+        toast.error('Restore failed: ' + res.reason);
+      }
+    } else {
+      toast.success('Cloud Save restored');
     }
   };
 
@@ -66,13 +73,14 @@ export default function CloudSavePage() {
                   <CloudSaveCard 
                     save={save} 
                     onSync={() => syncCloudSave(save.id)}
-                    onExport={() => exportCloudSave(save.id)}
-                    onRemove={() => {
-                      if (confirm('Remove this cloud save? Local files will NOT be deleted.')) {
-                        removeCloudSave(save.id);
-                      }
+                    onExport={async () => {
+                      const toastId = toast.loading('Exporting ZIP...');
+                      const res = await exportCloudSave(save.id);
+                      if (res.ok) toast.success('Export complete', { id: toastId });
+                      else toast.error('Export failed: ' + res.reason, { id: toastId });
                     }}
-                    onSetPath={() => handleSetPath(save.id)}
+                    onRemove={() => setConfirmRemove(save)}
+                    onRestore={() => handleRestore(save.id)}
                     t={t}
                   />
                 </motion.div>
@@ -132,16 +140,43 @@ export default function CloudSavePage() {
           </motion.div>
         </AnimatePresence>
       )}
+
+      {confirmRemove && (
+        <ConfirmModal
+          title={t('remove')}
+          message={`Remove "${confirmRemove.name}" from Cloud Save? Local files will NOT be deleted.`}
+          danger={true}
+          onConfirm={() => {
+            removeCloudSave(confirmRemove.id);
+            setConfirmRemove(null);
+          }}
+          onClose={() => setConfirmRemove(null)}
+        />
+      )}
+
+      {confirmRestore && (
+        <ConfirmModal
+          title="Folder Not Empty"
+          message="The chosen folder is not empty. Overwrite existing files?"
+          danger={true}
+          onConfirm={() => {
+            handleRestore(confirmRestore.id, true);
+            setConfirmRestore(null);
+          }}
+          onClose={() => setConfirmRestore(null)}
+        />
+      )}
     </div>
   );
 }
 
-function CloudSaveCard({ save, onSync, onExport, onRemove, onSetPath, t }) {
+function CloudSaveCard({ save, onSync, onExport, onRemove, onRestore, t }) {
   const isSyncing = save.status === 'syncing';
   const isError = save.status === 'error';
+  const isLocalMissing = !save.local_path || save.status === 'local_missing';
   
   const formatDate = (ts) => {
-    if (!ts) return t('not_set');
+    if (!ts || ts === 0) return t('not_set');
     return new Date(ts).toLocaleString();
   };
 
@@ -154,24 +189,47 @@ function CloudSaveCard({ save, onSync, onExport, onRemove, onSetPath, t }) {
           {save.local_path ? (
             <span>{save.local_path}</span>
           ) : (
-            <button className={styles.pathBtn} onClick={onSetPath}>{t('set_local_folder')}</button>
+            <span className={styles.missingPath}>{t('local_folder_missing')}</span>
           )}
         </div>
         <div className={styles.cardMeta}>
-          <div className={`${styles.status} ${isSyncing ? styles.statusSyncing : isError ? styles.statusError : styles.statusSynced}`}>
-            {isSyncing ? <RefreshCw size={14} className="spin" /> : isError ? <AlertCircle size={14} /> : <CheckCircle2 size={14} />}
-            <span>{isSyncing ? t('status_syncing') : isError ? t('status_error') : t('status_synced')}</span>
+          <div className={`${styles.status} ${
+            isSyncing ? styles.statusSyncing : 
+            isLocalMissing ? styles.statusWarning : 
+            isError ? styles.statusError : 
+            styles.statusSynced
+          }`}>
+            {isSyncing ? <RefreshCw size={14} className="spin" /> : 
+             isLocalMissing ? <AlertCircle size={14} /> : 
+             isError ? <AlertCircle size={14} /> : 
+             <CheckCircle2 size={14} />}
+            
+            <span>
+              {isSyncing ? t('status_syncing') : 
+               isLocalMissing ? t('local_folder_missing') : 
+               isError ? t('status_error') : 
+               t('status_synced')}
+            </span>
           </div>
-          <div className={styles.lastSynced}>
-            {t('last_synced', { time: formatDate(save.last_synced) })}
-          </div>
+          {save.last_synced > 0 && (
+            <div className={styles.lastSynced}>
+              {t('last_synced', { time: formatDate(save.last_synced) })}
+            </div>
+          )}
         </div>
       </div>
       <div className={styles.cardActions}>
-        <button className={styles.actionBtn} onClick={onSync} title={t('sync_now')} disabled={isSyncing || !save.local_path}>
-          <RefreshCw size={18} className={isSyncing ? 'spin' : ''} />
-        </button>
-        <button className={styles.actionBtn} onClick={onExport} title={t('export_zip')} disabled={!save.local_path}>
+        {isLocalMissing ? (
+          <button className={styles.restoreBtn} onClick={onRestore}>
+            <Download size={14} />
+            <span>{t('restore')}</span>
+          </button>
+        ) : (
+          <button className={styles.actionBtn} onClick={onSync} title={t('sync_now')} disabled={isSyncing}>
+            <RefreshCw size={18} className={isSyncing ? 'spin' : ''} />
+          </button>
+        )}
+        <button className={styles.actionBtn} onClick={onExport} title={t('export_zip')}>
           <Download size={18} />
         </button>
         <button className={`${styles.actionBtn} ${styles.danger}`} onClick={onRemove} title={t('remove')}>

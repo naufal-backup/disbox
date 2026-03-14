@@ -500,10 +500,6 @@ export function AppProvider({ children }) {
     await loadCloudSaves();
   }, [loadCloudSaves]);
 
-  const exportCloudSave = useCallback(async (id) => {
-    return await window.electron.cloudsaveExportZip(id);
-  }, []);
-
   const syncCloudSave = useCallback(async (id) => {
     return await window.electron.cloudsaveSyncEntry(id);
   }, []);
@@ -521,21 +517,35 @@ export function AppProvider({ children }) {
       console.log('[cloudsave] Uploading folder:', entry.local_path);
       try {
         const uploadRecursive = async (localDir, remoteDir) => {
-          const items = await window.electron.listDirectory(localDir);
-          for (const item of items) {
+          const contents = await window.electron.listDirectory(localDir);
+          for (const item of contents) {
             const remotePath = `${remoteDir}${item.name}`;
             if (item.isDirectory) {
               await uploadRecursive(item.path, `${remotePath}/`);
             } else {
-              const fileData = await window.electron.readFile(item.path);
-              const buffer = Uint8Array.from(atob(fileData.data), c => c.charCodeAt(0)).buffer;
-              await api.uploadFile({ buffer, nativePath: item.path }, remotePath);
+              const transferId = `cloudsave-${entry.id}-${Date.now()}`;
+              // Use api.uploadFile which handles both upload and metadata registration
+              await api.uploadFile(
+                { nativePath: item.path }, 
+                remotePath,
+                (p) => console.log(`[cloudsave] ${item.name} progress: ${p}`),
+                null,
+                transferId
+              );
             }
           }
         };
 
         await uploadRecursive(entry.local_path, entry.discord_path);
+        
+        // Final flush and sync
+        if (window.electron?.flushMetadata) {
+          await window.electron.flushMetadata(webhookUrl, api.hashedWebhook);
+        }
+        await api.syncMetadata();
+        
         window.electron.cloudsaveUploadResult(entry.id, true);
+        await loadCloudSaves();
       } catch (e) {
         console.error('[cloudsave] Upload failed:', e);
         window.electron.cloudsaveUploadResult(entry.id, false);
@@ -543,7 +553,50 @@ export function AppProvider({ children }) {
     });
     
     return cleanup;
-  }, [api]);
+  }, [api, webhookUrl, chunkSize, loadCloudSaves]);
+
+  // Handle single file upload from chokidar
+  useEffect(() => {
+    if (!window.electron?.onCloudSaveDoUploadFile || !api) return;
+    
+    const cleanup = window.electron.onCloudSaveDoUploadFile(async ({ id, filePath, discordPath }) => {
+      try {
+        const transferId = `cloudsave-file-${id}-${Date.now()}`;
+        const result = await window.electron.uploadFileFromPath(
+          webhookUrl,
+          filePath,
+          discordPath,
+          (p) => {},
+          transferId,
+          chunkSize
+        );
+        
+        if (result.ok) {
+          // Update metadata in Disbox
+          const { messageIds, size } = result;
+          await api.createFile(discordPath, messageIds, size);
+          await api.syncMetadata();
+          window.electron.cloudsaveUploadFileResult(id, discordPath, true);
+          await loadCloudSaves();
+        } else {
+          window.electron.cloudsaveUploadFileResult(id, discordPath, false);
+        }
+      } catch (e) {
+        console.error('[cloudsave] Single file upload failed:', e);
+        window.electron.cloudsaveUploadFileResult(id, discordPath, false);
+      }
+    });
+    
+    return cleanup;
+  }, [api, webhookUrl, chunkSize, loadCloudSaves]);
+
+  useEffect(() => {
+    if (!window.electron?.onCloudsaveLocalMissing) return;
+    const cleanup = window.electron.onCloudsaveLocalMissing(({ id }) => {
+      setCloudSaves(prev => prev.map(s => s.id === id ? { ...s, local_path: null, status: 'local_missing' } : s));
+    });
+    return cleanup;
+  }, []);
 
   useEffect(() => {
     if (!window.electron?.onCloudSaveSyncStatus) return;
@@ -551,6 +604,43 @@ export function AppProvider({ children }) {
       setCloudSaves(prev => prev.map(s => s.id === data.id ? { ...s, ...data } : s));
     });
     return cleanup;
+  }, []);
+
+  const restoreCloudSave = useCallback(async (id, force = false) => {
+    if (!api) return { ok: false, reason: 'api_not_initialized' };
+
+    // Ensure metadata is fresh before restore
+    setLoading(true);
+    try {
+      await api.syncMetadata();
+      const res = await window.electron.cloudsaveRestore(id, force);
+      if (res.ok) await loadCloudSaves();
+      return res;
+    } catch (e) {
+      console.error('[cloudsave] restoreCloudSave failed:', e);
+      return { ok: false, reason: e.message };
+    } finally {
+      setLoading(false);
+    }
+  }, [api, loadCloudSaves]);
+
+  const exportCloudSave = useCallback(async (id) => {
+    if (!api) return { ok: false, reason: 'api_not_initialized' };
+
+    setLoading(true);
+    try {
+      await api.syncMetadata();
+      return await window.electron.cloudsaveExportZip(id);
+    } catch (e) {
+      console.error('[cloudsave] exportCloudSave failed:', e);
+      return { ok: false, reason: e.message };
+    } finally {
+      setLoading(false);
+    }
+  }, [api]);
+
+  const getCloudSaveStatus = useCallback(async (id) => {
+    return await window.electron.cloudsaveGetStatus(id);
   }, []);
 
   const getTransferSignal = useCallback((id) => {
@@ -580,6 +670,7 @@ export function AppProvider({ children }) {
       cloudSaveEnabled, setCloudSaveEnabled,
       cloudSaves, loadCloudSaves, addCloudSave, removeCloudSave,
       exportCloudSave, syncCloudSave, setLocalPath,
+      restoreCloudSave, getCloudSaveStatus,
       connect, disconnect, refresh,
       createFolder, movePath, copyPath, deletePath,
       bulkDelete, bulkMove, bulkCopy,

@@ -92,6 +92,19 @@ contextBridge.exposeInMainWorld('electron', {
     ipcRenderer.on('cloudsave-do-upload', listener);
     return () => ipcRenderer.removeListener('cloudsave-do-upload', listener);
   },
+  onCloudSaveDoUploadFile: (callback) => {
+    const listener = (_, data) => callback(data);
+    ipcRenderer.on('cloudsave-do-upload-file', listener);
+    return () => ipcRenderer.removeListener('cloudsave-do-upload-file', listener);
+  },
   cloudsaveUploadResult: (id, success) => ipcRenderer.send(`cloudsave-upload-result-${id}`, success),
+  cloudsaveUploadFileResult: (id, discordPath, success) => ipcRenderer.send(`cloudsave-upload-file-result-${id}-${discordPath}`, success),
 
+  onCloudsaveLocalMissing: (callback) => {
+    const listener = (_, data) => callback(data);
+    ipcRenderer.on('cloudsave-local-missing', listener);
+    return () => ipcRenderer.removeListener('cloudsave-local-missing', listener);
+  },
+  cloudsaveGetStatus: (id) => ipcRenderer.invoke('cloudsave-get-status', id),
+  cloudsaveRestore: (id, force) => ipcRenderer.invoke('cloudsave-restore', { id, force }),
 });

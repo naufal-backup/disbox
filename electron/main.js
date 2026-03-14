@@ -526,13 +526,38 @@ ipcMain.handle('cloudsave-get-all', async (_, hash) => {
   }
 });
 
+ipcMain.handle('cloudsave-get-status', async (_, id) => {
+  try {
+    const entry = db.prepare('SELECT * FROM cloudsave_entries WHERE id = ?').get(id);
+    if (!entry) return null;
+    
+    // Normalize path for query
+    const searchPath = entry.discord_path.replace(/^\/+/, '').replace(/\/+$/, '');
+    const fileCount = db.prepare('SELECT COUNT(*) as count FROM files WHERE hash = ? AND (path LIKE ? OR path LIKE ? OR path LIKE ? OR path LIKE ?)')
+      .get(entry.webhook_hash, searchPath + '/%', searchPath + '%', '/' + searchPath + '/%', '/' + searchPath + '%').count;
+
+    return {
+      id: entry.id,
+      localExists: entry.local_path ? fs.existsSync(entry.local_path) : false,
+      lastSynced: entry.last_synced,
+      lastModified: entry.last_modified,
+      fileCount
+    };
+  } catch (e) {
+    console.error('[cloudsave] get-status error:', e.message);
+    return null;
+  }
+});
+
 ipcMain.handle('cloudsave-add', async (_, hash, entry) => {
   try {
     const id = cryptoNode.randomUUID();
+    // Normalize discord_path: no leading, yes trailing
+    const discordPath = entry.discord_path.replace(/^\/+/, '').replace(/\/+$/, '') + '/';
     db.prepare(`
       INSERT INTO cloudsave_entries (id, webhook_hash, name, local_path, discord_path, last_synced, last_modified)
       VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(id, hash, entry.name, entry.local_path, entry.discord_path, 0, 0);
+    `).run(id, hash, entry.name, entry.local_path, discordPath, 0, 0);
     
     if (entry.local_path) setupCloudWatcher(id, entry.local_path, hash);
     return id;
@@ -545,12 +570,15 @@ ipcMain.handle('cloudsave-add', async (_, hash, entry) => {
 ipcMain.handle('cloudsave-update', async (_, id, fields) => {
   try {
     const keys = Object.keys(fields);
+    if (fields.discord_path) {
+      fields.discord_path = fields.discord_path.replace(/^\/+/, '').replace(/\/+$/, '') + '/';
+    }
     const setClause = keys.map(k => `${k} = ?`).join(', ');
     const values = keys.map(k => fields[k]);
     db.prepare(`UPDATE cloudsave_entries SET ${setClause} WHERE id = ?`).run(...values, id);
     
+    const entry = db.prepare('SELECT * FROM cloudsave_entries WHERE id = ?').get(id);
     if (fields.local_path) {
-      const entry = db.prepare('SELECT * FROM cloudsave_entries WHERE id = ?').get(id);
       setupCloudWatcher(id, fields.local_path, entry.webhook_hash);
     }
     return true;
@@ -574,31 +602,141 @@ ipcMain.handle('cloudsave-remove', async (_, id) => {
   }
 });
 
+async function downloadDiscordFile(webhookUrl, file, destPath) {
+  try {
+    const encryptionKey = getEncryptionKey(webhookUrl);
+    const chunks = [];
+    for (const msgId of file.messageIds) {
+      const response = await net.fetch(`${webhookUrl}/messages/${msgId}`, {
+        headers: { 'User-Agent': 'Mozilla/5.0 Disbox/2.0' }
+      });
+      if (!response.ok) throw new Error(`Failed to get message ${msgId}`);
+      const msgData = JSON.parse(await response.text());
+      const attachmentUrl = msgData.attachments[0].url;
+      
+      const fileRes = await net.fetch(attachmentUrl);
+      if (!fileRes.ok) throw new Error(`Failed to download attachment from ${attachmentUrl}`);
+      const buffer = Buffer.from(await fileRes.arrayBuffer());
+      const decrypted = decrypt(buffer, encryptionKey);
+      chunks.push(decrypted);
+    }
+    const fullBuffer = Buffer.concat(chunks);
+    fs.mkdirSync(path.dirname(destPath), { recursive: true });
+    fs.writeFileSync(destPath, fullBuffer);
+    return true;
+  } catch (e) {
+    console.error(`[cloudsave] Error downloading ${file.path}:`, e.message);
+    return false;
+  }
+}
+
 ipcMain.handle('cloudsave-export-zip', async (_, id) => {
+  let tempDir = null;
   try {
     const entry = db.prepare('SELECT * FROM cloudsave_entries WHERE id = ?').get(id);
-    if (!entry || !entry.local_path || !fs.existsSync(entry.local_path)) return false;
+    if (!entry) return { ok: false, reason: 'entry_not_found' };
+
+    const searchPath = entry.discord_path.replace(/^\/+/, '').replace(/\/+$/, '');
+    const files = db.prepare('SELECT * FROM files WHERE hash = ? AND (path LIKE ? OR path LIKE ? OR path LIKE ? OR path LIKE ?)')
+      .all(entry.webhook_hash, searchPath + '/%', searchPath + '%', '/' + searchPath + '/%', '/' + searchPath + '%');
+    
+    if (files.length === 0) {
+      console.log(`[cloudsave] No files found for hash ${entry.webhook_hash.slice(-8)} and path ${searchPath}`);
+      return { ok: false, reason: 'no_files_in_cloud' };
+    }
 
     const result = await dialog.showSaveDialog(mainWindow, {
-      defaultPath: `${entry.name}_backup.zip`,
+      defaultPath: `${entry.name}_export.zip`,
       filters: [{ name: 'ZIP Archive', extensions: ['zip'] }]
     });
 
-    if (result.canceled) return false;
+    if (result.canceled) return { ok: false, reason: 'cancelled' };
+
+    tempDir = path.join(os.tmpdir(), `disbox_export_${id}_${Date.now()}`);
+    fs.mkdirSync(tempDir, { recursive: true });
+
+    const webhookRow = db.prepare('SELECT value FROM settings WHERE hash = ? AND key = ?').get(entry.webhook_hash, 'webhook_url');
+    const webhookUrl = webhookRow?.value || activeWebhookUrl;
+
+    for (const file of files) {
+      file.messageIds = JSON.parse(file.message_ids);
+      // Strip both possible path starts
+      let relativePath = file.path.startsWith('/') ? file.path.slice(1) : file.path;
+      relativePath = relativePath.replace(searchPath, '').replace(/^\/+/, '');
+      
+      const destPath = path.join(tempDir, relativePath);
+      await downloadDiscordFile(webhookUrl, file, destPath);
+    }
 
     const output = fs.createWriteStream(result.filePath);
     const archive = archiver('zip', { zlib: { level: 9 } });
 
-    return new Promise((resolve, reject) => {
+    await new Promise((resolve, reject) => {
       output.on('close', () => resolve(true));
       archive.on('error', (err) => reject(err));
       archive.pipe(output);
-      archive.directory(entry.local_path, false);
+      archive.directory(tempDir, false);
       archive.finalize();
     });
+
+    return { ok: true };
   } catch (e) {
     console.error('[cloudsave] export-zip error:', e.message);
-    return false;
+    return { ok: false, reason: e.message };
+  } finally {
+    if (tempDir && fs.existsSync(tempDir)) {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  }
+});
+
+ipcMain.handle('cloudsave-restore', async (_, { id, force }) => {
+  try {
+    const entry = db.prepare('SELECT * FROM cloudsave_entries WHERE id = ?').get(id);
+    if (!entry) return { ok: false, reason: 'entry_not_found' };
+
+    const searchPath = entry.discord_path.replace(/^\/+/, '').replace(/\/+$/, '');
+    const files = db.prepare('SELECT * FROM files WHERE hash = ? AND (path LIKE ? OR path LIKE ? OR path LIKE ? OR path LIKE ?)')
+      .all(entry.webhook_hash, searchPath + '/%', searchPath + '%', '/' + searchPath + '/%', '/' + searchPath + '%');
+    
+    if (files.length === 0) {
+      console.log(`[cloudsave] No files found for restore: ${searchPath}`);
+      return { ok: false, reason: 'no_files_in_cloud' };
+    }
+
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openDirectory', 'createDirectory']
+    });
+
+    if (result.canceled) return { ok: false, reason: 'cancelled' };
+    const chosenPath = result.filePaths[0];
+
+    if (fs.readdirSync(chosenPath).length > 0 && !force) {
+      return { ok: false, reason: 'folder_not_empty' };
+    }
+
+    const webhookRow = db.prepare('SELECT value FROM settings WHERE hash = ? AND key = ?').get(entry.webhook_hash, 'webhook_url');
+    const webhookUrl = webhookRow?.value || activeWebhookUrl;
+
+    for (const file of files) {
+      file.messageIds = JSON.parse(file.message_ids);
+      let relativePath = file.path.startsWith('/') ? file.path.slice(1) : file.path;
+      relativePath = relativePath.replace(searchPath, '').replace(/^\/+/, '');
+      
+      const destPath = path.join(chosenPath, relativePath);
+      await downloadDiscordFile(webhookUrl, file, destPath);
+    }
+
+    const now = Date.now();
+    db.prepare('UPDATE cloudsave_entries SET local_path = ?, last_synced = ? WHERE id = ?')
+      .run(chosenPath, now, id);
+
+    setupCloudWatcher(id, chosenPath, entry.webhook_hash);
+
+    return { ok: true, localPath: chosenPath };
+  } catch (e) {
+    console.error('[cloudsave] restore error:', e.message);
+    return { ok: false, reason: e.message };
   }
 });
 
@@ -626,15 +764,73 @@ function setupCloudWatcher(id, localPath, hash) {
     depth: 10
   });
 
-  let debounceTimer = null;
-  watcher.on('all', () => {
-    if (debounceTimer) clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(() => {
-      triggerCloudSync(id);
-    }, 5000); // 5s debounce
-  });
+  watcher.on('add', (filePath) => handleLocalChange(id, filePath, 'add'));
+  watcher.on('change', (filePath) => handleLocalChange(id, filePath, 'change'));
+  watcher.on('unlink', (filePath) => handleLocalDelete(id, filePath));
+  watcher.on('unlinkDir', (dirPath) => handleLocalDelete(id, dirPath));
+  watcher.on('error', (error) => console.error(`[cloudsave] Watcher error for ${id}:`, error));
 
   cloudWatchers.set(id, watcher);
+}
+
+async function handleLocalChange(id, filePath, type) {
+  try {
+    const entry = db.prepare('SELECT * FROM cloudsave_entries WHERE id = ?').get(id);
+    if (!entry) return;
+
+    const relativePath = path.relative(entry.local_path, filePath).replace(/\\/g, '/');
+    const discordPath = (entry.discord_path + '/' + relativePath).replace(/\/+/g, '/');
+    
+    console.log(`[cloudsave] Local ${type}: ${filePath} -> ${discordPath}`);
+    
+    // Trigger upload via renderer (keeping existing upload flow for simplicity/encryption)
+    mainWindow?.webContents.send('cloudsave-do-upload-file', { id, filePath, discordPath });
+    
+    // Wait for response
+    const success = await new Promise(resolve => {
+      ipcMain.once(`cloudsave-upload-file-result-${id}-${discordPath}`, (_, res) => resolve(res));
+      setTimeout(() => resolve(false), 60000);
+    });
+
+    if (success) {
+      const now = Date.now();
+      db.prepare('UPDATE cloudsave_entries SET last_modified = ?, last_synced = ? WHERE id = ?')
+        .run(now, now, id);
+    }
+  } catch (e) {
+    console.error('[cloudsave] handleLocalChange error:', e.message);
+  }
+}
+
+async function handleLocalDelete(id, filePath) {
+  try {
+    const entry = db.prepare('SELECT * FROM cloudsave_entries WHERE id = ?').get(id);
+    if (!entry) return;
+
+    // Set local_path = null and notify
+    db.prepare('UPDATE cloudsave_entries SET local_path = NULL WHERE id = ?').run(id);
+    if (cloudWatchers.has(id)) {
+      cloudWatchers.get(id).close();
+      cloudWatchers.delete(id);
+    }
+
+    mainWindow?.webContents.send('cloudsave-local-missing', { id });
+
+    tray?.displayBalloon({
+      iconType: 'warning',
+      title: 'Disbox Cloud Save',
+      content: `${entry.name} local folder missing, data still safe in Disbox`
+    });
+    
+    // For Linux/macOS where displayBalloon might not work
+    new Notification({
+      title: 'Disbox Cloud Save',
+      body: `${entry.name} local folder missing, data still safe in Disbox`
+    }).show();
+
+  } catch (e) {
+    console.error('[cloudsave] handleLocalDelete error:', e.message);
+  }
 }
 
 async function triggerCloudSync(id) {
@@ -642,57 +838,70 @@ async function triggerCloudSync(id) {
     const entry = db.prepare('SELECT * FROM cloudsave_entries WHERE id = ?').get(id);
     if (!entry) return;
 
-    mainWindow?.webContents.send('cloudsave-sync-status', { id, status: 'syncing' });
-
-    // Sync logic: latest wins
-    // Since we don't have easy way to check Discord last modified without fetching metadata,
-    // we'll rely on our DB last_synced and local folder stats.
-    
-    let localLastModified = 0;
-    if (entry.local_path && fs.existsSync(entry.local_path)) {
-      const stats = fs.statSync(entry.local_path);
-      localLastModified = stats.mtimeMs;
-      
-      // Deep check for files
-      const getLatestMtime = (dir) => {
-        let max = stats.mtimeMs;
-        const files = fs.readdirSync(dir);
-        for (const file of files) {
-          const fullPath = path.join(dir, file);
-          const fstats = fs.statSync(fullPath);
-          if (fstats.isDirectory()) {
-            const childMax = getLatestMtime(fullPath);
-            if (childMax > max) max = childMax;
-          } else {
-            if (fstats.mtimeMs > max) max = fstats.mtimeMs;
-          }
-        }
-        return max;
-      };
-      localLastModified = getLatestMtime(entry.local_path);
+    // Check if localPath exists
+    if (!entry.local_path || !fs.existsSync(entry.local_path)) {
+      return; // Wait for user to restore
     }
 
-    // [IMPORTANT] Sync Logic:
-    // 1. If localModified > lastSynced -> Upload
-    // 2. If Discord has newer (handled via refresh metadata elsewhere?) -> Download
-    // Actually the requirement says:
-    // - If lastModified local > lastSynced -> upload local folder to Discord at discordPath
-    // - If lastSynced Discord > lastSynced local -> download from Discord to localPath
-    
-    // For now, we'll implement the Upload side. 
-    // Download side needs to be triggered when metadata from Discord says it's newer.
-    
+    mainWindow?.webContents.send('cloudsave-sync-status', { id, status: 'syncing' });
+
+    // Get local last modified
+    let localLastModified = 0;
+    const getLatestMtime = (dir) => {
+      let max = fs.statSync(dir).mtimeMs;
+      const files = fs.readdirSync(dir);
+      for (const file of files) {
+        const fullPath = path.join(dir, file);
+        const fstats = fs.statSync(fullPath);
+        if (fstats.isDirectory()) {
+          const childMax = getLatestMtime(fullPath);
+          if (childMax > max) max = childMax;
+        } else {
+          if (fstats.mtimeMs > max) max = fstats.mtimeMs;
+        }
+      }
+      return max;
+    };
+    localLastModified = getLatestMtime(entry.local_path);
+
+    // Get Discord last modified from metadata_sync
+    const metaSync = db.prepare('SELECT updated_at FROM metadata_sync WHERE hash = ?').get(entry.webhook_hash);
+    const discordLastModified = metaSync ? metaSync.updated_at : 0;
+
     if (localLastModified > entry.last_synced) {
-      console.log(`[cloudsave] Syncing ${entry.name}: local modified (${localLastModified}) > last synced (${entry.last_synced})`);
+      // Local is newer -> Upload
+      console.log(`[cloudsave] Syncing ${entry.name}: Local is newer.`);
       const success = await uploadCloudFolder(entry);
       if (success) {
+        const now = Date.now();
         db.prepare('UPDATE cloudsave_entries SET last_synced = ?, last_modified = ? WHERE id = ?')
-          .run(Date.now(), localLastModified, id);
-        showSyncNotification(entry.name, 'upload');
-        mainWindow?.webContents.send('cloudsave-sync-status', { id, status: 'synced', lastSynced: Date.now() });
+          .run(now, localLastModified, id);
+        mainWindow?.webContents.send('cloudsave-sync-status', { id, status: 'synced', lastSynced: now });
       } else {
         mainWindow?.webContents.send('cloudsave-sync-status', { id, status: 'error' });
       }
+    } else if (discordLastModified > entry.last_synced) {
+      // Discord is newer -> Download
+      console.log(`[cloudsave] Syncing ${entry.name}: Discord is newer.`);
+      const searchPath = entry.discord_path.replace(/^\/+/, '').replace(/\/+$/, '');
+      const files = db.prepare('SELECT * FROM files WHERE hash = ? AND (path LIKE ? OR path LIKE ?)')
+        .all(entry.webhook_hash, searchPath + '/%', searchPath + '%');
+      
+      const webhookRow = db.prepare('SELECT value FROM settings WHERE hash = ? AND key = ?').get(entry.webhook_hash, 'webhook_url');
+      const webhookUrl = webhookRow?.value || activeWebhookUrl;
+
+      for (const file of files) {
+        file.messageIds = JSON.parse(file.message_ids);
+        let relativePath = file.path.startsWith('/') ? file.path.slice(1) : file.path;
+        relativePath = relativePath.replace(searchPath, '').replace(/^\/+/, '');
+        
+        const destPath = path.join(entry.local_path, relativePath);
+        await downloadDiscordFile(webhookUrl, file, destPath);
+      }
+
+      const now = Date.now();
+      db.prepare('UPDATE cloudsave_entries SET last_synced = ? WHERE id = ?').run(now, id);
+      mainWindow?.webContents.send('cloudsave-sync-status', { id, status: 'synced', lastSynced: now });
     } else {
       mainWindow?.webContents.send('cloudsave-sync-status', { id, status: 'synced' });
     }
@@ -703,23 +912,9 @@ async function triggerCloudSync(id) {
 }
 
 async function uploadCloudFolder(entry) {
-  // We need to zip the folder and upload it as a single file to Discord
-  // or upload files individually. Individual is better for Disbox structure.
-  // The requirement says: "upload local folder to Discord at discordPath"
-  // discordPath is e.g. "/cloudsave/{name}/"
-  
-  // We'll send a message to renderer to perform the actual upload using existing DisboxAPI
-  // because encryption and webhook handling are better managed there.
-  // BUT the requirement says "trigger sync on connect/reconnect, background polling, chokidar".
-  // This means main process must handle it.
-  
   return new Promise((resolve) => {
     mainWindow?.webContents.send('cloudsave-do-upload', entry);
-    // Wait for response from renderer
-    ipcMain.once(`cloudsave-upload-result-${entry.id}`, (_, success) => {
-      resolve(success);
-    });
-    // Timeout after 5 minutes
+    ipcMain.once(`cloudsave-upload-result-${entry.id}`, (_, success) => resolve(success));
     setTimeout(() => resolve(false), 300000);
   });
 }

@@ -135,10 +135,37 @@
 .statusSynced { color: var(--teal); }
 .statusSyncing { color: var(--accent-bright); }
 .statusError { color: var(--red); }
+.statusWarning { color: var(--orange, #f59e0b); }
+
+.missingPath {
+  color: var(--orange, #f59e0b);
+  font-style: italic;
+  font-weight: 500;
+}
 
 .lastSynced {
   font-size: 11px;
   color: var(--text-dim);
+}
+
+.restoreBtn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: var(--accent-dim, rgba(88, 101, 242, 0.1));
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  color: var(--accent-bright);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.restoreBtn:hover {
+  background: var(--accent);
+  color: white;
 }
 
 .cardActions {

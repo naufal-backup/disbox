@@ -266,7 +266,6 @@ export class DisboxAPI {
       }
 
       let files = Array.isArray(data) ? data : [];
-      files = files.filter(f => !f.path.startsWith('cloudsave/'));
       let changed = false;
 
       files = files.map(f => {
