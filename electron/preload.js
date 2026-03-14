@@ -31,8 +31,7 @@ contextBridge.exposeInMainWorld('electron', {
   uploadChunk: (webhookUrl, chunkB64, filename) =>
     ipcRenderer.invoke('upload-chunk', webhookUrl, chunkB64, filename),
 
-  // Upload file besar dari path — pakai transferId unik per transfer
-  // sehingga progress channel dan cancel bisa diidentifikasi
+  // Upload file besar dari path
   uploadFileFromPath: (webhookUrl, nativePath, destPath, onProgress, transferId, chunkSize) => {
     const progressChannel = 'upload-progress-' + transferId;
     const listener = (_, p) => onProgress?.(p);
@@ -42,7 +41,7 @@ contextBridge.exposeInMainWorld('electron', {
       .finally(() => ipcRenderer.removeListener(progressChannel, listener));
   },
 
-  // Cancel upload yang sedang berjalan di main process
+  // Cancel upload
   cancelUpload: (transferId) => ipcRenderer.send('cancel-upload', transferId),
 
   // Local metadata storage
@@ -81,7 +80,7 @@ contextBridge.exposeInMainWorld('electron', {
   cloudsaveExportZip: (id) => ipcRenderer.invoke('cloudsave-export-zip', id),
   cloudsaveSyncEntry: (id) => ipcRenderer.invoke('cloudsave-sync-entry', id),
   cloudsaveChooseFolder: () => ipcRenderer.invoke('cloudsave-choose-folder'),
-  
+
   onCloudSaveSyncStatus: (callback) => {
     const listener = (_, data) => callback(data);
     ipcRenderer.on('cloudsave-sync-status', listener);
@@ -107,4 +106,14 @@ contextBridge.exposeInMainWorld('electron', {
   },
   cloudsaveGetStatus: (id) => ipcRenderer.invoke('cloudsave-get-status', id),
   cloudsaveRestore: (id, force) => ipcRenderer.invoke('cloudsave-restore', { id, force }),
+
+  // ─── Share & Privacy ────────────────────────────────────────────────────────
+  shareGetSettings: (hash) => ipcRenderer.invoke('share-get-settings', hash),
+  shareSaveSettings: (hash, settings) => ipcRenderer.invoke('share-save-settings', hash, settings),
+  shareDeployWorker: (data) => ipcRenderer.invoke('share-deploy-worker', data),
+  shareGetLinks: (hash) => ipcRenderer.invoke('share-get-links', hash),
+  shareCreateLink: (hash, data) => ipcRenderer.invoke('share-create-link', hash, data),
+  shareRevokeLink: (hash, data) => ipcRenderer.invoke('share-revoke-link', hash, data),
+  shareRevokeAll: (hash) => ipcRenderer.invoke('share-revoke-all', hash),
+  shareOpenCFTokenPage: () => ipcRenderer.invoke('share-open-cf-token-page'),
 });

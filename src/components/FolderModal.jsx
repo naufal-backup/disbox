@@ -1,7 +1,57 @@
 import { useState } from 'react';
 import { FolderPlus, Move, Copy, X, ChevronRight, Home, Check, AlertCircle } from 'lucide-react';
 import { useApp } from '../AppContext.jsx';
+import { motion, AnimatePresence } from 'framer-motion';
 import styles from './FolderModal.module.css';
+
+// ─── Shared components ────────────────────────────────────────────────────────
+function Backdrop({ children, onClose }) {
+  const { animationsEnabled } = useApp();
+  
+  const backdropVariants = {
+    initial: { opacity: 0 },
+    animate: { opacity: 1 },
+    exit: { opacity: 0 }
+  };
+
+  const modalVariants = {
+    initial: { opacity: 0, scale: 0.95, y: 10 },
+    animate: { 
+      opacity: 1, 
+      scale: 1, 
+      y: 0,
+      transition: { type: 'spring', damping: 25, stiffness: 300 }
+    },
+    exit: { 
+      opacity: 0, 
+      scale: 0.95, 
+      y: 10,
+      transition: { duration: 0.15 }
+    }
+  };
+
+  const transition = animationsEnabled ? {} : { duration: 0 };
+
+  return (
+    <motion.div 
+      className={styles.backdrop} 
+      onClick={onClose}
+      initial="initial"
+      animate="animate"
+      exit="exit"
+      variants={backdropVariants}
+      transition={transition}
+    >
+      <motion.div 
+        onClick={e => e.stopPropagation()}
+        variants={modalVariants}
+        transition={transition}
+      >
+        {children}
+      </motion.div>
+    </motion.div>
+  );
+}
 
 // ─── Create Folder Modal ──────────────────────────────────────────────────────
 export function CreateFolderModal({ onClose }) {
@@ -279,15 +329,6 @@ export function ConfirmModal({ title, message, onConfirm, onClose, danger = fals
   );
 }
 
-// ─── Shared components ────────────────────────────────────────────────────────
-function Backdrop({ children, onClose }) {
-  return (
-    <div className={styles.backdrop} onClick={onClose}>
-      <div onClick={e => e.stopPropagation()}>{children}</div>
-    </div>
-  );
-}
-
 function DirIcon() {
   return (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--amber)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -295,3 +336,4 @@ function DirIcon() {
     </svg>
   );
 }
+

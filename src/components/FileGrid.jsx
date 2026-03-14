@@ -3,13 +3,14 @@ import { createPortal } from 'react-dom';
 import {
   Upload, FolderPlus, Grid3x3, List, Search,
   Download, Trash2, Edit3, Folder, Lock, Unlock, Star,
-  ChevronRight, Home, Move, Copy, Check, AlertCircle, ZoomIn,
+  ChevronRight, Home, Move, Copy, Check, AlertCircle, ZoomIn, Link2,
   CheckCircle, RefreshCw, Clock, ArrowUpDown, ChevronDown
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useApp } from '../AppContext.jsx';
 import { formatSize, getFileIcon, getMimeType } from '../utils/disbox.js';
 import { CreateFolderModal, MoveModal, ConfirmModal } from './FolderModal.jsx';
+import ShareDialog from './ShareDialog.jsx';
 import FilePreview from './FilePreview.jsx';
 import styles from './FileGrid.module.css';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -262,7 +263,8 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
     addTransfer, updateTransfer, removeTransfer, cancelTransfer, 
     refresh, loading, movePath, copyPath, deletePath, 
     bulkDelete, bulkMove, bulkCopy, uiScale,
-    setLocked, setStarred, verifyPin, hasPin, isVerified, t, animationsEnabled
+    setLocked, setStarred, verifyPin, hasPin, isVerified, t, animationsEnabled,
+    shareEnabled
   } = useApp();
 
   const [viewMode, setViewMode] = useState('grid');
@@ -298,6 +300,7 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
   const [previewFile, setPreviewFile] = useState(null);
   const [pinPrompt, setPinPrompt] = useState(null); // { title, onSuccess }
   const [showBreadcrumbMenu, setShowBreadcrumbMenu] = useState(false);
+  const [shareDialog, setShareDialog] = useState(null); // { path, file }
   const [showSortMenu, setShowSortMenu] = useState(false);
   const [isLastPartTruncated, setIsLastPartTruncated] = useState(false);
   const activeFolderRef = useRef(null);
@@ -1156,15 +1159,18 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
           })() : <button onClick={() => handleToggleLock(contextMenu.path, contextMenu.file?.id, !contextMenu.file?.isLocked)}>{contextMenu.file?.isLocked ? <><Unlock size={13} /> {t('unlock')}</> : <><Lock size={13} /> {t('lock')}</>}</button>}{contextMenu.isFolder ? (() => {
             const isStarred = folderStars.has(contextMenu.path);
             return <button onClick={() => handleToggleStar(contextMenu.path, null, !isStarred)}>{isStarred ? <><Star size={13} fill="currentColor" /> {t('unstar')}</> : <><Star size={13} /> {t('star')}</>}</button>;
-          })() : <button onClick={() => handleToggleStar(contextMenu.path, contextMenu.file?.id, !contextMenu.file?.isStarred)}>{contextMenu.file?.isStarred ? <><Star size={13} fill="currentColor" /> {t('unstar')}</> : <><Star size={13} /> {t('star')}</>}</button>}<div className={styles.contextDivider} /><button className={styles.dangerItem} onClick={() => { handleDelete(contextMenu.path, contextMenu.isFolder ? null : contextMenu.file?.id); setContextMenu(null); }}><Trash2 size={13} /> {t('delete')}</button></>)}
+          })() : <button onClick={() => handleToggleStar(contextMenu.path, contextMenu.file?.id, !contextMenu.file?.isStarred)}>{contextMenu.file?.isStarred ? <><Star size={13} fill="currentColor" /> {t('unstar')}</> : <><Star size={13} /> {t('star')}</>}</button>}<div className={styles.contextDivider} />{shareEnabled && !contextMenu.isFolder && <button onClick={() => { setShareDialog({ path: contextMenu.path, file: contextMenu.file }); setContextMenu(null); }}><Link2 size={13} /> Share</button>}<div className={styles.contextDivider} /><button className={styles.dangerItem} onClick={() => { handleDelete(contextMenu.path, contextMenu.isFolder ? null : contextMenu.file?.id); setContextMenu(null); }}><Trash2 size={13} /> {t('delete')}</button></>)}
         </div>
       )}
       {isDragOver && <div className={styles.dropOverlay}><Upload size={40} /><p>Drop untuk upload</p></div>}
-      {showCreateFolder && <CreateFolderModal onClose={() => setShowCreateFolder(false)} />}
-      {moveModal && <MoveModal id={moveModal.id} file={moveModal.path} paths={moveModal.paths} mode={moveModal.mode} onClose={() => { setMoveModal(null); clearSelection(); }} onUnlock={moveModal.onUnlock} />}
-      {confirmAction && <ConfirmModal title={confirmAction.title} message={confirmAction.message} danger={confirmAction.danger} onConfirm={confirmAction.onConfirm} onClose={() => setConfirmAction(null)} />}
-      {previewFile && <FilePreview file={previewFile} onClose={() => setPreviewFile(null)} />}
-      {pinPrompt && <PinPromptModal title={pinPrompt.title} onSuccess={pinPrompt.onSuccess} onClose={() => setPinPrompt(null)} />}
+      <AnimatePresence>
+        {showCreateFolder && <CreateFolderModal onClose={() => setShowCreateFolder(false)} />}
+        {moveModal && <MoveModal id={moveModal.id} file={moveModal.path} paths={moveModal.paths} mode={moveModal.mode} onClose={() => { setMoveModal(null); clearSelection(); }} onUnlock={moveModal.onUnlock} />}
+        {confirmAction && <ConfirmModal title={confirmAction.title} message={confirmAction.message} danger={confirmAction.danger} onConfirm={confirmAction.onConfirm} onClose={() => setConfirmAction(null)} />}
+        {previewFile && <FilePreview file={previewFile} onClose={() => setPreviewFile(null)} />}
+        {pinPrompt && <PinPromptModal title={pinPrompt.title} onSuccess={pinPrompt.onSuccess} onClose={() => setPinPrompt(null)} />}
+        {shareDialog && <ShareDialog filePath={shareDialog.path} fileId={shareDialog.file?.id} onClose={() => setShareDialog(null)} />}
+      </AnimatePresence>
     </div>
   );
 }

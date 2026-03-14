@@ -36,7 +36,6 @@ export function AppProvider({ children }) {
   const [loading, setLoading] = useState(false);
   const [transfers, setTransfers] = useState([]);
   
-  // Helper to check if any transfer is active
   const isTransferring = transfers.some(t => t.status === 'active');
 
   const [savedWebhooks, setSavedWebhooks] = useState(getSavedWebhooks);
@@ -61,6 +60,16 @@ export function AppProvider({ children }) {
     () => localStorage.getItem('disbox_cloudsave_enabled') === 'true'
   );
   const [cloudSaves, setCloudSaves] = useState([]);
+
+  // ── Share & Privacy ────────────────────────────────────────────────────────
+  const [shareEnabled, setShareEnabled] = useState(
+    () => localStorage.getItem('disbox_share_enabled') === 'true'
+  );
+  const [shareMode, setShareMode] = useState(
+    () => localStorage.getItem('disbox_share_mode') || 'public'
+  );
+  const [shareLinks, setShareLinks] = useState([]);
+  const [cfWorkerUrl, setCfWorkerUrl] = useState('');
 
   const abortControllersRef = useRef(new Map());
 
@@ -144,6 +153,15 @@ export function AppProvider({ children }) {
     localStorage.setItem('disbox_show_previews', showPreviews.toString());
   }, [showPreviews]);
 
+  useEffect(() => {
+    localStorage.setItem('disbox_cloudsave_enabled', cloudSaveEnabled.toString());
+  }, [cloudSaveEnabled]);
+
+  useEffect(() => {
+    localStorage.setItem('disbox_share_enabled', shareEnabled.toString());
+    localStorage.setItem('disbox_share_mode', shareMode);
+  }, [shareEnabled, shareMode]);
+
   const toggleTheme = useCallback(() => {
     setTheme(prev => prev === 'dark' ? 'light' : 'dark');
   }, []);
@@ -177,6 +195,21 @@ export function AppProvider({ children }) {
       setFiles(fs);
       setFileTree(buildTree(fs));
       setIsConnected(true);
+
+      // Load share settings & links
+      try {
+        const shareSettings = await window.electron.shareGetSettings(instance.hashedWebhook);
+        if (shareSettings) {
+          setShareEnabled(!!shareSettings.enabled);
+          setShareMode(shareSettings.mode || 'public');
+          setCfWorkerUrl(shareSettings.cf_worker_url || '');
+        }
+        const links = await window.electron.shareGetLinks(instance.hashedWebhook);
+        setShareLinks(links || []);
+      } catch (e) {
+        console.warn('[share] Failed to load share settings:', e.message);
+      }
+
       return { ok: true };
     } catch (e) {
       console.error('Connect failed:', e);
@@ -199,6 +232,7 @@ export function AppProvider({ children }) {
     setFileTree(null);
     setCurrentPath('/');
     setTransfers([]);
+    setShareLinks([]);
   }, []);
 
   const refresh = useCallback(async (silent = false) => {
@@ -216,12 +250,9 @@ export function AppProvider({ children }) {
     }
   }, [api]);
 
-  // Background polling for changes (every 5 seconds)
   useEffect(() => {
     if (!isConnected || !api) return;
-    const interval = setInterval(() => {
-      refresh(true);
-    }, 5000);
+    const interval = setInterval(() => { refresh(true); }, 5000);
     return () => clearInterval(interval);
   }, [isConnected, api, refresh]);
 
@@ -233,9 +264,7 @@ export function AppProvider({ children }) {
   useEffect(() => {
     if (!window.electron?.onMetadataChange || !api) return;
     const cleanup = window.electron.onMetadataChange((hash) => {
-      if (api.hashedWebhook === hash) {
-        refresh();
-      }
+      if (api.hashedWebhook === hash) refresh();
     });
     return cleanup;
   }, [api, refresh]);
@@ -258,103 +287,59 @@ export function AppProvider({ children }) {
     if (!api) return false;
     const name = oldPath.split('/').pop();
     const newPath = destDir ? `${destDir}/${name}` : name;
-    try {
-      await api.renamePath(oldPath, newPath, id);
-      await refresh();
-      return true;
-    } catch (e) {
-      console.error('Move failed:', e);
-      return false;
-    }
+    try { await api.renamePath(oldPath, newPath, id); await refresh(); return true; }
+    catch (e) { console.error('Move failed:', e); return false; }
   }, [api, refresh]);
 
   const copyPath = useCallback(async (oldPath, destDir, id = null) => {
     if (!api) return false;
     const name = oldPath.split('/').pop();
     const newPath = destDir ? `${destDir}/${name}` : name;
-    try {
-      await api.copyPath(oldPath, newPath, id);
-      await refresh();
-      return true;
-    } catch (e) {
-      console.error('Copy failed:', e);
-      return false;
-    }
+    try { await api.copyPath(oldPath, newPath, id); await refresh(); return true; }
+    catch (e) { console.error('Copy failed:', e); return false; }
   }, [api, refresh]);
 
   const deletePath = useCallback(async (path, id = null) => {
     if (!api) return false;
-    try {
-      await api.deletePath(path, id);
-      await refresh();
-      return true;
-    } catch (e) {
-      console.error('Delete failed:', e);
-      return false;
-    }
+    try { await api.deletePath(path, id); await refresh(); return true; }
+    catch (e) { console.error('Delete failed:', e); return false; }
   }, [api, refresh]);
 
   const bulkDelete = useCallback(async (paths) => {
     if (!api) return false;
-    try {
-      await api.bulkDelete(paths);
-      await refresh();
-      return true;
-    } catch (e) {
-      console.error('Bulk delete failed:', e);
-      return false;
-    }
+    try { await api.bulkDelete(paths); await refresh(); return true; }
+    catch (e) { console.error('Bulk delete failed:', e); return false; }
   }, [api, refresh]);
 
   const bulkMove = useCallback(async (paths, destDir) => {
     if (!api) return false;
-    try {
-      await api.bulkMove(paths, destDir);
-      await refresh();
-      return true;
-    } catch (e) {
-      console.error('Bulk move failed:', e);
-      return false;
-    }
+    try { await api.bulkMove(paths, destDir); await refresh(); return true; }
+    catch (e) { console.error('Bulk move failed:', e); return false; }
   }, [api, refresh]);
 
   const bulkCopy = useCallback(async (paths, destDir) => {
     if (!api) return false;
-    try {
-      await api.bulkCopy(paths, destDir);
-      await refresh();
-      return true;
-    } catch (e) {
-      console.error('Bulk copy failed:', e);
-      return false;
-    }
+    try { await api.bulkCopy(paths, destDir); await refresh(); return true; }
+    catch (e) { console.error('Bulk copy failed:', e); return false; }
   }, [api, refresh]);
 
   const setLocked = useCallback(async (id, isLocked) => {
     if (!api) return false;
     try {
       const hash = api.hashedWebhook;
-      
-      // Find the item to check if it's a folder
       const target = files.find(f => f.id === id);
       if (target) {
-        // It's a file
         await window.electron.setLocked(id, hash, isLocked);
       } else {
-        // It's a folder path
-        const folderPath = id; 
+        const folderPath = id;
         const affectedFiles = files.filter(f => f.path === folderPath || f.path.startsWith(folderPath + '/'));
         for (const f of affectedFiles) {
           await window.electron.setLocked(f.id, hash, isLocked);
         }
       }
-      
       await refresh();
       return true;
-    } catch (e) {
-      console.error('Set locked failed:', e);
-      return false;
-    }
+    } catch (e) { console.error('Set locked failed:', e); return false; }
   }, [api, files, refresh]);
 
   const verifyPin = useCallback(async (pin) => {
@@ -380,12 +365,9 @@ export function AppProvider({ children }) {
     if (isConnected) hasPin();
   }, [isConnected, hasPin]);
 
-  // Background check for PIN (useful if metadata syncs in background)
   useEffect(() => {
     if (!isConnected || !api) return;
-    const interval = setInterval(() => {
-      hasPin();
-    }, 10000);
+    const interval = setInterval(() => { hasPin(); }, 10000);
     return () => clearInterval(interval);
   }, [isConnected, api, hasPin]);
 
@@ -406,22 +388,14 @@ export function AppProvider({ children }) {
       const hash = api.hashedWebhook;
       const target = files.find(f => f.id === id);
       if (target) {
-        // It's a file
         await window.electron.setStarred(id, hash, isStarred);
       } else {
-        // It's a folder path (id is the path)
-        // Find the .keep file for this folder
         const keepFile = files.find(f => f.path === (id ? `${id}/.keep` : '.keep'));
-        if (keepFile) {
-          await window.electron.setStarred(keepFile.id, hash, isStarred);
-        }
+        if (keepFile) await window.electron.setStarred(keepFile.id, hash, isStarred);
       }
       await refresh();
       return true;
-    } catch (e) {
-      console.error('Set starred failed:', e);
-      return false;
-    }
+    } catch (e) { console.error('Set starred failed:', e); return false; }
   }, [api, files, refresh]);
 
   const getAllDirs = useCallback(() => {
@@ -453,27 +427,16 @@ export function AppProvider({ children }) {
 
   const cancelTransfer = useCallback((id) => {
     const controller = abortControllersRef.current.get(id);
-    if (controller) {
-      controller.abort();
-    }
-
-    if (window.electron?.cancelUpload) {
-      window.electron.cancelUpload(id);
-    }
-
-    setTransfers(p => p.map(t =>
-      t.id === id ? { ...t, status: 'cancelled' } : t
-    ));
+    if (controller) controller.abort();
+    if (window.electron?.cancelUpload) window.electron.cancelUpload(id);
+    setTransfers(p => p.map(t => t.id === id ? { ...t, status: 'cancelled' } : t));
     setTimeout(() => {
       abortControllersRef.current.delete(id);
       setTransfers(p => p.filter(t => t.id !== id));
     }, 2000);
   }, []);
 
-  useEffect(() => {
-    localStorage.setItem('disbox_cloudsave_enabled', cloudSaveEnabled.toString());
-  }, [cloudSaveEnabled]);
-
+  // ── Cloud Save methods ─────────────────────────────────────────────────────
   const loadCloudSaves = useCallback(async () => {
     if (!api) return;
     const entries = await window.electron.cloudsaveGetAll(api.hashedWebhook);
@@ -487,11 +450,7 @@ export function AppProvider({ children }) {
   const addCloudSave = useCallback(async (name, localPath) => {
     if (!api) return;
     const discordPath = `cloudsave/${name}/`;
-    const id = await window.electron.cloudsaveAdd(api.hashedWebhook, {
-      name,
-      local_path: localPath,
-      discord_path: discordPath
-    });
+    const id = await window.electron.cloudsaveAdd(api.hashedWebhook, { name, local_path: localPath, discord_path: discordPath });
     await loadCloudSaves();
     return id;
   }, [api, loadCloudSaves]);
@@ -510,12 +469,9 @@ export function AppProvider({ children }) {
     await loadCloudSaves();
   }, [loadCloudSaves]);
 
-  // Handle Cloud Save Upload trigger from main process
   useEffect(() => {
     if (!window.electron?.onCloudSaveDoUpload || !api) return;
-    
     const cleanup = window.electron.onCloudSaveDoUpload(async (entry) => {
-      console.log('[cloudsave] Uploading folder:', entry.local_path);
       try {
         const uploadRecursive = async (localDir, remoteDir) => {
           const contents = await window.electron.listDirectory(localDir);
@@ -525,26 +481,13 @@ export function AppProvider({ children }) {
               await uploadRecursive(item.path, `${remotePath}/`);
             } else {
               const transferId = `cloudsave-${entry.id}-${Date.now()}`;
-              // Use api.uploadFile which handles both upload and metadata registration
-              await api.uploadFile(
-                { nativePath: item.path }, 
-                remotePath,
-                (p) => console.log(`[cloudsave] ${item.name} progress: ${p}`),
-                null,
-                transferId
-              );
+              await api.uploadFile({ nativePath: item.path }, remotePath, (p) => {}, null, transferId);
             }
           }
         };
-
         await uploadRecursive(entry.local_path, entry.discord_path);
-        
-        // Final flush and sync
-        if (window.electron?.flushMetadata) {
-          await window.electron.flushMetadata(webhookUrl, api.hashedWebhook);
-        }
+        if (window.electron?.flushMetadata) await window.electron.flushMetadata(webhookUrl, api.hashedWebhook);
         await api.syncMetadata();
-        
         window.electron.cloudsaveUploadResult(entry.id, true);
         await loadCloudSaves();
       } catch (e) {
@@ -552,30 +495,17 @@ export function AppProvider({ children }) {
         window.electron.cloudsaveUploadResult(entry.id, false);
       }
     });
-    
     return cleanup;
   }, [api, webhookUrl, chunkSize, loadCloudSaves]);
 
-  // Handle single file upload from chokidar
   useEffect(() => {
     if (!window.electron?.onCloudSaveDoUploadFile || !api) return;
-    
     const cleanup = window.electron.onCloudSaveDoUploadFile(async ({ id, filePath, discordPath }) => {
       try {
         const transferId = `cloudsave-file-${id}-${Date.now()}`;
-        const result = await window.electron.uploadFileFromPath(
-          webhookUrl,
-          filePath,
-          discordPath,
-          (p) => {},
-          transferId,
-          chunkSize
-        );
-        
+        const result = await window.electron.uploadFileFromPath(webhookUrl, filePath, discordPath, () => {}, transferId, chunkSize);
         if (result.ok) {
-          // Update metadata in Disbox
-          const { messageIds, size } = result;
-          await api.createFile(discordPath, messageIds, size);
+          await api.createFile(discordPath, result.messageIds, result.size);
           await api.syncMetadata();
           window.electron.cloudsaveUploadFileResult(id, discordPath, true);
           await loadCloudSaves();
@@ -587,7 +517,6 @@ export function AppProvider({ children }) {
         window.electron.cloudsaveUploadFileResult(id, discordPath, false);
       }
     });
-    
     return cleanup;
   }, [api, webhookUrl, chunkSize, loadCloudSaves]);
 
@@ -609,8 +538,6 @@ export function AppProvider({ children }) {
 
   const restoreCloudSave = useCallback(async (id, force = false) => {
     if (!api) return { ok: false, reason: 'api_not_initialized' };
-
-    // Ensure metadata is fresh before restore
     setLoading(true);
     try {
       await api.syncMetadata();
@@ -618,7 +545,6 @@ export function AppProvider({ children }) {
       if (res.ok) await loadCloudSaves();
       return res;
     } catch (e) {
-      console.error('[cloudsave] restoreCloudSave failed:', e);
       return { ok: false, reason: e.message };
     } finally {
       setLoading(false);
@@ -627,13 +553,11 @@ export function AppProvider({ children }) {
 
   const exportCloudSave = useCallback(async (id) => {
     if (!api) return { ok: false, reason: 'api_not_initialized' };
-
     setLoading(true);
     try {
       await api.syncMetadata();
       return await window.electron.cloudsaveExportZip(id);
     } catch (e) {
-      console.error('[cloudsave] exportCloudSave failed:', e);
       return { ok: false, reason: e.message };
     } finally {
       setLoading(false);
@@ -643,6 +567,51 @@ export function AppProvider({ children }) {
   const getCloudSaveStatus = useCallback(async (id) => {
     return await window.electron.cloudsaveGetStatus(id);
   }, []);
+
+  // ── Share & Privacy methods ────────────────────────────────────────────────
+  const loadShareLinks = useCallback(async () => {
+    if (!api) return;
+    try {
+      const links = await window.electron.shareGetLinks(api.hashedWebhook);
+      setShareLinks(links || []);
+    } catch (e) { console.error('[share] loadShareLinks error:', e.message); }
+  }, [api]);
+
+  const saveShareSettings = useCallback(async (settings) => {
+    if (!api) return false;
+    const ok = await window.electron.shareSaveSettings(api.hashedWebhook, settings);
+    if (ok) {
+      if (settings.enabled !== undefined) setShareEnabled(!!settings.enabled);
+      if (settings.mode) setShareMode(settings.mode);
+      if (settings.cf_worker_url !== undefined) setCfWorkerUrl(settings.cf_worker_url || '');
+    }
+    return ok;
+  }, [api]);
+
+  const deployWorker = useCallback(async (apiToken) => {
+    return await window.electron.shareDeployWorker({ apiToken });
+  }, []);
+
+  const createShareLink = useCallback(async (filePath, fileId, permission, expiresAt) => {
+    if (!api) return { ok: false, reason: 'no_api' };
+    const result = await window.electron.shareCreateLink(api.hashedWebhook, { filePath, fileId, permission, expiresAt });
+    if (result.ok) await loadShareLinks();
+    return result;
+  }, [api, loadShareLinks]);
+
+  const revokeShareLink = useCallback(async (id, token) => {
+    if (!api) return false;
+    const ok = await window.electron.shareRevokeLink(api.hashedWebhook, { id, token });
+    if (ok) await loadShareLinks();
+    return ok;
+  }, [api, loadShareLinks]);
+
+  const revokeAllLinks = useCallback(async () => {
+    if (!api) return false;
+    const ok = await window.electron.shareRevokeAll(api.hashedWebhook);
+    if (ok) setShareLinks([]);
+    return ok;
+  }, [api]);
 
   const getTransferSignal = useCallback((id) => {
     return abortControllersRef.current.get(id)?.signal ?? null;
@@ -673,6 +642,11 @@ export function AppProvider({ children }) {
       cloudSaves, loadCloudSaves, addCloudSave, removeCloudSave,
       exportCloudSave, syncCloudSave, setLocalPath,
       restoreCloudSave, getCloudSaveStatus,
+      shareEnabled, setShareEnabled,
+      shareMode, setShareMode,
+      shareLinks, cfWorkerUrl, setCfWorkerUrl,
+      loadShareLinks, saveShareSettings, deployWorker,
+      createShareLink, revokeShareLink, revokeAllLinks,
       connect, disconnect, refresh,
       createFolder, movePath, copyPath, deletePath,
       bulkDelete, bulkMove, bulkCopy,

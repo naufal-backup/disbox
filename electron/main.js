@@ -25,6 +25,10 @@ var uploadCancelFlags = new Map();
 const abortControllers = new Map();
 
 const cryptoNode = require('crypto');
+
+// ─── Share & Privacy Constants ───────────────────────────────────────────────
+const PUBLIC_WORKER_URL = 'https://disbox-worker.naufal-backup.workers.dev';
+const PUBLIC_API_KEY = 'disbox-naufal-xK9mP3qR';
 const MAGIC_HEADER = Buffer.from('DBX_ENC:');
 
 function getEncryptionKey(url) {
@@ -120,6 +124,23 @@ try {
       discord_path TEXT NOT NULL,
       last_synced INTEGER DEFAULT 0,
       last_modified INTEGER DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS share_settings (
+      hash TEXT PRIMARY KEY,
+      mode TEXT DEFAULT 'public',
+      cf_worker_url TEXT,
+      cf_api_token TEXT,
+      enabled INTEGER DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS share_links (
+      id TEXT PRIMARY KEY,
+      hash TEXT NOT NULL,
+      file_path TEXT NOT NULL,
+      file_id TEXT,
+      token TEXT NOT NULL,
+      permission TEXT NOT NULL,
+      expires_at INTEGER,
+      created_at INTEGER NOT NULL
     );
   `);
 
@@ -929,6 +950,355 @@ setInterval(() => {
   }
 }, 300000);
 
+
+// ─── Share & Privacy IPC Handlers ────────────────────────────────────────────
+
+ipcMain.handle('share-get-settings', async (_, hash) => {
+  try {
+    const row = db.prepare('SELECT * FROM share_settings WHERE hash = ?').get(hash);
+    return row || { hash, mode: 'public', cf_worker_url: PUBLIC_WORKER_URL, enabled: 0 };
+  } catch (e) {
+    console.error('[share] get-settings error:', e.message);
+    return { hash, mode: 'public', cf_worker_url: PUBLIC_WORKER_URL, enabled: 0 };
+  }
+});
+
+ipcMain.handle('share-save-settings', async (_, hash, settings) => {
+  try {
+    db.prepare(`
+      INSERT INTO share_settings (hash, mode, cf_worker_url, cf_api_token, enabled)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(hash) DO UPDATE SET
+        mode = excluded.mode,
+        cf_worker_url = excluded.cf_worker_url,
+        cf_api_token = excluded.cf_api_token,
+        enabled = excluded.enabled
+    `).run(hash, settings.mode || 'public', settings.cf_worker_url || null, settings.cf_api_token || null, settings.enabled ? 1 : 0);
+    return true;
+  } catch (e) {
+    console.error('[share] save-settings error:', e.message);
+    return false;
+  }
+});
+
+ipcMain.handle('share-deploy-worker', async (_, { apiToken }) => {
+  console.log('[share] Starting worker deployment...');
+  try {
+    // 1. Verify Token
+    const verifyRes = await net.fetch('https://api.cloudflare.com/client/v4/user/tokens/verify', {
+      headers: { 'Authorization': `Bearer ${apiToken}`, 'Content-Type': 'application/json' }
+    });
+    const verifyData = JSON.parse(await verifyRes.text());
+    if (!verifyRes.ok || !verifyData.success) {
+      console.error('[share] Token verification failed:', verifyData);
+      return { ok: false, reason: 'invalid_token', message: 'API Token tidak valid atau tidak memiliki izin yang cukup.' };
+    }
+
+    // 2. Get Account ID
+    const accountsRes = await net.fetch('https://api.cloudflare.com/client/v4/accounts', {
+      headers: { 'Authorization': `Bearer ${apiToken}` }
+    });
+    const accountsData = JSON.parse(await accountsRes.text());
+    if (!accountsRes.ok || !accountsData.success || !accountsData.result?.[0]) {
+      console.error('[share] Could not fetch accounts:', accountsData);
+      return { ok: false, reason: 'no_account', message: 'Gagal mengambil ID akun Cloudflare.' };
+    }
+    
+    // Gunakan account pertama (paling umum untuk user personal)
+    const accountId = accountsData.result[0].id;
+    const accountName = accountsData.result[0].name;
+    console.log(`[share] Using Cloudflare account: ${accountName} (${accountId})`);
+
+    // 3. Create/Get KV Namespace (Must be done BEFORE script upload for binding)
+    console.log('[share] Setting up KV namespace...');
+    let kvNamespaceId = null;
+    
+    const listKvRes = await net.fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${accountId}/storage/kv/namespaces`,
+      { headers: { 'Authorization': `Bearer ${apiToken}` } }
+    );
+    const listKvData = JSON.parse(await listKvRes.text());
+    if (listKvRes.ok && listKvData.success) {
+      const existing = listKvData.result.find(ns => ns.title === 'disbox_share_kv');
+      if (existing) kvNamespaceId = existing.id;
+    }
+
+    if (!kvNamespaceId) {
+      console.log('[share] Creating new KV namespace: disbox_share_kv');
+      const kvRes = await net.fetch(
+        `https://api.cloudflare.com/client/v4/accounts/${accountId}/storage/kv/namespaces`,
+        {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${apiToken}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title: 'disbox_share_kv' })
+        }
+      );
+      const kvData = JSON.parse(await kvRes.text());
+      if (kvRes.ok && kvData.success) {
+        kvNamespaceId = kvData.result.id;
+      } else {
+        console.warn('[share] KV creation failed:', kvData);
+        return { ok: false, reason: 'kv_failed', message: 'Gagal membuat KV Namespace. Pastikan token punya izin KV.' };
+      }
+    }
+
+    // 4. Deploy Script Code with Bindings (Multipart)
+    const uniqueId = cryptoNode.randomBytes(3).toString('hex');
+    const scriptName = `disbox-worker-${uniqueId}`;
+    console.log(`[share] Deploying script: ${scriptName} with KV binding...`);
+
+    const boundary = '----DisboxWorkerBoundary' + uniqueId;
+    const metadata = {
+      body_part: 'script', // PENTING: Untuk Service Worker (non-module)
+      bindings: [
+        { type: 'kv_namespace', name: 'SHARE_KV', namespace_id: kvNamespaceId }
+      ]
+    };
+
+    const workerCode = getDisboxWorkerCode();
+    
+    // Construct Multipart Body secara presisi
+    const bodyParts = [
+      `--${boundary}\r\n`,
+      `Content-Disposition: form-data; name="metadata"\r\n`,
+      `Content-Type: application/json\r\n\r\n`,
+      JSON.stringify(metadata) + `\r\n`,
+      `--${boundary}\r\n`,
+      `Content-Disposition: form-data; name="script"\r\n`,
+      `Content-Type: application/javascript\r\n\r\n`,
+      workerCode + `\r\n`,
+      `--${boundary}--\r\n`
+    ];
+    const multipartBody = bodyParts.join('');
+
+    const deployRes = await net.fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/scripts/${scriptName}`,
+      {
+        method: 'PUT',
+        headers: { 
+          'Authorization': `Bearer ${apiToken}`,
+          'Content-Type': `multipart/form-data; boundary=${boundary}`
+        },
+        body: multipartBody
+      }
+    );
+
+    const deployData = JSON.parse(await deployRes.text());
+    if (!deployRes.ok || !deployData.success) {
+      console.error('[share] Deployment failed:', deployData);
+      const errMsg = deployData.errors?.[0]?.message || 'Gagal deploy Worker.';
+      return { ok: false, reason: 'deploy_failed', message: errMsg };
+    }
+
+    // Langkah Tambahan: Explicit Binding (Fallback untuk memastikan KV terikat)
+    console.log('[share] Applying explicit KV binding...');
+    await net.fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/scripts/${scriptName}/bindings`,
+      {
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${apiToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bindings: [{ type: 'kv_namespace', name: 'SHARE_KV', namespace_id: kvNamespaceId }] })
+      }
+    ).catch(e => console.warn('[share] Explicit binding failed:', e.message));
+
+    // 5. Enable workers.dev subdomain for this script
+    console.log(`[share] Enabling workers.dev subdomain for ${scriptName}...`);
+    await net.fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/scripts/${scriptName}/subdomain`,
+      {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${apiToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: true })
+      }
+    ).catch(e => console.warn('[share] Could not enable subdomain:', e.message));
+
+    // 6. Get Subdomain & Worker URL
+    console.log('[share] Fetching worker subdomain...');
+    const subdomainRes = await net.fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/subdomain`,
+      { headers: { 'Authorization': `Bearer ${apiToken}` } }
+    );
+    const subdomainData = JSON.parse(await subdomainRes.text());
+    
+    if (!subdomainRes.ok || !subdomainData.success || !subdomainData.result?.subdomain) {
+      return { ok: false, reason: 'no_subdomain', message: 'Subdomain Workers belum diset di Cloudflare.' };
+    }
+
+    const subdomain = subdomainData.result.subdomain;
+    const workerUrl = `https://${scriptName}.${subdomain}.workers.dev`;
+    console.log('[share] Worker URL:', workerUrl);
+
+    // 7. Set Secrets
+    console.log('[share] Setting DISBOX_API_KEY secret...');
+    const userApiKey = cryptoNode.randomBytes(24).toString('hex');
+    const secretRes = await net.fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/scripts/${scriptName}/secrets`,
+      {
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${apiToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'DISBOX_API_KEY', text: userApiKey, type: 'secret_text' })
+      }
+    );
+    if (!secretRes.ok) console.warn('[share] Secret set failed:', await secretRes.text());
+
+    console.log('[share] Worker deployment successful!');
+    return { ok: true, workerUrl, userApiKey };
+  } catch (e) {
+    console.error('[share] Fatal deployment error:', e);
+    return { ok: false, reason: 'fatal_error', message: e.message };
+  }
+});
+  } catch (e) {
+    console.error('[share] Fatal deployment error:', e);
+    return { ok: false, reason: 'fatal_error', message: e.message };
+  }
+});
+
+ipcMain.handle('share-get-links', async (_, hash) => {
+  try {
+    return db.prepare('SELECT * FROM share_links WHERE hash = ? ORDER BY created_at DESC').all(hash);
+  } catch (e) {
+    console.error('[share] get-links error:', e.message);
+    return [];
+  }
+});
+
+ipcMain.handle('share-create-link', async (_, hash, { filePath, fileId, permission, expiresAt }) => {
+  try {
+    const token = cryptoNode.randomUUID().replace(/-/g, '');
+    const settings = db.prepare('SELECT * FROM share_settings WHERE hash = ?').get(hash);
+    let cfWorkerUrl = settings?.cf_worker_url || PUBLIC_WORKER_URL;
+    
+    // Validasi URL sederhana
+    if (!cfWorkerUrl || cfWorkerUrl.includes('.xxx.') || !cfWorkerUrl.startsWith('http')) {
+      return { ok: false, reason: 'invalid_worker_url', message: 'URL Cloudflare Worker belum diset dengan benar. Silakan cek tab Settings.' };
+    }
+
+    // Pastikan tidak ada trailing slash agar path join tidak dobel //
+    cfWorkerUrl = cfWorkerUrl.replace(/\/+$/, '');
+
+    // Private mode pakai API key milik user, public mode pakai key developer
+    const apiKey = (settings?.mode === 'private' && settings?.cf_api_token)
+      ? settings.cf_api_token
+      : PUBLIC_API_KEY;
+
+    // Ambil messageIds + attachment URLs dari Discord agar CF Worker bisa proxy download
+    let messageIds = [];
+    try {
+      const fileRow = fileId
+        ? db.prepare('SELECT message_ids FROM files WHERE id = ? AND hash = ?').get(fileId, hash)
+        : db.prepare('SELECT message_ids FROM files WHERE path = ? AND hash = ?').get(filePath, hash);
+
+      if (fileRow) {
+        const rawIds = JSON.parse(fileRow.message_ids || '[]');
+        // Fetch attachment URL tiap chunk dari Discord untuk di-proxy oleh CF Worker
+        messageIds = await Promise.all(rawIds.map(async (item) => {
+          const msgId = typeof item === 'string' ? item : item.msgId;
+          try {
+            const msgRes = await net.fetch(`${activeWebhookUrl}/messages/${msgId}`, {
+              headers: { 'User-Agent': 'Mozilla/5.0 Disbox/2.0' }
+            });
+            if (msgRes.ok) {
+              const msg = JSON.parse(await msgRes.text());
+              const attachmentUrl = msg.attachments?.[0]?.url || null;
+              return { msgId, attachmentUrl };
+            }
+          } catch (e) { console.warn('[share] Could not fetch attachment URL for', msgId); }
+          return { msgId, attachmentUrl: null };
+        }));
+      }
+    } catch (e) { console.warn('[share] Could not fetch messageIds:', e.message); }
+
+    // Derive encryption key dari webhook URL dan encode ke base64
+    // Disimpan di KV agar browser bisa decrypt chunks saat download
+    let encryptionKeyB64 = null;
+    try {
+      const encKey = getEncryptionKey(activeWebhookUrl);
+      if (encKey) encryptionKeyB64 = encKey.toString('base64');
+    } catch (e) { console.warn('[share] Could not get encryption key:', e.message); }
+
+    const res = await net.fetch(`${cfWorkerUrl}/share/create`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Disbox-Key': apiKey },
+      body: JSON.stringify({ token, fileId, filePath, permission, expiresAt, webhookHash: hash, messageIds, encryptionKeyB64 })
+    }).catch(e => {
+      if (e.message.includes('ERR_SSL') || e.message.includes('ERR_CERT')) {
+        throw new Error('SSL Cloudflare belum siap. Tunggu 1-2 menit agar sertifikat aktif.');
+      }
+      if (e.message.includes('ERR_NAME_NOT_RESOLVED')) {
+        throw new Error('Domain Worker tidak ditemukan. Pastikan URL di Settings sudah benar.');
+      }
+      throw e;
+    });
+
+    if (!res.ok) {
+      const body = await res.text();
+      console.error('[share] CF Worker create failed:', res.status, body);
+      return { ok: false, reason: 'worker_error' };
+    }
+
+    const id = cryptoNode.randomUUID();
+    db.prepare(`
+      INSERT INTO share_links (id, hash, file_path, file_id, token, permission, expires_at, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, hash, filePath, fileId || null, token, permission, expiresAt || null, Date.now());
+
+    return { ok: true, link: `${cfWorkerUrl}/share/${token}`, token, id };
+  } catch (e) {
+    console.error('[share] create-link error:', e.message);
+    return { ok: false, reason: e.message };
+  }
+});
+
+ipcMain.handle('share-revoke-link', async (_, hash, { id, token }) => {
+  try {
+    const settings = db.prepare('SELECT * FROM share_settings WHERE hash = ?').get(hash);
+    const cfWorkerUrl = settings?.cf_worker_url || PUBLIC_WORKER_URL;
+    const apiKey = (settings?.mode === 'private' && settings?.cf_api_token)
+      ? settings.cf_api_token
+      : PUBLIC_API_KEY;
+    await net.fetch(`${cfWorkerUrl}/share/revoke/${token}`, {
+      method: 'DELETE',
+      headers: { 'X-Disbox-Key': apiKey }
+    }).catch(e => console.warn('[share] CF revoke failed:', e.message));
+    db.prepare('DELETE FROM share_links WHERE id = ? AND hash = ?').run(id, hash);
+    return true;
+  } catch (e) {
+    console.error('[share] revoke-link error:', e.message);
+    return false;
+  }
+});
+
+ipcMain.handle('share-revoke-all', async (_, hash) => {
+  try {
+    const settings = db.prepare('SELECT * FROM share_settings WHERE hash = ?').get(hash);
+    const cfWorkerUrl = settings?.cf_worker_url || PUBLIC_WORKER_URL;
+    const apiKey = (settings?.mode === 'private' && settings?.cf_api_token)
+      ? settings.cf_api_token
+      : PUBLIC_API_KEY;
+    await net.fetch(`${cfWorkerUrl}/share/revoke-all/${hash}`, {
+      method: 'DELETE',
+      headers: { 'X-Disbox-Key': apiKey }
+    }).catch(e => console.warn('[share] CF revoke-all failed:', e.message));
+    db.prepare('DELETE FROM share_links WHERE hash = ?').run(hash);
+    return true;
+  } catch (e) {
+    console.error('[share] revoke-all error:', e.message);
+    return false;
+  }
+});
+
+ipcMain.handle('share-open-cf-token-page', async () => {
+  const url = 'https://dash.cloudflare.com/profile/api-tokens/create?permissionGroupKeys=workers_scripts:edit,workers_kv_storage:edit,account_settings:read&name=Disbox+Worker';
+  shell.openExternal(url);
+  return true;
+});
+
+function getDisboxWorkerCode() {
+  // Baca worker code dari file terpisah — menghindari masalah escaping string
+  const workerPath = require('path').join(__dirname, 'disbox-worker.js');
+  return require('fs').readFileSync(workerPath, 'utf8');
+}
 ipcMain.handle('dialog-open-files', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ['openFile', 'multiSelections'],

@@ -1,0 +1,555 @@
+.container {
+  padding: 24px 32px;
+  height: 100%;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.title {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.headerActions {
+  display: flex;
+  gap: 10px;
+}
+
+.revokeAllBtn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  background: transparent;
+  border: 1px solid var(--red, #ed4245);
+  border-radius: 8px;
+  color: var(--red, #ed4245);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.revokeAllBtn:hover {
+  background: rgba(237, 66, 69, 0.1);
+}
+
+/* Toolbar */
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.searchBox {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  flex: 1;
+  max-width: 300px;
+  color: var(--text-muted);
+}
+
+.searchBox input {
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  font-size: 13px;
+  width: 100%;
+  outline: none;
+}
+
+.toolbarRight {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.sortBoxContainer {
+  position: relative;
+}
+
+.sortBox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  min-width: 100px;
+}
+
+.sortBox svg {
+  color: var(--text-muted);
+}
+
+.sortText {
+  flex: 1;
+  text-align: left;
+}
+
+.sortBox .rotated {
+  transform: rotate(180deg);
+}
+
+.sortMenu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-bright);
+  border-radius: 10px;
+  padding: 6px;
+  min-width: 140px;
+  z-index: 100;
+  box-shadow: 0 10px 15px -3px rgba(0,0,0,0.3);
+}
+
+.sortMenu button {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.sortMenu button:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-primary);
+}
+
+.sortMenu button.active {
+  background: var(--accent);
+  color: white;
+}
+
+.viewToggle {
+  display: flex;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 2px;
+}
+
+.viewToggle button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 28px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.viewToggle button.viewActive {
+  background: var(--bg-elevated);
+  color: var(--accent-bright);
+}
+
+/* Empty State */
+.empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--text-muted);
+}
+
+.emptyTitle {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.emptyHint {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* List View */
+.linkList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.linkCard {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  transition: all 0.2s;
+}
+
+.linkCard:hover {
+  border-color: var(--border-bright);
+  background: var(--bg-elevated);
+}
+
+.linkIcon {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  flex-shrink: 0;
+}
+
+.linkInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.linkName {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 4px;
+}
+
+.linkMeta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.permBadge {
+  font-size: 9px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.permDownload {
+  background: rgba(88, 101, 242, 0.2);
+  color: var(--accent-bright, #7289da);
+}
+
+.permView {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-muted);
+}
+
+.expiry {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.created {
+  font-size: 11px;
+  color: var(--text-muted);
+  opacity: 0.6;
+}
+
+.linkActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.actionBtn,
+.revokeBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  cursor: pointer;
+  transition: all 0.2s;
+  color: var(--text-secondary);
+}
+
+.actionBtn:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+
+.revokeBtn:hover {
+  background: rgba(237, 66, 69, 0.15);
+  border-color: var(--red, #ed4245);
+  color: var(--red, #ed4245);
+}
+
+.revokeBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Grid View */
+.linkGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 16px;
+}
+
+.linkCardGrid {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  transition: all 0.2s;
+  position: relative;
+}
+
+.linkCardGrid:hover {
+  border-color: var(--accent);
+  background: var(--bg-elevated);
+  transform: translateY(-2px);
+}
+
+.gridPreview {
+  height: 120px;
+  background: rgba(0,0,0,0.2);
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.fileIconLarge {
+  font-size: 48px;
+}
+
+.previewOverlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.2s;
+  color: white;
+}
+
+.gridPreview:hover .previewOverlay {
+  opacity: 1;
+}
+
+.gridInfo {
+  min-width: 0;
+}
+
+.gridName {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 4px;
+}
+
+.gridMeta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.gridActions {
+  display: flex;
+  gap: 8px;
+}
+
+.gridActions button {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.gridActions button:hover {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+
+.gridActions .revokeBtn:hover {
+  background: var(--red);
+  border-color: var(--red);
+}
+
+/* Thumbnails */
+.thumbWrapper {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.thumbImage {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.videoBadge {
+  position: absolute;
+  bottom: 4px;
+  right: 4px;
+  background: rgba(0,0,0,0.6);
+  color: white;
+  font-size: 8px;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
+.typeIcon {
+  color: var(--accent-bright);
+  opacity: 0.7;
+}
+
+/* Gate */
+.gateContainer {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.gateCard {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-bright);
+  border-radius: 16px;
+  padding: 40px 32px;
+  max-width: 380px;
+  width: 100%;
+  text-align: center;
+}
+
+.gateTitle {
+  font-size: 18px;
+  font-weight: 700;
+  margin-bottom: 12px;
+}
+
+.gateDesc {
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.6;
+  margin-bottom: 24px;
+}
+
+.gateBtn {
+  padding: 12px 32px;
+  background: var(--accent);
+  border: none;
+  border-radius: 10px;
+  color: white;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.gateBtn:hover {
+  opacity: 0.9;
+}
+
+/* Confirm overlay */
+.confirmOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.confirmCard {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-bright);
+  border-radius: 16px;
+  padding: 32px;
+  max-width: 360px;
+  width: 90%;
+  text-align: center;
+}
+
+.cancelBtn {
+  flex: 1;
+  padding: 10px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.dangerBtn {
+  flex: 1;
+  padding: 10px;
+  background: var(--red, #ed4245);
+  border: none;
+  border-radius: 8px;
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 13px;
+}

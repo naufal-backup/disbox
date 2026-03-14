@@ -1,11 +1,16 @@
+import { useState, useEffect, useRef, useLayoutEffect } from 'react';
+import { 
+  CheckCircle, Cloud, Clock, AlertCircle, RefreshCw, Lock, Shield, 
+  Key, Unlock, Menu, X 
+} from 'lucide-react';
 import Sidebar from '../components/Sidebar.jsx';
 import FileGrid from '../components/FileGrid.jsx';
 import TransferPanel from '../components/TransferPanel.jsx';
 import CloudSavePage from './CloudSavePage.jsx';
+import SharedPage from './SharedPage.jsx';
+import { ShareSettingsSection } from '../components/ShareSettingsSection.jsx';
 import { useApp } from '../AppContext.jsx';
-import { CheckCircle, Cloud, Clock, AlertCircle, RefreshCw, Lock, Shield, Key, Unlock, Menu } from 'lucide-react';
 import styles from './DrivePage.module.css';
-import { useState, useEffect, useRef, useLayoutEffect } from 'react';
 import toast from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -13,17 +18,15 @@ export default function DrivePage({ activePage, onNavigate }) {
   const { isVerified, setIsVerified, hasPin, setCurrentPath, t, animationsEnabled, isSidebarOpen, setIsSidebarOpen } = useApp();
   const [checkingPin, setCheckingPin] = useState(false);
 
-  // Reset verification and path when switching tabs
   const handleNavigate = (page) => {
     if (page !== activePage) {
-      setCurrentPath('/'); // Reset path to root on tab change
+      setCurrentPath('/');
     }
-    
     if (activePage === 'locked' && page !== 'locked') {
       setIsVerified(false);
     }
     onNavigate(page);
-    setIsSidebarOpen(false); // Close sidebar on navigate (mobile)
+    setIsSidebarOpen(false);
   };
 
   const pageVariants = {
@@ -36,7 +39,6 @@ export default function DrivePage({ activePage, onNavigate }) {
 
   return (
     <div className={styles.layout}>
-      {/* Mobile Sidebar Overlay */}
       <AnimatePresence>
         {isSidebarOpen && (
           <motion.div 
@@ -52,12 +54,8 @@ export default function DrivePage({ activePage, onNavigate }) {
       <Sidebar activePage={activePage} onNavigate={handleNavigate} />
       
       <main className={styles.main}>
-        {/* Mobile Header */}
         <header className={styles.mobileHeader}>
-          <button 
-            className={styles.menuBtn}
-            onClick={() => setIsSidebarOpen(true)}
-          >
+          <button className={styles.menuBtn} onClick={() => setIsSidebarOpen(true)}>
             <Menu size={20} />
           </button>
           <h1 className={styles.mobileTitle}>
@@ -66,6 +64,7 @@ export default function DrivePage({ activePage, onNavigate }) {
             {activePage === 'starred' && t('starred')}
             {activePage === 'locked' && t('locked')}
             {activePage === 'cloud-save' && t('cloud_save')}
+            {activePage === 'shared' && 'Shared'}
             {activePage === 'settings' && t('settings')}
           </h1>
         </header>
@@ -91,25 +90,16 @@ export default function DrivePage({ activePage, onNavigate }) {
             {activePage === 'recent' && <FileGrid isRecentView={true} onNavigate={onNavigate} />}
             {activePage === 'starred' && <FileGrid isStarredView={true} onNavigate={onNavigate} />}
             {activePage === 'cloud-save' && <CloudSavePage />}
+            {activePage === 'shared' && <SharedPage onNavigateToSettings={() => handleNavigate('settings')} />}
             {activePage === 'settings' && (
               <div className={styles.settingsContainer}>
-                <SettingsPanel />
+                <SettingsPanel onNavigate={handleNavigate} />
               </div>
             )}
           </motion.div>
         </AnimatePresence>
       </main>
       <TransferPanel activePage={activePage} />
-    </div>
-  );
-}
-
-function Placeholder({ label, icon }) {
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 12, color: 'var(--text-muted)' }}>
-      <span style={{ fontSize: 48 }}>{icon}</span>
-      <p style={{ fontSize: 15, color: 'var(--text-secondary)', fontWeight: 600 }}>{label}</p>
-      <p style={{ fontSize: 12 }}>Coming soon</p>
     </div>
   );
 }
@@ -183,7 +173,7 @@ function LockedGateway({ onVerified }) {
   );
 }
 
-function SettingsPanel() {
+function SettingsPanel({ onNavigate }) {
   const { 
     uiScale, setUiScale, chunkSize, setChunkSize, 
     showPreviews, setShowPreviews,
@@ -194,11 +184,12 @@ function SettingsPanel() {
     animationsEnabled, setAnimationsEnabled,
     closeToTray, startMinimized, updatePrefs,
     cloudSaveEnabled, setCloudSaveEnabled,
+    shareEnabled, shareLinks,
     hasPin, pinExists, setPinExists, setPin, removePin, verifyPin,
     language, setLanguage, t, api
   } = useApp();
 
-  const [showPinModal, setShowPinModal] = useState(null); // 'set', 'change', 'remove'
+  const [showPinModal, setShowPinModal] = useState(null);
   const [currentVersion, setCurrentVersion] = useState('');
   const [latestVersion, setLatestVersion] = useState('');
   const [isUpdateAvailable, setIsUpdateAvailable] = useState(false);
@@ -207,66 +198,37 @@ function SettingsPanel() {
 
   useEffect(() => {
     const fetchVersions = async () => {
-      // Get current version
       if (window.electron?.getVersion) {
         const v = await window.electron.getVersion();
         setCurrentVersion('v' + v);
-        
-        // Fetch latest version from GitHub
         try {
           const res = await window.electron.fetch('https://api.github.com/repos/naufal-backup/disbox-linux/releases/latest');
           if (res.ok) {
             const data = JSON.parse(res.body);
             const latest = data.tag_name;
             setLatestVersion(latest);
-            
-            // Basic version comparison (v1.0.0 vs v1.0.1)
-            if (latest !== ('v' + v)) {
-              setIsUpdateAvailable(true);
-            }
+            if (latest !== ('v' + v)) setIsUpdateAvailable(true);
           }
-        } catch (e) {
-          console.error('Failed to fetch latest version:', e);
-        }
+        } catch (e) { console.error('Failed to fetch latest version:', e); }
       }
     };
-
     fetchVersions();
   }, []);
 
-  const containerVariants = {
-    initial: {},
-    animate: {
-      transition: {
-        staggerChildren: 0.04
-      }
-    }
-  };
-
+  const containerVariants = { initial: {}, animate: { transition: { staggerChildren: 0.04 } } };
   const itemVariants = {
     initial: { opacity: 0, y: 15 },
-    animate: { 
-      opacity: 1, 
-      y: 0,
-      transition: { duration: 0.3, ease: "easeOut" }
-    }
+    animate: { opacity: 1, y: 0, transition: { duration: 0.3, ease: "easeOut" } }
   };
 
   useEffect(() => {
-    if (!api) {
-      setIsPinLoaded(false);
-      return;
-    }
-    hasPin().then(() => {
-      setIsPinLoaded(true);
-    });
+    if (!api) { setIsPinLoaded(false); return; }
+    hasPin().then(() => { setIsPinLoaded(true); });
   }, [api, hasPin]);
 
   useEffect(() => {
     const handleClickOutside = (e) => {
-      if (activeHelp && !e.target.closest('.help-trigger')) {
-        setActiveHelp(null);
-      }
+      if (activeHelp && !e.target.closest('.help-trigger')) setActiveHelp(null);
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
@@ -278,59 +240,30 @@ function SettingsPanel() {
     { label: 'Nitro Premium (500MB)', value: 500 * 1024 * 1024, desc: t('chunk_premium_desc') }
   ];
 
-  const currentOptionIndex = CHUNK_OPTIONS.findIndex(opt => opt.value === chunkSize);
-  const safeIndex = currentOptionIndex === -1 ? 1 : currentOptionIndex; // Default ke 25MB jika tidak cocok
-
   const InfoIcon = ({ helpKey }) => {
     const isOpen = activeHelp === helpKey;
     const triggerRef = useRef(null);
-    const [verticalPos, setVerticalPos] = useState('top'); // 'top' or 'bottom'
-    const [bubbleStyle, setBubbleStyle] = useState({
-      left: '50%',
-      transform: 'translateX(-50%)',
-      width: 260
-    });
+    const [verticalPos, setVerticalPos] = useState('top');
+    const [bubbleStyle, setBubbleStyle] = useState({ left: '50%', transform: 'translateX(-50%)', width: 260 });
     const [arrowStyle, setArrowStyle] = useState({ left: '50%' });
 
-    useLayoutEffect(() => {
+    useEffect(() => {
       if (isOpen && triggerRef.current) {
         const rect = triggerRef.current.getBoundingClientRect();
-        const width = 260;
-        const padding = 20;
-        const bubbleHeightThreshold = 120; // Estimated max height
-        const halfWidth = width / 2;
-        
-        let newLeft = '50%';
-        let newTransform = 'translateX(-50%)';
-        let newArrowLeft = '50%';
-        let newRight = 'auto';
-        let newVertical = 'top';
-
-        // Check vertical boundary
-        if (rect.top < bubbleHeightThreshold) {
-          newVertical = 'bottom';
-        }
-
-        // Check left boundary
+        const width = 260; const padding = 20; const halfWidth = width / 2;
+        let newLeft = '50%'; let newTransform = 'translateX(-50%)';
+        let newArrowLeft = '50%'; let newRight = 'auto'; let newVertical = 'top';
+        if (rect.top < 120) newVertical = 'bottom';
         if (rect.left < halfWidth + padding) {
-          newLeft = `-${rect.left - padding}px`;
-          newTransform = 'none';
+          newLeft = `-${rect.left - padding}px`; newTransform = 'none';
           newArrowLeft = `${rect.left - padding + 10}px`;
-        } 
-        // Check right boundary
-        else if (window.innerWidth - rect.right < halfWidth + padding) {
-          newLeft = 'auto';
-          newRight = `-${window.innerWidth - rect.right - padding}px`;
-          newTransform = 'none';
-          newArrowLeft = `calc(100% - ${window.innerWidth - rect.right - padding + 10}px)`;
+        } else if (window.innerWidth - rect.right < halfWidth + padding) {
+          newLeft = 'auto'; newRight = `-${window.innerWidth - rect.right - padding}px`;
+          newTransform = 'none'; newArrowLeft = `calc(100% - ${window.innerWidth - rect.right - padding + 10}px)`;
         }
-
         setVerticalPos(newVertical);
         setBubbleStyle({
-          left: newLeft,
-          right: newRight,
-          transform: newTransform,
-          width: width,
+          left: newLeft, right: newRight, transform: newTransform, width: width,
           top: newVertical === 'bottom' ? 'calc(100% + 12px)' : 'auto',
           bottom: newVertical === 'top' ? 'calc(100% + 12px)' : 'auto'
         });
@@ -341,88 +274,18 @@ function SettingsPanel() {
     return (
       <div className="help-trigger" style={{ position: 'relative', display: 'inline-flex' }}>
         <button 
-          ref={triggerRef}
-          onClick={() => setActiveHelp(isOpen ? null : helpKey)}
-          style={{
-            background: 'transparent',
-            border: 'none',
-            padding: 4,
-            cursor: 'pointer',
-            color: isOpen ? 'var(--accent-bright)' : 'var(--text-muted)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            borderRadius: '50%',
-            transition: 'all 0.2s',
-            marginLeft: 6
-          }}
+          ref={triggerRef} onClick={() => setActiveHelp(isOpen ? null : helpKey)}
+          style={{ background: 'transparent', border: 'none', padding: 4, cursor: 'pointer', color: isOpen ? 'var(--accent-bright)' : 'var(--text-muted)', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '50%', transition: 'all 0.2s', marginLeft: 6 }}
         >
           <AlertCircle size={14} />
         </button>
         {isOpen && (
-          <div style={{
-            position: 'absolute',
-            ...bubbleStyle,
-            background: 'var(--bg-elevated)',
-            border: '1px solid var(--border-bright)',
-            borderRadius: 14,
-            padding: '12px 16px',
-            boxShadow: '0 10px 40px rgba(0,0,0,0.6)',
-            zIndex: 1000,
-            fontSize: 12,
-            color: 'var(--text-primary)',
-            lineHeight: 1.6,
-            textAlign: 'left',
-            pointerEvents: 'auto',
-            animation: verticalPos === 'top' ? 'fadeInScale 0.2s ease-out' : 'fadeInScaleDown 0.2s ease-out'
-          }}>
+          <div style={{ position: 'absolute', ...bubbleStyle, background: 'var(--bg-elevated)', border: '1px solid var(--border-bright)', borderRadius: 14, padding: '12px 16px', boxShadow: '0 10px 40px rgba(0,0,0,0.6)', zIndex: 1000, fontSize: 12, color: 'var(--text-primary)', lineHeight: 1.6, textAlign: 'left', pointerEvents: 'auto' }}>
             {t(helpKey + '_help')}
-            
-            {/* Bubble Arrow */}
             {verticalPos === 'top' ? (
-              <>
-                <div style={{
-                  position: 'absolute',
-                  top: '100%',
-                  ...arrowStyle,
-                  marginLeft: -8,
-                  borderWidth: 8,
-                  borderStyle: 'solid',
-                  borderColor: 'var(--border-bright) transparent transparent transparent'
-                }} />
-                <div style={{
-                  position: 'absolute',
-                  top: '100%',
-                  ...arrowStyle,
-                  marginLeft: -7,
-                  borderWidth: 7,
-                  borderStyle: 'solid',
-                  borderColor: 'var(--bg-elevated) transparent transparent transparent',
-                  marginTop: -1
-                }} />
-              </>
+              <div style={{ position: 'absolute', top: '100%', ...arrowStyle, marginLeft: -8, borderWidth: 8, borderStyle: 'solid', borderColor: 'var(--border-bright) transparent transparent transparent' }} />
             ) : (
-              <>
-                <div style={{
-                  position: 'absolute',
-                  bottom: '100%',
-                  ...arrowStyle,
-                  marginLeft: -8,
-                  borderWidth: 8,
-                  borderStyle: 'solid',
-                  borderColor: 'transparent transparent var(--border-bright) transparent'
-                }} />
-                <div style={{
-                  position: 'absolute',
-                  bottom: '100%',
-                  ...arrowStyle,
-                  marginLeft: -7,
-                  borderWidth: 7,
-                  borderStyle: 'solid',
-                  borderColor: 'transparent transparent var(--bg-elevated) transparent',
-                  marginBottom: -1
-                }} />
-              </>
+              <div style={{ position: 'absolute', bottom: '100%', ...arrowStyle, marginLeft: -8, borderWidth: 8, borderStyle: 'solid', borderColor: 'transparent transparent var(--border-bright) transparent' }} />
             )}
           </div>
         )}
@@ -441,300 +304,103 @@ function SettingsPanel() {
           <p className={styles.toggleDesc}>{description}</p>
         </div>
         <label className={styles.toggleSwitch}>
-          <input 
-            type="checkbox" 
-            checked={value} 
-            onChange={e => onChange(e.target.checked)}
-            className={styles.toggleInput}
-          />
-          <span className={styles.toggleSlider}>
-            <span className={styles.toggleCircle} />
-          </span>
+          <input type="checkbox" checked={value} onChange={e => onChange(e.target.checked)} className={styles.toggleInput} />
+          <span className={styles.toggleSlider}><span className={styles.toggleCircle} /></span>
         </label>
       </div>
     </div>
   );
 
   return (
-    <motion.div 
-      className={styles.settingsPanel}
-      initial="initial"
-      animate="animate"
-      variants={animationsEnabled ? containerVariants : {}}
-    >
+    <motion.div initial="initial" animate="animate" variants={animationsEnabled ? containerVariants : {}} className={styles.settingsPanel}>
       <motion.h2 variants={itemVariants} className={styles.settingsTitle}>{t('settings')}</motion.h2>
-      
       <div className={styles.settingsGrid}>
-        {/* Left Column: Configuration */}
         <div className={styles.settingsLeft}>
-          {/* Language Selection */}
           <motion.div variants={itemVariants} className={styles.settingsSection}>
             <h3 className={styles.sectionTitle}>{t('language')}</h3>
             <div className={styles.languageGrid}>
-              {[
-                { code: 'id', label: 'Indonesia' },
-                { code: 'en', label: 'English' },
-                { code: 'zh', label: '中国 (China)' }
-              ].map(lang => (
-                <button
-                  key={lang.code}
-                  onClick={() => setLanguage(lang.code)}
-                  className={`${styles.langBtn} ${language === lang.code ? styles.active : ''}`}
-                >
-                  {lang.label}
-                </button>
+              {[{ code: 'id', label: 'Indonesia' }, { code: 'en', label: 'English' }, { code: 'zh', label: '中国 (China)' }].map(lang => (
+                <button key={lang.code} onClick={() => setLanguage(lang.code)} className={`${styles.langBtn} ${language === lang.code ? styles.active : ''}`}>{lang.label}</button>
               ))}
             </div>
           </motion.div>
-
-          {/* App Behavior Section */}
           <motion.div variants={itemVariants} className={styles.settingsSection}>
             <h3 className={styles.sectionTitle}>{t('app_behavior')}</h3>
-            <Toggle 
-              label={t('close_to_tray')} 
-              value={closeToTray} 
-              onChange={v => updatePrefs({ closeToTray: v })}
-              description={t('close_to_tray_desc')}
-              helpKey="close_to_tray"
-            />
-            <Toggle 
-              label={t('start_minimized')} 
-              value={startMinimized} 
-              onChange={v => updatePrefs({ startMinimized: v })}
-              description={t('start_minimized_desc')}
-              helpKey="start_minimized"
-            />
-            <Toggle 
-              label={t('previews')} 
-              value={showPreviews} 
-              onChange={v => updatePrefs({ showPreviews: v })}
-              description={t('previews_desc')}
-              helpKey="previews"
-            />
+            <Toggle label={t('close_to_tray')} value={closeToTray} onChange={v => updatePrefs({ closeToTray: v })} description={t('close_to_tray_desc')} helpKey="close_to_tray" />
+            <Toggle label={t('start_minimized')} value={startMinimized} onChange={v => updatePrefs({ startMinimized: v })} description={t('start_minimized_desc')} helpKey="start_minimized" />
+            <Toggle label={t('previews')} value={showPreviews} onChange={v => updatePrefs({ showPreviews: v })} description={t('previews_desc')} helpKey="previews" />
             {showPreviews && (
               <div style={{ marginLeft: 24, borderLeft: '2px solid var(--border)', paddingLeft: 16 }}>
-                <Toggle 
-                  label={t('image_previews')} 
-                  value={showImagePreviews} 
-                  onChange={v => updatePrefs({ showImagePreviews: v })}
-                  description={t('image_previews_desc')}
-                  helpKey="image_previews"
-                />
-                <Toggle 
-                  label={t('video_previews')} 
-                  value={showVideoPreviews} 
-                  onChange={v => updatePrefs({ showVideoPreviews: v })}
-                  description={t('video_previews_desc')}
-                  helpKey="video_previews"
-                />
+                <Toggle label={t('image_previews')} value={showImagePreviews} onChange={v => updatePrefs({ showImagePreviews: v })} description={t('image_previews_desc')} helpKey="image_previews" />
+                <Toggle label={t('video_previews')} value={showVideoPreviews} onChange={v => updatePrefs({ showVideoPreviews: v })} description={t('video_previews_desc')} helpKey="video_previews" />
               </div>
             )}
-            <Toggle 
-              label={t('auto_close')} 
-              value={autoCloseTransfers} 
-              onChange={v => updatePrefs({ autoCloseTransfers: v })}
-              description={t('auto_close_desc')}
-              helpKey="auto_close"
-            />
-            <Toggle 
-              label={t('animations')} 
-              value={animationsEnabled} 
-              onChange={v => setAnimationsEnabled(v)}
-              description={t('animations_desc')}
-              helpKey="animations"
-            />
-            <Toggle 
-              label={t('show_recent')} 
-              value={showRecent} 
-              onChange={v => updatePrefs({ showRecent: v })}
-              description={t('show_recent_desc')}
-              helpKey="show_recent"
-            />
+            <Toggle label={t('auto_close')} value={autoCloseTransfers} onChange={v => updatePrefs({ autoCloseTransfers: v })} description={t('auto_close_desc')} helpKey="auto_close" />
+            <Toggle label={t('animations')} value={animationsEnabled} onChange={v => setAnimationsEnabled(v)} description={t('animations_desc')} helpKey="animations" />
+            <Toggle label={t('show_recent')} value={showRecent} onChange={v => updatePrefs({ showRecent: v })} description={t('show_recent_desc')} helpKey="show_recent" />
           </motion.div>
-
-          {/* Cloud Save Section */}
           <motion.div variants={itemVariants} className={styles.settingsSection}>
             <h3 className={styles.sectionTitle}>{t('cloud_save')}</h3>
-            <Toggle 
-              label={t('cloud_save')} 
-              value={cloudSaveEnabled} 
-              onChange={v => setCloudSaveEnabled(v)}
-              description={t('cloud_save_desc')}
-              helpKey="cloud_save"
-            />
+            <Toggle label={t('cloud_save')} value={cloudSaveEnabled} onChange={v => setCloudSaveEnabled(v)} description={t('cloud_save_desc')} helpKey="cloud_save" />
           </motion.div>
-
-          {/* PIN Management Section */}
+          <motion.div variants={itemVariants} className={styles.settingsSection}>
+            <h3 className={styles.sectionTitle}>Share & Privacy</h3>
+            <ShareSettingsSection />
+          </motion.div>
           <motion.div variants={itemVariants} className={styles.settingsSection}>
             <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16 }}>
               <h3 className={styles.sectionTitle} style={{ marginBottom: 0 }}>{t('security')}</h3>
               <InfoIcon helpKey="security" />
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <div className={styles.pinManagementRow}>
-                <div>
-                  <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>Master PIN</p>
-                  <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
-                    {!isPinLoaded ? t('loading') : (pinExists ? t('pin_active') : t('pin_not_set_security'))}
-                  </p>
-                </div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  {!isPinLoaded ? (
-                    <div style={{ width: 80, height: 28, background: 'var(--bg-elevated)', borderRadius: 6, opacity: 0.5, animation: 'pulse 1.5s infinite' }} />
-                  ) : !pinExists ? (
-                    <button 
-                      onClick={() => setShowPinModal('set')}
-                      style={{ background: 'var(--accent)', border: 'none', borderRadius: 6, color: 'white', fontSize: 12, fontWeight: 600, padding: '6px 12px', cursor: 'pointer' }}
-                    >
-                      {t('set_pin')}
-                    </button>
-                  ) : (
-                    <div style={{ display: 'flex', gap: 8 }}>
-                      <button 
-                        onClick={() => setShowPinModal('change')}
-                        className={styles.secondaryBtn}
-                      >
-                        {t('change_pin')}
-                      </button>
-                      <button 
-                        onClick={() => setShowPinModal('remove')}
-                        className={styles.dangerBtn}
-                      >
-                        {t('remove_pin')}
-                      </button>
-                    </div>
-                  )}
-                </div>
+            <div className={styles.pinManagementRow}>
+              <div>
+                <p style={{ fontSize: 13, fontWeight: 600 }}>Master PIN</p>
+                <p style={{ fontSize: 11, color: 'var(--text-muted)' }}>{!isPinLoaded ? t('loading') : (pinExists ? t('pin_active') : t('pin_not_set_security'))}</p>
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                {!isPinLoaded ? <div className="pulse" style={{ width: 80, height: 28, background: 'var(--bg-elevated)', borderRadius: 6, opacity: 0.5 }} /> : !pinExists ? (
+                  <button onClick={() => setShowPinModal('set')} style={{ background: 'var(--accent)', border: 'none', borderRadius: 6, color: 'white', fontSize: 12, fontWeight: 600, padding: '6px 12px', cursor: 'pointer' }}>{t('set_pin')}</button>
+                ) : (
+                  <>
+                    <button onClick={() => setShowPinModal('change')} className={styles.secondaryBtn}>{t('change_pin')}</button>
+                    <button onClick={() => setShowPinModal('remove')} className={styles.dangerBtn}>{t('remove_pin')}</button>
+                  </>
+                )}
               </div>
             </div>
           </motion.div>
-
-          {/* UI Scaling Section */}
           <motion.div variants={itemVariants} className={styles.settingsSection}>
-            <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16 }}>
-              <h3 className={styles.sectionTitle} style={{ marginBottom: 0 }}>{t('ui_scale')}</h3>
-              <InfoIcon helpKey="ui_scale" />
-            </div>
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16 }}><h3 className={styles.sectionTitle} style={{ marginBottom: 0 }}>{t('ui_scale')}</h3><InfoIcon helpKey="ui_scale" /></div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-              <input
-                type="range"
-                min="0.8"
-                max="1.3"
-                step="0.05"
-                value={uiScale}
-                onChange={e => setUiScale(parseFloat(e.target.value))}
-                className={styles.sliderInput}
-              />
-              <span style={{ fontSize: 13, fontFamily: 'var(--font-mono)', minWidth: 40, color: 'var(--accent-bright)' }}>
-                {(uiScale * 100).toFixed(0)}%
-              </span>
-              <button 
-                onClick={() => setUiScale(1)}
-                className={styles.resetBtn}
-              >
-                {t('reset')}
-              </button>
+              <input type="range" min="0.8" max="1.3" step="0.05" value={uiScale} onChange={e => setUiScale(parseFloat(e.target.value))} className={styles.sliderInput} />
+              <span style={{ fontSize: 13, fontFamily: 'var(--font-mono)', minWidth: 40, color: 'var(--accent-bright)' }}>{(uiScale * 100).toFixed(0)}%</span>
+              <button onClick={() => setUiScale(1)} className={styles.resetBtn}>{t('reset')}</button>
             </div>
-            <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 12 }}>{t('ui_scale_desc')}</p>
           </motion.div>
-
-          {/* Chunk Size Section */}
           <motion.div variants={itemVariants} className={styles.settingsSection}>
-            <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16 }}>
-              <h3 className={styles.sectionTitle} style={{ marginBottom: 0 }}>{t('chunk_size')}</h3>
-              <InfoIcon helpKey="chunk_size" />
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16 }}><h3 className={styles.sectionTitle} style={{ marginBottom: 0 }}>{t('chunk_size')}</h3><InfoIcon helpKey="chunk_size" /></div>
+            <input type="range" min="0" max="2" step="1" value={CHUNK_OPTIONS.findIndex(opt => opt.value === chunkSize) === -1 ? 1 : CHUNK_OPTIONS.findIndex(opt => opt.value === chunkSize)} onChange={e => setChunkSize(CHUNK_OPTIONS[parseInt(e.target.value)].value)} className={styles.sliderInput} />
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }}>
+              {CHUNK_OPTIONS.map((opt, i) => (
+                <span key={i} style={{ fontSize: 11, color: i === CHUNK_OPTIONS.findIndex(o => o.value === chunkSize) ? 'var(--accent-bright)' : 'var(--text-muted)', fontWeight: i === CHUNK_OPTIONS.findIndex(o => o.value === chunkSize) ? 700 : 400, flex: 1, textAlign: i === 0 ? 'left' : i === 2 ? 'right' : 'center' }}>{opt.label.split(' ')[0]}</span>
+              ))}
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              <input
-                type="range"
-                min="0"
-                max="2"
-                step="1"
-                value={CHUNK_OPTIONS.findIndex(opt => opt.value === chunkSize) === -1 ? 1 : CHUNK_OPTIONS.findIndex(opt => opt.value === chunkSize)}
-                onChange={e => setChunkSize(CHUNK_OPTIONS[parseInt(e.target.value)].value)}
-                className={styles.sliderInput}
-              />
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                {CHUNK_OPTIONS.map((opt, i) => {
-                  const safeIndex = CHUNK_OPTIONS.findIndex(o => o.value === chunkSize) === -1 ? 1 : CHUNK_OPTIONS.findIndex(o => o.value === chunkSize);
-                  return (
-                    <span 
-                      key={i} 
-                      style={{ 
-                        fontSize: 11, 
-                        color: i === safeIndex ? 'var(--accent-bright)' : 'var(--text-muted)',
-                        fontWeight: i === safeIndex ? 700 : 400,
-                        textAlign: i === 0 ? 'left' : i === 2 ? 'right' : 'center',
-                        flex: 1
-                      }}
-                    >
-                      {opt.label.split(' ')[0]}
-                    </span>
-                  );
-                })}
-              </div>
-              <div className={styles.chunkInfo}>
-                {(() => {
-                  const safeIndex = CHUNK_OPTIONS.findIndex(opt => opt.value === chunkSize) === -1 ? 1 : CHUNK_OPTIONS.findIndex(opt => opt.value === chunkSize);
-                  return (
-                    <>
-                      <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>{CHUNK_OPTIONS[safeIndex].label}</p>
-                      <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>{CHUNK_OPTIONS[safeIndex].desc}</p>
-                    </>
-                  );
-                })()}
-              </div>
-            </div>
-            <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 16 }}>
-              <b>{t('important')}:</b> {t('chunk_important_desc')}
-            </p>
           </motion.div>
         </div>
-
-        {/* Right Column: About Card */}
         <motion.div variants={itemVariants} className={styles.aboutCard}>
           <h3 className={styles.sectionTitle}>{t('about_disbox')}</h3>
-          <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-              <p style={{ fontWeight: 700, color: 'var(--accent-bright)', fontSize: 15 }}>
-                Disbox Linux {latestVersion || currentVersion}
-              </p>
-            </div>
-            
-            <p style={{ color: 'var(--text-muted)', marginTop: 8 }}>{t('about_desc')}</p>
-            
-            <div style={{ marginTop: 24, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
-              <p style={{ fontWeight: 700, color: 'var(--text-primary)' }}>Naufal Alamsyah</p>
-              <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>GitHub: naufal-backup</p>
-              <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>Email: naufalalamsyah453@gmail.com</p>
-              
-              <div style={{ marginTop: 16, display: 'flex', gap: 12 }}>
-                <a 
-                  href="https://github.com/naufal-backup/disbox-linux" 
-                  target="_blank" 
-                  rel="noreferrer"
-                  style={{ fontSize: 11, color: 'var(--accent)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 6 }}
-                  onClick={e => { e.preventDefault(); window.open?.(e.currentTarget.href, '_blank'); }}
-                >
-                  {t('view_source')}
-                </a>
-              </div>
-            </div>
-          </div>
+          <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7 }}>{t('about_desc')}</p>
         </motion.div>
       </div>
-      {showPinModal && (
-        <PinSettingsModal 
-          mode={showPinModal} 
-          onClose={() => { setShowPinModal(null); hasPin().then(setPinExists); }} 
-        />
-      )}
+      <AnimatePresence>
+        {showPinModal && <PinSettingsModal mode={showPinModal} onClose={() => { setShowPinModal(null); hasPin().then(setPinExists); }} />}
+      </AnimatePresence>
     </motion.div>
   );
 }
 
 function PinSettingsModal({ mode, onClose }) {
-  const { setPin, verifyPin, removePin, t } = useApp();
+  const { setPin, verifyPin, removePin, t, animationsEnabled } = useApp();
   const [step, setStep] = useState(mode === 'set' ? 'new' : 'verify');
   const [currentPin, setCurrentPin] = useState('');
   const [newPin, setNewPin] = useState('');
@@ -742,107 +408,58 @@ function PinSettingsModal({ mode, onClose }) {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
+  const backdropVariants = { initial: { opacity: 0 }, animate: { opacity: 1 }, exit: { opacity: 0 } };
+  const modalVariants = {
+    initial: { opacity: 0, scale: 0.9, y: 20 },
+    animate: { opacity: 1, scale: 1, y: 0, transition: { type: 'spring', damping: 25, stiffness: 300 } },
+    exit: { opacity: 0, scale: 0.9, y: 20, transition: { duration: 0.2 } }
+  };
+
   const handleVerify = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    const ok = await verifyPin(currentPin);
-    if (ok) {
-      if (mode === 'remove') {
-        await removePin(currentPin);
-        toast.success(t('pin_remove_success'));
-        onClose();
-      } else {
-        setStep('new');
-        setCurrentPin('');
-        setError('');
-      }
-    } else {
-      setError(t('pin_error_wrong'));
-    }
+    e.preventDefault(); setLoading(true);
+    if (await verifyPin(currentPin)) {
+      if (mode === 'remove') { await removePin(currentPin); toast.success(t('pin_remove_success')); onClose(); }
+      else { setStep('new'); setCurrentPin(''); setError(''); }
+    } else { setError(t('pin_error_wrong')); }
     setLoading(false);
   };
 
   const handleSetNew = async (e) => {
     e.preventDefault();
-    if (newPin.length < 4) {
-      setError(t('pin_error_min_length'));
-      return;
-    }
-    if (newPin !== confirmPin) {
-      setError(t('pin_error_mismatch'));
-      return;
-    }
+    if (newPin.length < 4) { setError(t('pin_error_min_length')); return; }
+    if (newPin !== confirmPin) { setError(t('pin_error_mismatch')); return; }
     setLoading(true);
-    const ok = await setPin(newPin);
-    if (ok) {
-      toast.success(mode === 'set' ? t('pin_set_success') : t('pin_change_success'));
-      onClose();
-    } else {
-      setError(t('pin_error_save'));
-    }
+    if (await setPin(newPin)) { toast.success(mode === 'set' ? t('pin_set_success') : t('pin_change_success')); onClose(); }
+    else { setError(t('pin_error_save')); }
     setLoading(false);
   };
 
   const title = mode === 'set' ? t('set_pin') : mode === 'change' ? t('change_pin') : t('remove_pin');
 
   return (
-    <div className={styles.pinModalOverlay}>
-      <div className={styles.pinModalContent}>
+    <motion.div className={styles.pinModalOverlay} onClick={onClose} initial="initial" animate="animate" exit="exit" variants={backdropVariants}>
+      <motion.div className={styles.pinModalContent} onClick={e => e.stopPropagation()} variants={modalVariants}>
         <div style={{ textAlign: 'center', marginBottom: 20 }}>
           <Shield size={32} style={{ color: 'var(--accent)', marginBottom: 12 }} />
           <h3 style={{ fontSize: 18, fontWeight: 700 }}>{title}</h3>
-          <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
-            {step === 'verify' ? t('pin_verify_desc') : t('pin_new_desc')}
-          </p>
+          <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>{step === 'verify' ? t('pin_verify_desc') : t('pin_new_desc')}</p>
         </div>
-
-        {step === 'verify' ? (
-          <form onSubmit={handleVerify}>
-            <input 
-              type="password" 
-              placeholder={t('pin_current_placeholder')} 
-              value={currentPin}
-              onChange={e => setCurrentPin(e.target.value)}
-              autoFocus
-              style={{ width: '100%', background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 8, padding: 12, color: 'white', textAlign: 'center', fontSize: 18, letterSpacing: '0.2em', marginBottom: 12, outline: 'none' }}
-            />
-            {error && <p style={{ color: 'var(--red)', fontSize: 12, textAlign: 'center', marginBottom: 12 }}>{error}</p>}
-            <div style={{ display: 'flex', gap: 10 }}>
-              <button type="button" onClick={onClose} style={{ flex: 1, padding: 10, background: 'transparent', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-secondary)', cursor: 'pointer' }}>{t('cancel')}</button>
-              <button type="submit" disabled={loading || !currentPin} style={{ flex: 1, padding: 10, background: 'var(--accent)', border: 'none', borderRadius: 8, color: 'white', fontWeight: 600, cursor: 'pointer' }}>
-                {loading ? t('verifying') : t('next')}
-              </button>
+        <form onSubmit={step === 'verify' ? handleVerify : handleSetNew}>
+          {step === 'verify' ? (
+            <input type="password" placeholder={t('pin_current_placeholder')} value={currentPin} onChange={e => setCurrentPin(e.target.value)} autoFocus style={{ width: '100%', background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 8, padding: 12, color: 'white', textAlign: 'center', fontSize: 18, letterSpacing: '0.2em', marginBottom: 12, outline: 'none' }} />
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 12 }}>
+              <input type="password" placeholder={t('pin_new_placeholder')} value={newPin} onChange={e => setNewPin(e.target.value)} autoFocus style={{ width: '100%', background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 8, padding: 12, color: 'white', textAlign: 'center', fontSize: 18, letterSpacing: '0.2em', outline: 'none' }} />
+              <input type="password" placeholder={t('pin_confirm_placeholder')} value={confirmPin} onChange={e => setConfirmPin(e.target.value)} style={{ width: '100%', background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 8, padding: 12, color: 'white', textAlign: 'center', fontSize: 18, letterSpacing: '0.2em', outline: 'none' }} />
             </div>
-          </form>
-        ) : (
-          <form onSubmit={handleSetNew}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
-              <input 
-                type="password" 
-                placeholder={t('pin_new_placeholder')} 
-                value={newPin}
-                onChange={e => setNewPin(e.target.value)}
-                autoFocus
-                style={{ width: '100%', background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 8, padding: 12, color: 'white', textAlign: 'center', fontSize: 18, letterSpacing: '0.2em', outline: 'none' }}
-              />
-              <input 
-                type="password" 
-                placeholder={t('pin_confirm_placeholder')} 
-                value={confirmPin}
-                onChange={e => setConfirmPin(e.target.value)}
-                style={{ width: '100%', background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 8, padding: 12, color: 'white', textAlign: 'center', fontSize: 18, letterSpacing: '0.2em', outline: 'none' }}
-              />
-            </div>
-            {error && <p style={{ color: 'var(--red)', fontSize: 12, textAlign: 'center', marginBottom: 12 }}>{error}</p>}
-            <div style={{ display: 'flex', gap: 10 }}>
-              <button type="button" onClick={onClose} style={{ flex: 1, padding: 10, background: 'transparent', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-secondary)', cursor: 'pointer' }}>{t('cancel')}</button>
-              <button type="submit" disabled={loading || !newPin || !confirmPin} style={{ flex: 1, padding: 10, background: 'var(--accent)', border: 'none', borderRadius: 8, color: 'white', fontWeight: 600, cursor: 'pointer' }}>
-                {loading ? t('saving') : t('save')}
-              </button>
-            </div>
-          </form>
-        )}
-      </div>
-    </div>
+          )}
+          {error && <p style={{ color: 'var(--red)', fontSize: 12, textAlign: 'center', marginBottom: 12 }}>{error}</p>}
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button type="button" onClick={onClose} style={{ flex: 1, padding: 10, background: 'transparent', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-secondary)', cursor: 'pointer' }}>{t('cancel')}</button>
+            <button type="submit" disabled={loading} style={{ flex: 1, padding: 10, background: 'var(--accent)', border: 'none', borderRadius: 8, color: 'white', fontWeight: 600, cursor: 'pointer' }}>{loading ? t('verifying') : t('next')}</button>
+          </div>
+        </form>
+      </motion.div>
+    </motion.div>
   );
 }
