@@ -3,9 +3,10 @@ import { useApp } from '../AppContext.jsx';
 import { Plus, Folder, RefreshCw, Download, Trash2, AlertCircle, CheckCircle2, Cloud } from 'lucide-react';
 import styles from './CloudSavePage.module.css';
 import toast from 'react-hot-toast';
+import { motion, AnimatePresence } from 'framer-motion';
 
 export default function CloudSavePage() {
-  const { cloudSaves, addCloudSave, removeCloudSave, exportCloudSave, syncCloudSave, setLocalPath, t } = useApp();
+  const { cloudSaves, addCloudSave, removeCloudSave, exportCloudSave, syncCloudSave, setLocalPath, t, animationsEnabled } = useApp();
   const [showAddModal, setShowAddModal] = useState(false);
   const [newName, setNewName] = useState('');
   const [newPath, setNewPath] = useState('');
@@ -53,62 +54,83 @@ export default function CloudSavePage() {
           </div>
         ) : (
           <div className={styles.list}>
-            {cloudSaves.map(save => (
-              <CloudSaveCard 
-                key={save.id} 
-                save={save} 
-                onSync={() => syncCloudSave(save.id)}
-                onExport={() => exportCloudSave(save.id)}
-                onRemove={() => {
-                  if (confirm('Remove this cloud save? Local files will NOT be deleted.')) {
-                    removeCloudSave(save.id);
-                  }
-                }}
-                onSetPath={() => handleSetPath(save.id)}
-                t={t}
-              />
-            ))}
+            <AnimatePresence>
+              {cloudSaves.map((save, idx) => (
+                <motion.div
+                  key={save.id}
+                  initial={animationsEnabled ? { opacity: 0, x: -10 } : false}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={animationsEnabled ? { opacity: 0, x: 10 } : false}
+                  transition={animationsEnabled ? { duration: 0.2, delay: idx * 0.05 } : { duration: 0 }}
+                >
+                  <CloudSaveCard 
+                    save={save} 
+                    onSync={() => syncCloudSave(save.id)}
+                    onExport={() => exportCloudSave(save.id)}
+                    onRemove={() => {
+                      if (confirm('Remove this cloud save? Local files will NOT be deleted.')) {
+                        removeCloudSave(save.id);
+                      }
+                    }}
+                    onSetPath={() => handleSetPath(save.id)}
+                    t={t}
+                  />
+                </motion.div>
+              ))}
+            </AnimatePresence>
           </div>
         )}
       </div>
 
       {showAddModal && (
-        <div className={styles.modalOverlay}>
-          <div className={styles.modal}>
-            <h3>{t('add_cloud_save')}</h3>
-            <div className={styles.formGroup}>
-              <label>Name</label>
-              <input 
-                className={styles.input}
-                value={newName}
-                onChange={e => setNewName(e.target.value)}
-                placeholder="Game Name (e.g. Elden Ring)"
-              />
-            </div>
-            <div className={styles.formGroup}>
-              <label>Local Folder</label>
-              <div className={styles.pathSelector}>
+        <AnimatePresence>
+          <motion.div 
+            initial={animationsEnabled ? { opacity: 0 } : false}
+            animate={{ opacity: 1 }}
+            exit={animationsEnabled ? { opacity: 0 } : false}
+            className={styles.modalOverlay}
+          >
+            <motion.div 
+              initial={animationsEnabled ? { scale: 0.9, opacity: 0 } : false}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={animationsEnabled ? { scale: 0.9, opacity: 0 } : false}
+              className={styles.modal}
+            >
+              <h3>{t('add_cloud_save')}</h3>
+              <div className={styles.formGroup}>
+                <label>Name</label>
                 <input 
                   className={styles.input}
-                  value={newPath}
-                  readOnly
-                  placeholder="Choose folder..."
+                  value={newName}
+                  onChange={e => setNewName(e.target.value)}
+                  placeholder="Game Name (e.g. Elden Ring)"
                 />
-                <button className={styles.browseBtn} onClick={handleBrowse}>Browse</button>
               </div>
-            </div>
-            <div className={styles.modalActions}>
-              <button className={`${styles.modalBtn} ${styles.btnCancel}`} onClick={() => setShowAddModal(false)}>{t('cancel')}</button>
-              <button 
-                className={`${styles.modalBtn} ${styles.btnConfirm}`} 
-                onClick={handleAdd}
-                disabled={!newName || !newPath}
-              >
-                {t('confirm')}
-              </button>
-            </div>
-          </div>
-        </div>
+              <div className={styles.formGroup}>
+                <label>Local Folder</label>
+                <div className={styles.pathSelector}>
+                  <input 
+                    className={styles.input}
+                    value={newPath}
+                    readOnly
+                    placeholder="Choose folder..."
+                  />
+                  <button className={styles.browseBtn} onClick={handleBrowse}>Browse</button>
+                </div>
+              </div>
+              <div className={styles.modalActions}>
+                <button className={`${styles.modalBtn} ${styles.btnCancel}`} onClick={() => setShowAddModal(false)}>{t('cancel')}</button>
+                <button 
+                  className={`${styles.modalBtn} ${styles.btnConfirm}`} 
+                  onClick={handleAdd}
+                  disabled={!newName || !newPath}
+                >
+                  {t('confirm')}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        </AnimatePresence>
       )}
     </div>
   );
