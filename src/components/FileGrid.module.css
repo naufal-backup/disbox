@@ -1014,3 +1014,61 @@
   from { transform: scale(0.9); opacity: 0; }
   to { transform: scale(1); opacity: 1; }
 }
+
+/* Responsive Tweaks */
+@media (max-width: 1024px) {
+  .zoomBox, .viewToggle {
+    display: none !important;
+  }
+}
+
+@media (max-width: 768px) {
+  .toolbar {
+    height: auto;
+    flex-direction: column;
+    padding: 12px 16px;
+    gap: 10px;
+    align-items: stretch;
+  }
+
+  .breadcrumb {
+    margin-right: 0 !important;
+  }
+
+  .toolbarRight {
+    justify-content: space-between;
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .searchBox {
+    flex: 1;
+  }
+}
+
+@media (max-width: 480px) {
+  .sortText {
+    display: none;
+  }
+  
+  .uploadBtn span {
+    display: none;
+  }
+  
+  .uploadBtn {
+    padding: 8px;
+    width: 36px;
+    height: 36px;
+    justify-content: center;
+  }
+
+  .grid {
+    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+    gap: 10px;
+    padding: 12px;
+  }
+
+  .cardName {
+    font-size: 11px;
+  }
+}

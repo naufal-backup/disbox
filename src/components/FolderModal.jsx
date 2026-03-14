@@ -194,7 +194,7 @@ export function MoveModal({ id, file, paths, mode, onClose, onUnlock }) {
 
   return (
     <Backdrop onClose={onClose}>
-      <div className={styles.modal} style={{ width: 440 }}>
+      <div className={styles.modal}>
         <div className={styles.header}>
           <div className={styles.headerIcon} style={{ background: (mode === 'move' || mode === 'unlock') ? 'rgba(240,165,0,0.15)' : 'rgba(0,212,170,0.12)', color: (mode === 'move' || mode === 'unlock') ? 'var(--amber)' : 'var(--teal)' }}>
             {mode === 'copy' ? <Copy size={16} /> : <Move size={16} />}
@@ -249,7 +249,7 @@ export function ConfirmModal({ title, message, onConfirm, onClose, danger = fals
   const { t } = useApp();
   return (
     <Backdrop onClose={onClose}>
-      <div className={styles.modal} style={{ width: 360 }}>
+      <div className={styles.modal}>
         <div className={styles.header}>
           <div className={styles.headerIcon} style={{ background: danger ? 'rgba(237,66,69,0.15)' : 'var(--accent-dim)', color: danger ? 'var(--red)' : 'var(--accent-bright)' }}>
             <AlertCircle size={16} />

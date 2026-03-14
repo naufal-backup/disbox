@@ -6,7 +6,7 @@ import styles from './Sidebar.module.css';
 import { motion } from 'framer-motion';
 
 export default function Sidebar({ activePage, onNavigate }) {
-  const { disconnect, refresh, loading, files, theme, toggleTheme, showRecent, t, animationsEnabled, cloudSaveEnabled } = useApp();
+  const { disconnect, refresh, loading, files, theme, toggleTheme, showRecent, t, animationsEnabled, cloudSaveEnabled, isSidebarOpen } = useApp();
   const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
 
   const navItems = [
@@ -29,7 +29,7 @@ export default function Sidebar({ activePage, onNavigate }) {
   };
 
   return (
-    <aside className={styles.sidebar}>
+    <aside className={`${styles.sidebar} ${isSidebarOpen ? styles.open : ''}`}>
       {/* Storage indicator */}
       <div className={styles.storage}>
         <div className={styles.storageLabel}>

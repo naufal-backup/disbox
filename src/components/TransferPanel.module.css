@@ -3,6 +3,7 @@
   bottom: 20px;
   right: 20px;
   width: 380px;
+  max-width: calc(100vw - 40px);
   background: var(--bg-elevated);
   border: 1px solid var(--border-bright);
   border-radius: var(--radius-lg);
@@ -10,6 +11,22 @@
   z-index: 200;
   overflow: hidden;
   animation: fadeIn 0.2s ease;
+}
+
+@media (max-width: 480px) {
+  .panel {
+    bottom: 0;
+    right: 0;
+    left: 0;
+    width: 100%;
+    max-width: 100%;
+    border-radius: 12px 12px 0 0;
+    border-bottom: none;
+  }
+  
+  .syncIndicator {
+    right: 16px;
+  }
 }
 
 .header {

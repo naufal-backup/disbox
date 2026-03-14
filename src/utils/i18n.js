@@ -81,6 +81,7 @@ export const translations = {
     chunk_important_desc: 'Pastikan ukuran chunk sesuai limit akun Discord Anda.',
     about_disbox: 'Tentang Disbox',
     about_desc: 'Penyimpanan cloud berbasis Discord dengan enkripsi AES-GCM.',
+    latest_version: 'Versi Terbaru',
     view_source: 'Lihat Kode Sumber',
     // PIN Modal
     pin_remove_success: 'PIN berhasil dihapus',
@@ -237,6 +238,7 @@ export const translations = {
     chunk_important_desc: 'Ensure chunk size matches your Discord account limit.',
     about_disbox: 'About Disbox',
     about_desc: 'Discord-based cloud storage with AES-GCM encryption.',
+    latest_version: 'Latest Version',
     view_source: 'View Source Code',
     pin_remove_success: 'PIN successfully removed',
     pin_set_success: 'PIN successfully set',
@@ -391,6 +393,7 @@ export const translations = {
     chunk_important_desc: '确保分块大小符合您的 Discord 账户限制。',
     about_disbox: '关于 Disbox',
     about_desc: '基于 Discord 的云存储，采用 AES-GCM 加密。',
+    latest_version: '最新版本',
     view_source: '查看源代码',
     pin_remove_success: 'PIN 已成功删除',
     pin_set_success: 'PIN 已成功设置',

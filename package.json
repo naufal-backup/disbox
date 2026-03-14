@@ -44,18 +44,26 @@
     "portable": {
       "artifactName": "Disbox-Windows-Portable.${ext}"
     },
+    "pacman": {
+      "artifactName": "${productName}-Linux-x64.pacman"
+    },
     "linux": {
       "target": [
         "AppImage",
-        "deb"
+        "deb",
+        "pacman"
       ],
       "maintainer": "naufal-backup <alamsyahnaufal453@gmail.com>",
       "category": "Network",
       "icon": "electron/icon.png",
       "executableName": "disbox",
-      "artifactName": "Disbox-Linux-x64.${ext}",
+      "artifactName": "${productName}-Linux-x64.${ext}",
       "desktop": {
-        "StartupWMClass": "disbox"
+        "Name": "Disbox",
+        "Comment": "Discord-based cloud storage with AES-GCM encryption",
+        "Categories": "Network;FileTransfer;",
+        "StartupWMClass": "disbox",
+        "GenericName": "Cloud Storage Client"
       }
     },
     "files": [

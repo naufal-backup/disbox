@@ -11,6 +11,26 @@
   animation: fadeIn 0.2s ease;
 }
 
+@media (max-width: 768px) {
+  .overlay {
+    padding: 0;
+  }
+  
+  .modal {
+    max-height: 100vh;
+    border-radius: 0;
+    border: none;
+  }
+
+  .audio {
+    width: 280px;
+  }
+
+  .zoomControl {
+    display: none;
+  }
+}
+
 .isFull {
   padding: 0;
 }

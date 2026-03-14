@@ -55,6 +55,7 @@ export function AppProvider({ children }) {
   const [startMinimized, setStartMinimized] = useState(false);
   const [isVerified, setIsVerified] = useState(false);
   const [pinExists, setPinExists] = useState(null);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   const [cloudSaveEnabled, setCloudSaveEnabled] = useState(
     () => localStorage.getItem('disbox_cloudsave_enabled') === 'true'
@@ -666,6 +667,7 @@ export function AppProvider({ children }) {
       closeToTray, startMinimized, updatePrefs,
       isVerified, setIsVerified,
       pinExists, setPinExists,
+      isSidebarOpen, setIsSidebarOpen,
       isTransferring,
       cloudSaveEnabled, setCloudSaveEnabled,
       cloudSaves, loadCloudSaves, addCloudSave, removeCloudSave,

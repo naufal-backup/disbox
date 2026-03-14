@@ -3,14 +3,14 @@ import FileGrid from '../components/FileGrid.jsx';
 import TransferPanel from '../components/TransferPanel.jsx';
 import CloudSavePage from './CloudSavePage.jsx';
 import { useApp } from '../AppContext.jsx';
-import { CheckCircle, Cloud, Clock, AlertCircle, RefreshCw, Lock, Shield, Key, Unlock } from 'lucide-react';
+import { CheckCircle, Cloud, Clock, AlertCircle, RefreshCw, Lock, Shield, Key, Unlock, Menu } from 'lucide-react';
 import styles from './DrivePage.module.css';
 import { useState, useEffect, useRef, useLayoutEffect } from 'react';
 import toast from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export default function DrivePage({ activePage, onNavigate }) {
-  const { isVerified, setIsVerified, hasPin, setCurrentPath, t, animationsEnabled } = useApp();
+  const { isVerified, setIsVerified, hasPin, setCurrentPath, t, animationsEnabled, isSidebarOpen, setIsSidebarOpen } = useApp();
   const [checkingPin, setCheckingPin] = useState(false);
 
   // Reset verification and path when switching tabs
@@ -23,6 +23,7 @@ export default function DrivePage({ activePage, onNavigate }) {
       setIsVerified(false);
     }
     onNavigate(page);
+    setIsSidebarOpen(false); // Close sidebar on navigate (mobile)
   };
 
   const pageVariants = {
@@ -35,8 +36,40 @@ export default function DrivePage({ activePage, onNavigate }) {
 
   return (
     <div className={styles.layout}>
+      {/* Mobile Sidebar Overlay */}
+      <AnimatePresence>
+        {isSidebarOpen && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setIsSidebarOpen(false)}
+            className={styles.sidebarOverlay}
+          />
+        )}
+      </AnimatePresence>
+
       <Sidebar activePage={activePage} onNavigate={handleNavigate} />
+      
       <main className={styles.main}>
+        {/* Mobile Header */}
+        <header className={styles.mobileHeader}>
+          <button 
+            className={styles.menuBtn}
+            onClick={() => setIsSidebarOpen(true)}
+          >
+            <Menu size={20} />
+          </button>
+          <h1 className={styles.mobileTitle}>
+            {activePage === 'drive' && t('drive')}
+            {activePage === 'recent' && t('recent')}
+            {activePage === 'starred' && t('starred')}
+            {activePage === 'locked' && t('locked')}
+            {activePage === 'cloud-save' && t('cloud_save')}
+            {activePage === 'settings' && t('settings')}
+          </h1>
+        </header>
+
         <AnimatePresence mode="wait">
           <motion.div
             key={activePage}
@@ -166,9 +199,58 @@ function SettingsPanel() {
   } = useApp();
 
   const [showPinModal, setShowPinModal] = useState(null); // 'set', 'change', 'remove'
-  const [latestVersion, setLatestVersion] = useState('v3.0');
+  const [currentVersion, setCurrentVersion] = useState('');
+  const [latestVersion, setLatestVersion] = useState('');
+  const [isUpdateAvailable, setIsUpdateAvailable] = useState(false);
   const [activeHelp, setActiveHelp] = useState(null);
   const [isPinLoaded, setIsPinLoaded] = useState(!!api);
+
+  useEffect(() => {
+    const fetchVersions = async () => {
+      // Get current version
+      if (window.electron?.getVersion) {
+        const v = await window.electron.getVersion();
+        setCurrentVersion('v' + v);
+        
+        // Fetch latest version from GitHub
+        try {
+          const res = await window.electron.fetch('https://api.github.com/repos/naufal-backup/disbox-linux/releases/latest');
+          if (res.ok) {
+            const data = JSON.parse(res.body);
+            const latest = data.tag_name;
+            setLatestVersion(latest);
+            
+            // Basic version comparison (v1.0.0 vs v1.0.1)
+            if (latest !== ('v' + v)) {
+              setIsUpdateAvailable(true);
+            }
+          }
+        } catch (e) {
+          console.error('Failed to fetch latest version:', e);
+        }
+      }
+    };
+
+    fetchVersions();
+  }, []);
+
+  const containerVariants = {
+    initial: {},
+    animate: {
+      transition: {
+        staggerChildren: 0.04
+      }
+    }
+  };
+
+  const itemVariants = {
+    initial: { opacity: 0, y: 15 },
+    animate: { 
+      opacity: 1, 
+      y: 0,
+      transition: { duration: 0.3, ease: "easeOut" }
+    }
+  };
 
   useEffect(() => {
     if (!api) {
@@ -349,31 +431,24 @@ function SettingsPanel() {
   };
 
   const Toggle = ({ label, value, onChange, description, helpKey }) => (
-    <div style={{ padding: '12px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+    <div className={styles.toggleWrapper}>
+      <div className={styles.toggleHeader}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center' }}>
-            <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{label}</p>
+            <p className={styles.toggleLabel}>{label}</p>
             {helpKey && <InfoIcon helpKey={helpKey} />}
           </div>
-          <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{description}</p>
+          <p className={styles.toggleDesc}>{description}</p>
         </div>
-        <label style={{ position: 'relative', display: 'inline-block', width: 36, height: 20, flexShrink: 0 }}>
+        <label className={styles.toggleSwitch}>
           <input 
             type="checkbox" 
             checked={value} 
             onChange={e => onChange(e.target.checked)}
-            style={{ opacity: 0, width: 0, height: 0 }}
+            className={styles.toggleInput}
           />
-          <span style={{
-            position: 'absolute', cursor: 'pointer', inset: 0,
-            backgroundColor: value ? 'var(--accent)' : '#333',
-            transition: '.3s', borderRadius: 20
-          }}>
-            <span style={{
-              position: 'absolute', height: 14, width: 14, left: value ? 19 : 3, bottom: 3,
-              backgroundColor: 'white', transition: '.3s', borderRadius: '50%'
-            }} />
+          <span className={styles.toggleSlider}>
+            <span className={styles.toggleCircle} />
           </span>
         </label>
       </div>
@@ -381,21 +456,21 @@ function SettingsPanel() {
   );
 
   return (
-    <div style={{ padding: 32, maxWidth: 900, margin: '0 auto' }}>
-      <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 700, marginBottom: 24 }}>{t('settings')}</h2>
+    <motion.div 
+      className={styles.settingsPanel}
+      initial="initial"
+      animate="animate"
+      variants={animationsEnabled ? containerVariants : {}}
+    >
+      <motion.h2 variants={itemVariants} className={styles.settingsTitle}>{t('settings')}</motion.h2>
       
-      <div style={{ 
-        display: 'grid', 
-        gridTemplateColumns: '1fr 320px', 
-        gap: 24,
-        alignItems: 'start'
-      }}>
+      <div className={styles.settingsGrid}>
         {/* Left Column: Configuration */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div className={styles.settingsLeft}>
           {/* Language Selection */}
-          <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 20 }}>
-            <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 16, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{t('language')}</h3>
-            <div style={{ display: 'flex', gap: 10 }}>
+          <motion.div variants={itemVariants} className={styles.settingsSection}>
+            <h3 className={styles.sectionTitle}>{t('language')}</h3>
+            <div className={styles.languageGrid}>
               {[
                 { code: 'id', label: 'Indonesia' },
                 { code: 'en', label: 'English' },
@@ -404,28 +479,17 @@ function SettingsPanel() {
                 <button
                   key={lang.code}
                   onClick={() => setLanguage(lang.code)}
-                  style={{
-                    flex: 1,
-                    padding: '10px 12px',
-                    background: language === lang.code ? 'var(--accent)' : 'var(--bg-elevated)',
-                    border: '1px solid ' + (language === lang.code ? 'var(--accent)' : 'var(--border)'),
-                    borderRadius: 8,
-                    color: language === lang.code ? 'white' : 'var(--text-primary)',
-                    fontSize: 13,
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    transition: 'all 0.2s'
-                  }}
+                  className={`${styles.langBtn} ${language === lang.code ? styles.active : ''}`}
                 >
                   {lang.label}
                 </button>
               ))}
             </div>
-          </div>
+          </motion.div>
 
           {/* App Behavior Section */}
-          <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 20 }}>
-            <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{t('app_behavior')}</h3>
+          <motion.div variants={itemVariants} className={styles.settingsSection}>
+            <h3 className={styles.sectionTitle}>{t('app_behavior')}</h3>
             <Toggle 
               label={t('close_to_tray')} 
               value={closeToTray} 
@@ -486,11 +550,11 @@ function SettingsPanel() {
               description={t('show_recent_desc')}
               helpKey="show_recent"
             />
-          </div>
+          </motion.div>
 
           {/* Cloud Save Section */}
-          <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 20 }}>
-            <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{t('cloud_save')}</h3>
+          <motion.div variants={itemVariants} className={styles.settingsSection}>
+            <h3 className={styles.sectionTitle}>{t('cloud_save')}</h3>
             <Toggle 
               label={t('cloud_save')} 
               value={cloudSaveEnabled} 
@@ -498,16 +562,16 @@ function SettingsPanel() {
               description={t('cloud_save_desc')}
               helpKey="cloud_save"
             />
-          </div>
+          </motion.div>
 
           {/* PIN Management Section */}
-          <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 20 }}>
+          <motion.div variants={itemVariants} className={styles.settingsSection}>
             <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16 }}>
-              <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.06em', margin: 0 }}>{t('security')}</h3>
+              <h3 className={styles.sectionTitle} style={{ marginBottom: 0 }}>{t('security')}</h3>
               <InfoIcon helpKey="security" />
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div className={styles.pinManagementRow}>
                 <div>
                   <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>Master PIN</p>
                   <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
@@ -528,13 +592,13 @@ function SettingsPanel() {
                     <div style={{ display: 'flex', gap: 8 }}>
                       <button 
                         onClick={() => setShowPinModal('change')}
-                        style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', fontSize: 12, fontWeight: 600, padding: '6px 12px', cursor: 'pointer' }}
+                        className={styles.secondaryBtn}
                       >
                         {t('change_pin')}
                       </button>
                       <button 
                         onClick={() => setShowPinModal('remove')}
-                        style={{ background: 'rgba(237,66,69,0.1)', border: '1px solid rgba(237,66,69,0.2)', borderRadius: 6, color: 'var(--red)', fontSize: 12, fontWeight: 600, padding: '6px 12px', cursor: 'pointer' }}
+                        className={styles.dangerBtn}
                       >
                         {t('remove_pin')}
                       </button>
@@ -543,12 +607,12 @@ function SettingsPanel() {
                 </div>
               </div>
             </div>
-          </div>
+          </motion.div>
 
           {/* UI Scaling Section */}
-          <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 20 }}>
+          <motion.div variants={itemVariants} className={styles.settingsSection}>
             <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16 }}>
-              <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.06em', margin: 0 }}>{t('ui_scale')}</h3>
+              <h3 className={styles.sectionTitle} style={{ marginBottom: 0 }}>{t('ui_scale')}</h3>
               <InfoIcon helpKey="ui_scale" />
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
@@ -559,25 +623,25 @@ function SettingsPanel() {
                 step="0.05"
                 value={uiScale}
                 onChange={e => setUiScale(parseFloat(e.target.value))}
-                style={{ flex: 1, accentColor: 'var(--accent)' }}
+                className={styles.sliderInput}
               />
               <span style={{ fontSize: 13, fontFamily: 'var(--font-mono)', minWidth: 40, color: 'var(--accent-bright)' }}>
                 {(uiScale * 100).toFixed(0)}%
               </span>
               <button 
                 onClick={() => setUiScale(1)}
-                style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-secondary)', fontSize: 11, padding: '4px 8px', cursor: 'pointer' }}
+                className={styles.resetBtn}
               >
                 {t('reset')}
               </button>
             </div>
             <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 12 }}>{t('ui_scale_desc')}</p>
-          </div>
+          </motion.div>
 
           {/* Chunk Size Section */}
-          <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 20 }}>
+          <motion.div variants={itemVariants} className={styles.settingsSection}>
             <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16 }}>
-              <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.06em', margin: 0 }}>{t('chunk_size')}</h3>
+              <h3 className={styles.sectionTitle} style={{ marginBottom: 0 }}>{t('chunk_size')}</h3>
               <InfoIcon helpKey="chunk_size" />
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -588,7 +652,7 @@ function SettingsPanel() {
                 step="1"
                 value={CHUNK_OPTIONS.findIndex(opt => opt.value === chunkSize) === -1 ? 1 : CHUNK_OPTIONS.findIndex(opt => opt.value === chunkSize)}
                 onChange={e => setChunkSize(CHUNK_OPTIONS[parseInt(e.target.value)].value)}
-                style={{ width: '100%', accentColor: 'var(--accent)' }}
+                className={styles.sliderInput}
               />
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 {CHUNK_OPTIONS.map((opt, i) => {
@@ -609,7 +673,7 @@ function SettingsPanel() {
                   );
                 })}
               </div>
-              <div style={{ marginTop: 8, padding: 12, background: 'var(--bg-elevated)', borderRadius: 8, borderLeft: '3px solid var(--accent)' }}>
+              <div className={styles.chunkInfo}>
                 {(() => {
                   const safeIndex = CHUNK_OPTIONS.findIndex(opt => opt.value === chunkSize) === -1 ? 1 : CHUNK_OPTIONS.findIndex(opt => opt.value === chunkSize);
                   return (
@@ -624,14 +688,19 @@ function SettingsPanel() {
             <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 16 }}>
               <b>{t('important')}:</b> {t('chunk_important_desc')}
             </p>
-          </div>
+          </motion.div>
         </div>
 
         {/* Right Column: About Card */}
-        <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 20, position: 'sticky', top: 0 }}>
-          <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{t('about_disbox')}</h3>
+        <motion.div variants={itemVariants} className={styles.aboutCard}>
+          <h3 className={styles.sectionTitle}>{t('about_disbox')}</h3>
           <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7 }}>
-            <p style={{ fontWeight: 700, color: 'var(--accent-bright)', fontSize: 15 }}>Disbox Linux {latestVersion}</p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+              <p style={{ fontWeight: 700, color: 'var(--accent-bright)', fontSize: 15 }}>
+                Disbox Linux {latestVersion || currentVersion}
+              </p>
+            </div>
+            
             <p style={{ color: 'var(--text-muted)', marginTop: 8 }}>{t('about_desc')}</p>
             
             <div style={{ marginTop: 24, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
@@ -639,9 +708,9 @@ function SettingsPanel() {
               <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>GitHub: naufal-backup</p>
               <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>Email: naufalalamsyah453@gmail.com</p>
               
-              <div style={{ marginTop: 16 }}>
+              <div style={{ marginTop: 16, display: 'flex', gap: 12 }}>
                 <a 
-                  href="https://github.com/naufal-backup/disbox" 
+                  href="https://github.com/naufal-backup/disbox-linux" 
                   target="_blank" 
                   rel="noreferrer"
                   style={{ fontSize: 11, color: 'var(--accent)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 6 }}
@@ -652,7 +721,7 @@ function SettingsPanel() {
               </div>
             </div>
           </div>
-        </div>
+        </motion.div>
       </div>
       {showPinModal && (
         <PinSettingsModal 
@@ -660,7 +729,7 @@ function SettingsPanel() {
           onClose={() => { setShowPinModal(null); hasPin().then(setPinExists); }} 
         />
       )}
-    </div>
+    </motion.div>
   );
 }
 
@@ -717,8 +786,8 @@ function PinSettingsModal({ mode, onClose }) {
   const title = mode === 'set' ? t('set_pin') : mode === 'change' ? t('change_pin') : t('remove_pin');
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }}>
-      <div style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-bright)', borderRadius: 12, padding: 24, width: '100%', maxWidth: 320, boxShadow: '0 20px 50px rgba(0,0,0,0.5)' }}>
+    <div className={styles.pinModalOverlay}>
+      <div className={styles.pinModalContent}>
         <div style={{ textAlign: 'center', marginBottom: 20 }}>
           <Shield size={32} style={{ color: 'var(--accent)', marginBottom: 12 }} />
           <h3 style={{ fontSize: 18, fontWeight: 700 }}>{title}</h3>
