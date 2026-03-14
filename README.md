@@ -107,9 +107,12 @@ Laporan bug dan Pull Request sangat kami hargai!
 4. Push ke branch (`git push origin fitur-keren`).
 5. Buat Pull Request.
 
-## Terinspirasi
+## 💡 Terinspirasi
 
 https://github.com/DisboxApp/web
+
+## 💰 Support
+https://saweria.co/Naufal453
 
 ## 📄 Lisensi
 
