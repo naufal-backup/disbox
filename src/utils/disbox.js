@@ -1,6 +1,6 @@
 // ─── Disbox API — Serverless Edition ─────────────────────────────────────────
 
-const CHUNK_SIZE = 8 * 1024 * 1024; // 8MB
+const CHUNK_SIZE = 7.5 * 1024 * 1024; // 7.5MB (Safer than 8MB)
 
 function _bufferToBase64(buffer) {
   return new Promise((resolve) => {
@@ -30,7 +30,8 @@ export class DisboxAPI {
     // [FIX] lastSyncedId = null pada setiap instance baru
     // Ini memastikan instance baru (ganti webhook) selalu download dari Discord
     this.lastSyncedId = null;
-    this.chunkSize = Number(localStorage.getItem('disbox_chunk_size')) || 8 * 1024 * 1024;
+    const savedChunkSize = Number(localStorage.getItem('disbox_chunk_size'));
+    this.chunkSize = (savedChunkSize && savedChunkSize < 8 * 1024 * 1024) ? savedChunkSize : 7.5 * 1024 * 1024;
   }
 
   async hashWebhook(url) {

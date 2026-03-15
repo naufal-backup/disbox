@@ -24,7 +24,7 @@ export default function FilePreview({ file, onClose }) {
     const fileName = file.path.split('/').pop();
     const transferId = `preview-dl-${file.id}-${Date.now()}`;
     const totalBytes = file.size || 0;
-    const CHUNK_SIZE = 8 * 1024 * 1024;
+    const CHUNK_SIZE = 7.5 * 1024 * 1024;
     const totalChunks = Math.ceil(totalBytes / CHUNK_SIZE) || 1;
     const signal = addTransfer({ id: transferId, name: fileName, progress: 0, type: 'download', status: 'active', totalBytes, totalChunks, chunk: 0 });
     try {

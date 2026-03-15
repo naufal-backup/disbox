@@ -325,9 +325,9 @@ function SettingsPanel({ onNavigate }) {
   }, [activeHelp]);
 
   const CHUNK_OPTIONS = [
-    { label: 'Free (10MB)', value: 10 * 1024 * 1024, desc: t('chunk_free_desc') },
-    { label: 'Nitro (25MB)', value: 25 * 1024 * 1024, desc: t('chunk_nitro_desc') },
-    { label: 'Nitro Premium (500MB)', value: 500 * 1024 * 1024, desc: t('chunk_premium_desc') }
+    { label: 'Free (8MB)', value: 7.5 * 1024 * 1024, desc: t('chunk_free_desc') },
+    { label: 'Nitro (25MB)', value: 24.5 * 1024 * 1024, desc: t('chunk_nitro_desc') },
+    { label: 'Nitro Premium (500MB)', value: 499 * 1024 * 1024, desc: t('chunk_premium_desc') }
   ];
 
   const InfoIcon = ({ helpKey }) => {

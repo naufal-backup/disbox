@@ -663,7 +663,7 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
       if (nativePath && window.electron) {
         try { const info = await window.electron.statFile(nativePath); totalBytes = info.size || 0; } catch (_) {}
       } else if (file.size) { totalBytes = file.size; }
-      const CHUNK_SIZE = 8 * 1024 * 1024;
+      const CHUNK_SIZE = 7.5 * 1024 * 1024;
       const totalChunks = totalBytes > 0 ? Math.ceil(totalBytes / CHUNK_SIZE) || 1 : null;
       const signal = addTransfer({ id: transferId, name: fileName, progress: 0, type: 'upload', status: 'active', totalBytes, totalChunks, chunk: 0 });
       try {
@@ -723,7 +723,7 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
     const fileName = file.path.split('/').pop();
     const transferId = crypto.randomUUID();
     const totalBytes = file.size || 0;
-    const CHUNK_SIZE = 8 * 1024 * 1024;
+    const CHUNK_SIZE = 7.5 * 1024 * 1024;
     const totalChunks = Math.ceil(totalBytes / CHUNK_SIZE) || 1;
     const signal = addTransfer({ id: transferId, name: fileName, progress: 0, type: 'download', status: 'active', totalBytes, totalChunks, chunk: 0 });
     try {

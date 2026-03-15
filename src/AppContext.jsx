@@ -59,7 +59,14 @@ export function AppProvider({ children }) {
   const [language, setLanguage] = useState(() => localStorage.getItem('disbox_lang') || 'id');
   const [theme, setTheme] = useState(() => localStorage.getItem('disbox_theme') || 'dark');
   const [uiScale, setUiScale] = useState(() => Number(localStorage.getItem('disbox_ui_scale')) || 1);
-  const [chunkSize, setChunkSize] = useState(() => Number(localStorage.getItem('disbox_chunk_size')) || 8 * 1024 * 1024);
+  const [chunkSize, setChunkSize] = useState(() => {
+    const saved = localStorage.getItem('disbox_chunk_size');
+    if (!saved) return 7.5 * 1024 * 1024;
+    let val = Number(saved);
+    // [MIGRATION] Jika user masih pakai 8MB (default lama), paksa ke 7.5MB agar tidak 413
+    if (val >= 8 * 1024 * 1024) return 7.5 * 1024 * 1024;
+    return val;
+  });
   const [showPreviews, setShowPreviews] = useState(() => localStorage.getItem('disbox_show_previews') !== 'false');
   const [showImagePreviews, setShowImagePreviews] = useState(() => localStorage.getItem('disbox_show_image_previews') !== 'false');
   const [showVideoPreviews, setShowVideoPreviews] = useState(() => localStorage.getItem('disbox_show_video_previews') !== 'false');

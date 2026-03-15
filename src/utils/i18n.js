@@ -184,7 +184,7 @@ export const translations = {
     cloud_save_help: 'Fitur ini memantau folder game save di PC Anda dan secara otomatis mengunggahnya ke Discord saat ada perubahan. Mendukung sinkronisasi antar perangkat.',
     security_help: 'Gunakan Master PIN untuk melindungi folder yang dikunci. PIN ini disimpan secara lokal dan dienkripsi sebelum dikirim ke metadata Discord.',
     ui_scale_help: 'Sesuaikan ukuran teks dan elemen antarmuka agar nyaman dilihat pada resolusi monitor Anda.',
-    chunk_size_help: 'File besar akan dipecah menjadi beberapa bagian (chunk). Gunakan 8-10MB untuk akun gratis, atau hingga 500MB jika Anda memiliki Discord Nitro.',
+    chunk_size_help: 'File besar akan dipecah menjadi beberapa bagian (chunk). Gunakan 8MB untuk akun gratis, atau hingga 500MB jika Anda memiliki Discord Nitro.',
     // Shared Page
     shared_by_me: 'Berbagi Saya',
     revoke_all: 'Cabut Semua',
@@ -376,7 +376,7 @@ export const translations = {
     cloud_save_help: 'Monitors game save folders on your PC and automatically uploads them to Discord when changes are detected. Supports cross-device sync.',
     security_help: 'Use a Master PIN to protect locked folders. This PIN is stored locally and encrypted before being synced to Discord metadata.',
     ui_scale_help: 'Adjust the size of text and interface elements to fit your monitor resolution.',
-    chunk_size_help: 'Large files are split into multiple parts (chunks). Use 8-10MB for free accounts, or up to 500MB with Discord Nitro.',
+    chunk_size_help: 'Large files are split into multiple parts (chunks). Use 8MB for free accounts, or up to 500MB with Discord Nitro.',
     // Shared Page
     shared_by_me: 'Shared by Me',
     revoke_all: 'Revoke All',
@@ -551,7 +551,7 @@ export const translations = {
     cloud_save_help: '监控电脑上的游戏存档文件夹，并在检测到更改时自动上传到 Discord。支持跨设备同步。',
     security_help: '使用主 PIN 保护锁定的文件夹。此 PIN 存储在本地，并在同步到 Discord 元数据之前进行加密。',
     ui_scale_help: '调整文本和界面元素的大小，以适应您的显示器分辨率。',
-    chunk_size_help: '大文件被拆分为多个部分（分块）。免费账户使用 8-10MB，Discord Nitro 用户最高可使用 500MB。',
+    chunk_size_help: '大文件被拆分为多个部分（分块）。免费账户使用 8MB，Discord Nitro 用户最高可使用 500MB。',
     // Shared Page
     shared_by_me: '我的分享',
     revoke_all: '全部撤销',

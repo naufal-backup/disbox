@@ -1919,7 +1919,7 @@ ipcMain.handle('upload-file-from-path', async (event, webhookUrl, nativePath, de
   try {
     const stats = fs.statSync(nativePath);
     const totalSize = stats.size;
-    const CHUNK = chunkSize || 8 * 1024 * 1024;
+    const CHUNK = chunkSize || 7.5 * 1024 * 1024;
     const numChunks = Math.ceil(totalSize / CHUNK) || 1;
     const filename = destName || path.basename(nativePath);
     const messageIds = new Array(numChunks);
