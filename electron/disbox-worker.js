@@ -97,7 +97,13 @@ async function handleRequest(request) {
           if (attachmentUrl) {
             const entryIdx = data.messageIds.findIndex(m => (typeof m === 'string' ? m : m.msgId) === msgId);
             if (entryIdx >= 0) {
-              data.messageIds[entryIdx].attachmentUrl = attachmentUrl;
+              // Pastikan kita menyimpan dalam format objek agar attachmentUrl tersimpan
+              if (typeof data.messageIds[entryIdx] === 'string') {
+                data.messageIds[entryIdx] = { msgId: data.messageIds[entryIdx], attachmentUrl: attachmentUrl };
+              } else {
+                data.messageIds[entryIdx].attachmentUrl = attachmentUrl;
+              }
+              
               await SHARE_KV.put('share_' + token, JSON.stringify(data),
                 data.expiresAt ? { expiration: Math.floor(data.expiresAt / 1000) } : undefined);
             }
@@ -198,20 +204,27 @@ function previewPage(d) {
     '  });' +
     '}' +
     'function fetchAll(onProgress){' +
+    '  if(onProgress) onProgress(0, MESSAGE_IDS.length, "Menghubungi server...");' +
     '  var keyP=ENC_KEY_B64?crypto.subtle.importKey("raw",b64ToBytes(ENC_KEY_B64),{name:"AES-GCM"},false,["decrypt"]):Promise.resolve(null);' +
     '  return keyP.then(function(key){' +
     '    var chunks=new Array(MESSAGE_IDS.length);' +
-    '    var completed=0; var concurrency=3;' +
+    '    var completed=0; var concurrency=6; var active=0;' +
     '    function fetchChunk(idx) {' +
     '      if(idx>=MESSAGE_IDS.length) return Promise.resolve();' +
     '      var entry=MESSAGE_IDS[idx];' +
     '      var msgId=typeof entry==="string"?entry:entry.msgId;' +
+    '      active++;' +
+    '      if(onProgress) onProgress(completed, MESSAGE_IDS.length, "Mengambil bagian " + (completed+1) + "...");' +
     '      return fetch("/share/"+TOKEN+"/chunk/"+msgId)' +
-    '        .then(function(r){if(!r.ok)throw new Error("Gagal mengambil data");return r.arrayBuffer();})' +
+    '        .then(function(r){' +
+    '           if(!r.ok) throw new Error("Server error " + r.status);' +
+    '           return r.arrayBuffer();' +
+    '        })' +
     '        .then(function(buf){return key?decryptChunk(buf,key):buf;})' +
     '        .then(function(buf){' +
     '          chunks[idx]=buf;' +
-    '          completed++; if(onProgress)onProgress(completed,MESSAGE_IDS.length);' +
+    '          completed++; active--;' +
+    '          if(onProgress) onProgress(completed, MESSAGE_IDS.length);' +
     '        });' +
     '    }' +
     '    var promises=[]; var nextIdx=0;' +
@@ -221,10 +234,11 @@ function previewPage(d) {
     '    }' +
     '    for(var i=0; i<concurrency; i++) promises.push(startNext());' +
     '    return Promise.all(promises).then(function(){' +
+    '      if(chunks.some(function(c){return !c;})) throw new Error("Beberapa bagian gagal dimuat");' +
     '      var total=chunks.reduce(function(s,c){return s+(c?c.byteLength:0);},0);' +
     '      var merged=new Uint8Array(total); var off=0;' +
     '      for(var j=0; j<chunks.length; j++){' +
-    '        if(chunks[j]){ merged.set(new Uint8Array(chunks[j]),off); off+=chunks[j].byteLength; }' +
+    '        merged.set(new Uint8Array(chunks[j]),off); off+=chunks[j].byteLength;' +
     '      }' +
     '      return merged.buffer;' +
     '    });' +
@@ -237,9 +251,9 @@ function previewPage(d) {
     '  var loader=document.getElementById("loader");' +
     '  if(!el) return;' +
     '  loader.style.display="flex";' +
-    '  fetchAll(function(i,total){' +
-    '    var p=Math.round(((i+1)/total)*100);' +
-    '    status.textContent="Memuat preview... "+p+"%";' +
+    '  fetchAll(function(i,total,txt){' +
+    '    var p=Math.round((i/total)*100);' +
+    '    status.textContent=txt || ("Memuat preview... " + i + "/" + total + " (" + p + "%)");' +
     '    prog.style.width=p+"%";' +
     '  })' +
     '  .then(function(buf){' +
@@ -248,9 +262,8 @@ function previewPage(d) {
     '    loader.style.display="none";' +
     '  })' +
     '  .catch(function(e){' +
-    '    status.textContent="Gagal memuat preview: "+e.message;' +
+    '    status.textContent="Gagal: "+e.message;' +
     '    status.style.color="#ff4d4d";' +
-    '    document.getElementById("progressContainer").style.display="none";' +
     '  });' +
     '}' +
     'function startDownload(){' +
@@ -260,9 +273,9 @@ function previewPage(d) {
     '  var loader=document.getElementById("loader");' +
     '  btn.disabled=true; btn.style.opacity="0.5";' +
     '  loader.style.display="flex";' +
-    '  fetchAll(function(i,total){' +
-    '    var p=Math.round(((i+1)/total)*100);' +
-    '    status.textContent="Mengunduh... "+p+"%";' +
+    '  fetchAll(function(i,total,txt){' +
+    '    var p=Math.round((i/total)*100);' +
+    '    status.textContent=txt || ("Menyiapkan... " + i + "/" + total + " (" + p + "%)");' +
     '    prog.style.width=p+"%";' +
     '  })' +
     '  .then(function(buf){' +
