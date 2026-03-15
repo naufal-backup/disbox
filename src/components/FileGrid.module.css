@@ -32,7 +32,7 @@
   flex: 1;
   min-width: 0;
   flex-wrap: nowrap;
-  margin-right: 24px; /* Meningkatkan jarak dari searchbar */
+  margin-right: 24px;
   position: relative;
   z-index: 10;
 }
@@ -49,7 +49,7 @@
   color: var(--text-dim);
   opacity: 0.5;
   flex-shrink: 0;
-  margin: 0 6px; /* Memberi jarak seimbang di kedua sisi arrow */
+  margin: 0 6px;
 }
 
 .breadcrumbItem {
@@ -63,8 +63,6 @@
   font-size: 13px;
   font-family: var(--font-body);
   transition: all 0.15s;
-
-  /* Reset default behavior */
   max-width: none;
   white-space: nowrap;
   overflow: visible;
@@ -75,8 +73,6 @@
   font-weight: 700;
   color: var(--accent-bright) !important;
   background: var(--accent-dim) !important;
-
-  /* Batasi hanya folder aktif paling kanan yang punya limit titik-titik (diperlebar ke 600px) */
   max-width: 600px; 
   overflow: hidden;
   text-overflow: ellipsis;
@@ -97,7 +93,7 @@
   flex-shrink: 0;
   line-height: 1;
   margin-left: -2px;
-  margin-right: 0px; /* Merapatkan arrow di sisi kanan titik tiga */
+  margin-right: 0px;
   cursor: pointer;
   transition: all 0.2s ease;
 }
@@ -167,13 +163,6 @@
 .breadcrumbMenuItem:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
-}
-
-.toolbarRight {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
 }
 
 .searchBox {
@@ -463,69 +452,41 @@
 .emptyTitle { font-size: 15px; font-weight: 600; color: var(--text-secondary); }
 .emptyHint { font-size: 12px; }
 
-/* ── Grid View ── */
+/* ── Grid View Google Drive Style ── */
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(calc(120px * var(--zoom)), 1fr));
-  gap: calc(10px * var(--zoom));
+  /* Kolom diperlebar untuk menyesuaikan lebar card */
+  grid-template-columns: repeat(auto-fill, minmax(calc(240px * var(--zoom)), 1fr));
+  gap: calc(16px * var(--zoom));
 }
 
 .card {
   position: relative;
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: calc(14px * var(--zoom)) calc(12px * var(--zoom));
-  cursor: pointer;
+  background-color: var(--bg-surface); 
+  border-radius: 14px; 
+  padding: 0;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: calc(8px * var(--zoom));
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  align-items: stretch;
+  gap: 0;
+  cursor: pointer;
   user-select: none;
+  border: 1px solid transparent; 
+  transition: all 0.2s ease;
+  overflow: hidden;
   outline: 2px solid transparent;
-  outline-offset: -2px;
+  outline-offset: -1px;
 }
 
 .card:hover {
-  background: var(--bg-hover);
-  border-color: var(--border-bright);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-  z-index: 5;
+  background-color: var(--bg-hover); 
 }
 
 .card.selected {
-  background: var(--accent-dim);
+  background-color: var(--accent-dim);
   border-color: var(--accent);
-  outline-color: var(--accent);
-  box-shadow: 0 0 10px var(--accent-glow);
-}
-
-.infoBadge {
-  position: absolute;
-  top: 8px;
-  left: 50%;
-  transform: translate(-50%, -10px);
-  background: var(--bg-surface);
-  backdrop-filter: blur(10px);
-  border: 1px solid var(--accent);
-  padding: 4px 8px;
-  border-radius: 6px;
-  color: var(--accent-bright);
-  font-size: 10px;
-  font-family: var(--font-mono);
-  font-weight: 600;
-  opacity: 0;
-  pointer-events: none;
-  transition: all 0.25s cubic-bezier(0.18, 0.89, 0.32, 1.28);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
-  white-space: nowrap;
-  z-index: 100;
-}
-
-.card:hover .infoBadge {
-  opacity: 1;
-  transform: translate(-50%, 0);
+  outline: 2px solid var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent), 0 0 16px rgba(88, 101, 242, 0.35) !important;
 }
 
 .isDragTarget {
@@ -540,157 +501,100 @@
   pointer-events: none;
 }
 
-/* Checkbox */
-.checkbox {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  width: 18px;
-  height: 18px;
+/* ── Card Header ── */
+.cardHeader {
+  display: flex;
+  align-items: center;
+  padding: calc(12px * var(--zoom)) calc(16px * var(--zoom));
+  gap: calc(12px * var(--zoom));
+}
+
+.cardIconWrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent; 
   border-radius: 4px;
-  border: 1.5px solid var(--text-dim);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--bg-surface);
-  color: white;
-  transition: all 0.15s;
-  opacity: 0;
-  pointer-events: none;
-  z-index: 10;
+  width: calc(24px * var(--zoom));
+  height: calc(24px * var(--zoom));
 }
 
-.isSelectionMode .checkbox { opacity: 1; pointer-events: auto; }
-
-.selected .checkbox {
-  background: var(--accent);
-  border-color: var(--accent);
-  opacity: 1;
-}
-
-.listCheckbox {
-  width: 16px;
-  height: 16px;
-  border-radius: 3px;
-  border: 1.5px solid var(--text-dim);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.1s;
-  flex-shrink: 0;
-  opacity: 0;
-}
-
-.isSelectionMode .listCheckbox { opacity: 1; }
-
-.selected .listCheckbox {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: white;
-  opacity: 1;
-}
-
-/* Selection Bar */
-.selectionBar {
-  position: absolute;
-  top: 60px;
-  left: 20px;
-  right: 20px;
-  height: 48px;
-  background: var(--accent);
-  border-radius: var(--radius);
-  display: flex;
-  align-items: center;
-  padding: 0 16px;
-  gap: 16px;
-  color: white;
-  z-index: 100;
-  box-shadow: 0 8px 32px rgba(88,101,242,0.4);
-  animation: slideDown 0.2s ease;
-}
-
-@keyframes slideDown {
-  from { transform: translateY(-10px); opacity: 0; }
-  to { transform: translateY(0); opacity: 1; }
-}
-
-.selectionCount {
-  font-weight: 600;
-  font-size: 14px;
+.cardTitleWrapper {
   flex: 1;
-}
-
-.selectionActions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.selectionBtn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  background: rgba(255,255,255,0.15);
-  border: none;
-  border-radius: 6px;
-  color: white;
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background 0.15s;
-}
-
-.selectionBtn:hover { background: rgba(255,255,255,0.25); }
-
-.dangerBtn {
-  background: rgba(237,66,69,0.25) !important;
-}
-.dangerBtn:hover { background: rgba(237,66,69,0.4) !important; }
-
-.closeSelection {
-  width: 28px;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: transparent;
-  border: none;
-  color: white;
-  cursor: pointer;
-  border-radius: 50%;
-  transition: background 0.15s;
-}
-
-.closeSelection:hover { background: rgba(255,255,255,0.1); }
-
-.cardIcon { 
-  width: calc(48px * var(--zoom));
-  height: calc(48px * var(--zoom));
-  line-height: 1; 
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
   overflow: hidden;
 }
 
-.cardIcon svg {
-  width: calc(32px * var(--zoom)) !important;
-  height: calc(32px * var(--zoom)) !important;
-}
-
-.cardName {
-  font-size: calc(10.5px * var(--zoom));
-  font-weight: 400;
-  text-align: center;
-  color: var(--text-primary);
-  width: 100%;
+.cardTitleText {
+  font-size: calc(14px * var(--zoom));
+  font-weight: 500;
+  color: var(--text-primary); 
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  display: block;
 }
-.cardMeta { font-size: calc(9px * var(--zoom)); color: var(--text-muted); font-family: var(--font-mono); opacity: 0.8; }
+
+.cardMenuBtn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: -4px;
+  transition: all 0.2s;
+}
+
+.cardMenuBtn:hover { 
+  background: var(--bg-hover); 
+  color: var(--text-primary); 
+}
+
+/* ── Card Preview ── */
+.cardPreview {
+  padding: 0 calc(16px * var(--zoom));
+  height: calc(140px * var(--zoom));
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+}
+
+.cardPreviewInner {
+  width: 100%;
+  height: 100%;
+  background-color: #F0F2F5; 
+  border-radius: 10px; 
+  overflow: hidden;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  transition: background-color 0.2s ease;
+}
+/* Tambahkan kode ini di bawahnya untuk mendukung Dark Mode manual */
+:global(.dark) .cardPreviewInner,
+:global([data-theme="dark"]) .cardPreviewInner {
+  background-color: var(--bg-elevated) !important;
+}
+/* ── Card Footer ── */
+.cardFooter {
+  display: flex;
+  align-items: center;
+  padding: calc(12px * var(--zoom)) calc(16px * var(--zoom));
+  gap: calc(8px * var(--zoom));
+}
+
+.cardFooterText {
+  font-size: calc(11.5px * var(--zoom));
+  font-weight: 400;
+  color: var(--text-muted); 
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  width: 100%;
+}
 
 /* ── List View ── */
 .list { 
@@ -794,7 +698,7 @@
   border: 1px solid var(--accent);
   border-radius: 4px;
   padding: 2px 6px;
-  font-size: 13px;
+  font-size: calc(13px * var(--zoom));
   color: var(--text-primary);
   font-family: var(--font-body);
   outline: none;
@@ -866,10 +770,10 @@
   pointer-events: none;
 }
 
-/* ── Status Overlays (Top-Left) ── */
+/* ── Status Overlays ── */
 .lockOverlay, .starOverlay {
   position: absolute;
-  top: 6px;
+  bottom: 12px;
   width: 18px;
   height: 18px;
   background: var(--bg-elevated);
@@ -883,20 +787,17 @@
 }
 
 .lockOverlay {
-  left: 6px;
+  right: 12px;
   color: var(--accent-bright);
 }
 
 .starOverlay {
-  /* Offset to the right if lock is also present? 
-     For simplicity, let's stack them or put star next to lock */
-  left: 6px; 
+  right: 12px; 
   color: var(--amber);
 }
 
-/* If both exist, move star to the right */
 .lockOverlay + .starOverlay {
-  left: 28px;
+  right: 34px;
 }
 
 /* ── PIN Modal ── */
@@ -1063,12 +964,8 @@
   }
 
   .grid {
-    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
     gap: 10px;
     padding: 12px;
-  }
-
-  .cardName {
-    font-size: 11px;
   }
 }

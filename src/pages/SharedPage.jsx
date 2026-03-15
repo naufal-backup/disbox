@@ -182,7 +182,7 @@ function FileThumbnail({ file, size = 32 }) {
     return (
       <div className={styles.thumbWrapper}>
         <img src={thumbUrl} alt="" className={styles.thumbImage} />
-        {isVideo && <div className={styles.videoBadge}>▶</div>}
+        {/* {isVideo && <div className={styles.videoBadge}>▶</div>} */}
       </div>
     );
   }

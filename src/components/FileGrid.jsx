@@ -4,7 +4,8 @@ import {
   Upload, FolderPlus, Grid3x3, List, Search,
   Download, Trash2, Edit3, Folder, Lock, Unlock, Star,
   ChevronRight, Home, Move, Copy, Check, AlertCircle, ZoomIn, Link2,
-  CheckCircle, RefreshCw, Clock, ArrowUpDown, ChevronDown
+  CheckCircle, RefreshCw, Clock, ArrowUpDown, ChevronDown, MoreVertical,
+  FileText, Image as ImageIcon, FileVideo, FileAudio, FileArchive, File as FileGeneric, FileCode, FileSpreadsheet
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useApp } from '../AppContext.jsx';
@@ -14,6 +15,19 @@ import ShareDialog from './ShareDialog.jsx';
 import FilePreview from './FilePreview.jsx';
 import styles from './FileGrid.module.css';
 import { motion, AnimatePresence } from 'framer-motion';
+
+// ─── Custom SVG Icons ──────────────────────────────────────────
+const CustomImageIcon = ({ size = 20, color = 'currentColor' }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke={color}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 0 0 1.5-1.5V6a1.5 1.5 0 0 0-1.5-1.5H3.75A1.5 1.5 0 0 0 2.25 6v12a1.5 1.5 0 0 0 1.5 1.5Zm10.5-11.25h.008v.008h-.008V8.25Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z" />
+  </svg>
+);
+
+const CustomVideoIcon = ({ size = 20, color = 'currentColor' }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke={color}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="m15.75 10.5 4.72-4.72a.75.75 0 0 1 1.28.53v11.38a.75.75 0 0 1-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 0 0 2.25-2.25v-9a2.25 2.25 0 0 0-2.25-2.25h-9A2.25 2.25 0 0 0 2.25 7.5v9a2.25 2.25 0 0 0 2.25 2.25Z" />
+  </svg>
+);
 
 // ─── Thumbnail Concurrency Control ──────────────────────────────────────────
 const MAX_CONCURRENT_THUMBS = 3;
@@ -187,15 +201,30 @@ function FileThumbnail({ file, size = 32 }) {
   const canShowVideo = showPreviews && showVideoPreviews && isVideo;
 
   if (canShowImage || canShowVideo) {
-    if (thumbUrl) return <div style={{ width: '100%', height: '100%', overflow: 'hidden', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-elevated)', flexShrink: 0, position: 'relative' }}>
-      <img src={thumbUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+    if (thumbUrl) return <div style={{ width: '100%', height: '100%', overflow: 'hidden', borderRadius: 0, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', flexShrink: 0, position: 'relative' }}>
+      <img src={thumbUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top' }} draggable={false} />
       {isVideo && <div style={{ position: 'absolute', bottom: 4, right: 4, background: 'rgba(0,0,0,0.6)', borderRadius: 4, padding: '2px 4px', fontSize: 10, color: 'white', display: 'flex', alignItems: 'center' }}>▶</div>}
     </div>;
-    if (loading) return <div className="skeleton" style={{ width: '100%', height: '100%', borderRadius: 6 }} />;
+    if (loading) return <div className="skeleton" style={{ width: '100%', height: '100%', borderRadius: 0 }} />;
   }
-  return <span style={{ fontSize: size }}>{getFileIcon(name)}</span>;
+  
+  return (
+    <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-muted)' }}>
+      <svg 
+        xmlns="http://www.w3.org/2000/svg" 
+        fill="none" 
+        viewBox="0 0 24 24" 
+        strokeWidth={1.5} 
+        stroke="currentColor" 
+        width={size} 
+        height={size}
+        style={{ opacity: 0.5 }}
+      >
+        <path strokeLinecap="round" strokeLinejoin="round" d="m20.25 7.5-.625 10.632a2.25 2.25 0 0 1-2.247 2.118H6.622a2.25 2.25 0 0 1-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z" />
+      </svg>
+    </span>
+  );
 }
-
 
 function PinPromptModal({ title, onSuccess, onClose }) {
   const { verifyPin, hasPin } = useApp();
@@ -267,6 +296,27 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
     shareEnabled
   } = useApp();
 
+  const renderFileIcon = (filename) => {
+    const ext = filename.split('.').pop().toLowerCase();
+    
+    // Panggil SVG kustom Anda di sini
+    if (['png', 'jpg', 'jpeg', 'webp', 'svg', 'gif'].includes(ext)) 
+      return <CustomImageIcon size={20} color="#ea4335" />;
+      
+    if (['mp4', 'webm', 'mkv', 'avi', 'mov'].includes(ext)) 
+      return <CustomVideoIcon size={20} color="#ea4335" />;
+    
+    // Ikon fallback dari lucide-react (pastikan sudah di-import)
+    if (['mp3', 'wav', 'ogg'].includes(ext)) return <FileAudio size={20} style={{ color: '#ea4335' }} />;
+    if (['zip', 'rar', '7z', 'tar', 'gz'].includes(ext)) return <FileArchive size={20} style={{ color: 'var(--text-muted)' }} />;
+    if (['pdf'].includes(ext)) return <FileText size={20} style={{ color: '#ea4335' }} />; 
+    if (['doc', 'docx', 'txt', 'md'].includes(ext)) return <FileText size={20} style={{ color: '#4285f4' }} />; 
+    if (['xls', 'xlsx', 'csv'].includes(ext)) return <FileSpreadsheet size={20} style={{ color: '#34a853' }} />; 
+    if (['html', 'css', 'js', 'jsx', 'ts', 'tsx', 'json'].includes(ext)) return <FileCode size={20} style={{ color: '#fbbc04' }} />; 
+    
+    return <FileGeneric size={20} style={{ color: 'var(--text-muted)' }} />;
+  };
+
   const [viewMode, setViewMode] = useState('grid');
   const [zoom, setZoom] = useState(() => Number(localStorage.getItem('disbox_zoom')) || 1);
   const [sortMode, setSortMode] = useState(() => localStorage.getItem('disbox_sort') || 'name');
@@ -298,13 +348,18 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
   const [confirmAction, setConfirmAction] = useState(null);
   const [dragOverTarget, setDragOverTarget] = useState(null);
   const [previewFile, setPreviewFile] = useState(null);
-  const [pinPrompt, setPinPrompt] = useState(null); // { title, onSuccess }
+  const [pinPrompt, setPinPrompt] = useState(null);
   const [showBreadcrumbMenu, setShowBreadcrumbMenu] = useState(false);
-  const [shareDialog, setShareDialog] = useState(null); // { path, file }
+  const [shareDialog, setShareDialog] = useState(null);
   const [showSortMenu, setShowSortMenu] = useState(false);
   const [isLastPartTruncated, setIsLastPartTruncated] = useState(false);
   const activeFolderRef = useRef(null);
   const contextMenuRef = useRef(null);
+
+  const formatItemDate = (ts) => {
+    if (!ts) return '';
+    return new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  };
 
   useEffect(() => {
     if (contextMenu && contextMenuRef.current) {
@@ -315,12 +370,10 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
 
       let { x, y } = contextMenu;
       
-      // Adjust X if menu goes off screen
       if (x + rect.width > winW - 10) {
         x = winW - rect.width - 10;
       }
       
-      // Adjust Y if menu goes off screen
       if (y + rect.height > winH - 10) {
         y = winH - rect.height - 10;
       }
@@ -345,18 +398,16 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
   const pathParts = currentPath === '/' ? [] : currentPath.split('/').filter(Boolean);
   const dirPath = currentPath === '/' ? '' : currentPath.slice(1);
 
-  // ─── OPTIMIZED DATA PROCESSING ───
   const { processedFiles, processedDirs, folderSizes, folderLocks, folderStars } = useMemo(() => {
     const fileList = [];
     const dirsMap = new Map();
     const sizes = new Map();
-    const locks = new Map(); // { path: { count, lockedCount } }
-    const dates = new Map(); // Track max createdAt for folders
+    const locks = new Map(); 
+    const dates = new Map(); 
     const starredFolders = new Set();
     const q = debouncedSearch.toLowerCase();
 
     files.forEach(f => {
-      // Hide cloudsave internal folder from UI
       if (f.path.startsWith('cloudsave/')) return;
 
       const parts = f.path.split('/').filter(Boolean);
@@ -367,24 +418,20 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
         tempPath = tempPath ? `${tempPath}/${parts[i]}` : parts[i];
         sizes.set(tempPath, (sizes.get(tempPath) || 0) + (f.size || 0));
         
-        // Track dates (latest file in folder determines folder's date)
         const currentMax = dates.get(tempPath) || 0;
         if ((f.createdAt || 0) > currentMax) dates.set(tempPath, f.createdAt);
 
-        // Track locks
         if (!locks.has(tempPath)) locks.set(tempPath, { count: 0, lockedCount: 0 });
         const l = locks.get(tempPath);
         l.count++;
         if (f.isLocked) l.lockedCount++;
       }
 
-      // Identify starred folders via .keep files
       if (f.isStarred && name === '.keep') {
         const folderPath = parts.slice(0, -1).join('/');
         starredFolders.add(folderPath);
       }
 
-      // Filter logic
       const isInside = dirPath === '' || f.path.startsWith(dirPath + '/');
       const matchesSearch = !q || name.toLowerCase().includes(q);
       
@@ -397,7 +444,6 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
       } else if (isLockedView) {
         if (f.isLocked && name !== '.keep') shouldIncludeFile = true;
       } else {
-        // Standard drive view
         if (!f.isLocked && name !== '.keep') shouldIncludeFile = true;
       }
 
@@ -405,8 +451,6 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
         const fileDirStr = parts.slice(0, -1).join('/');
         const isDirectChild = fileDirStr === dirPath;
         
-        // Locked view should be hierarchical (like My Drive)
-        // Starred and Recent stay as flat lists
         if (q || isDirectChild || isStarredView || isRecentView) {
           fileList.push(f);
         }
@@ -429,24 +473,19 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
         } else if (isRecentView) {
           shouldIncludeDir = false;
         } else if (isLockedView) {
-          // In Locked tab, we show the folder if it's fully locked
           if (folderIsLocked) shouldIncludeDir = true;
         } else {
-          // Drive view: hide fully locked folders
           if (!folderIsLocked) shouldIncludeDir = true;
         }
 
         if (shouldIncludeDir) {
           if (q) {
-            // Only include folder in results if its name matches the search query
             if (dirName.toLowerCase().includes(q)) {
               dirsMap.set(currentAcc, dirName);
             }
           } else if (isStarredView) {
-            // Flat list for Starred view
             dirsMap.set(currentAcc, dirName);
           } else if (isChildOfCurrent) {
-            // Hierarchical for Drive and Locked
             dirsMap.set(currentAcc, dirName);
           }
         }
@@ -460,7 +499,6 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
       size: sizes.get(fullPath) || 0
     }));
 
-    // Apply Sorting
     const sortFn = (a, b) => {
       if (sortMode === 'name') {
         const nameA = (a.name || a.path.split('/').pop()).toLowerCase();
@@ -621,7 +659,6 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
     const newPath = parts.join('/');
     if (oldPath === newPath) { setRenameTarget(null); return; }
 
-    // Collision check
     const parentDirPath = parts.slice(0, -1).join('/');
     const exists = files.some(f => {
       const fParts = f.path.split('/');
@@ -783,7 +820,6 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
     let raw = e.dataTransfer.getData('text/plain');
     let data = raw;
 
-    // Fallback to dragSource if raw is empty or if we can parse it
     if (!data || data === '') {
       data = dragSource;
     } else {
@@ -791,7 +827,6 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
         const parsed = JSON.parse(data);
         if (parsed && typeof parsed === 'object') data = parsed;
       } catch (_) {
-        // Not JSON, keep as string
       }
     }
 
@@ -799,7 +834,6 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
     if (e.dataTransfer.files.length > 0) return;
     const normalizedDest = destDir.startsWith('/') ? destDir.slice(1) : destDir;
 
-    // Handle Bulk Move
     if (data.bulk && Array.isArray(data.items)) {
       const items = data.items;
       for (const target of items) {
@@ -821,7 +855,6 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
       setDragSource(null); return;
     }
 
-    // Handle Single Move
     const source = typeof data === 'string' ? data : null;
     if (!source || source.startsWith('http')) { setDragSource(null); return; }
     
@@ -919,7 +952,16 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
   }, [selectedFiles, contextMenu]);
 
   return (
-    <div className={`${styles.container} ${isDragOver ? styles.dragOver : ''} ${isSelectionMode ? styles.isSelectionMode : ''}`} style={{ '--zoom': zoom }} onDragOver={(e) => { e.preventDefault(); if (e.dataTransfer.types.includes('Files')) setIsDragOver(true); }} onDragLeave={() => setIsDragOver(false)} onDrop={(e) => { setIsDragOver(false); if (e.dataTransfer.files.length > 0) handleDropZone(e); }} onClick={() => { setContextMenu(null); if (!isSelectionMode) clearSelection(); }} onContextMenu={(e) => { 
+    <div className={`${styles.container} ${isDragOver ? styles.dragOver : ''} ${isSelectionMode ? styles.isSelectionMode : ''}`} style={{ '--zoom': zoom }} onDragOver={(e) => { 
+  e.preventDefault(); 
+  // Pastikan yang di-drag adalah File dari luar OS, bukan elemen internal
+  if (e.dataTransfer.types.includes('Files') && !dragSource) {
+    setIsDragOver(true); 
+  } else {
+    // Jika itu elemen internal, pastikan overlay tetap mati
+    setIsDragOver(false);
+  }
+}} onDragLeave={() => setIsDragOver(false)} onDrop={(e) => { setIsDragOver(false); if (e.dataTransfer.files.length > 0) handleDropZone(e); }} onClick={() => { setContextMenu(null); if (!isSelectionMode) clearSelection(); }} onContextMenu={(e) => { 
       if (e.target.closest('.' + styles.toolbar)) return;
       e.preventDefault(); 
       setContextMenu({ x: e.clientX / uiScale, y: e.clientY / uiScale, type: 'empty' }); 
@@ -1019,7 +1061,7 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
               transition={{ duration: 0.15 }}
               className={styles.grid}
             >
-              {processedDirs.map(({ name: dir, fullPath }) => {
+              {processedDirs.map(({ name: dir, fullPath, createdAt }) => {
                 const folderSize = folderSizes.get(fullPath) || 0;
                 const l = folderLocks.get(fullPath);
                 const isLocked = l && l.count > 0 && l.lockedCount === l.count;
@@ -1033,6 +1075,7 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
                     className={`${styles.card} ${isPartOfSelection ? styles.selected : ''} ${dragOverTarget === fullPath ? styles.isDragTarget : ''}`} 
                     draggable 
                     onDragStart={(e) => handleDragStart(e, fullPath)} 
+                    onDragEnd={() => setDragSource(null)} 
                     onDragOver={(e) => { const types = Array.from(e.dataTransfer.types); if (canBeDropTarget || types.includes('Files')) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dragOverTarget !== fullPath) setDragOverTarget(fullPath); } }} 
                     onDragLeave={(e) => { const rect = e.currentTarget.getBoundingClientRect(); if (e.clientX < rect.left || e.clientX >= rect.right || e.clientY < rect.top || e.clientY >= rect.bottom) setDragOverTarget(null); }} 
                     onDrop={(e) => { setDragOverTarget(null); handleDropMove(e, fullPath); }} 
@@ -1040,13 +1083,37 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
                     onClick={(e) => toggleSelect(fullPath, e)} 
                     onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX / uiScale, y: e.clientY / uiScale, path: fullPath, isFolder: true }); }}
                   >
-                    <div className={styles.checkbox}><Check size={12} strokeWidth={3} /></div>
                     {isLocked && <div className={styles.lockOverlay}><Lock size={12} /></div>}
                     {isStarred && <div className={styles.starOverlay}><Star size={12} fill="currentColor" /></div>}
-                    <div className={styles.cardIcon}><Folder size={32} strokeWidth={1.5} style={{ color: 'var(--amber)' }} /></div>
-                    <div className={styles.cardName} title={dir}>{renameTarget?.path === fullPath ? <input className={styles.renameInput} value={renameValue} onChange={e => setRenameValue(e.target.value)} onBlur={commitRename} onKeyDown={e => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setRenameTarget(null); }} autoFocus onClick={e => e.stopPropagation()} /> : dir}</div>
-                    <div className={styles.cardMeta}>Folder</div>
-                    <div className={styles.infoBadge}><span>{formatSize(folderSize)}</span></div>
+                    
+                    <div className={styles.cardHeader}>
+                      <div className={styles.cardIconWrapper}>
+                        {/* Ikon Folder Header: Adaptif Tema */}
+                        <Folder size={18} style={{ color: 'var(--text-secondary)' }} strokeWidth={2} />
+                      </div>
+                      <div className={styles.cardTitleWrapper} title={dir}>
+                        {renameTarget?.path === fullPath ? 
+                          <input className={styles.renameInput} value={renameValue} onChange={e => setRenameValue(e.target.value)} onBlur={commitRename} onKeyDown={e => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setRenameTarget(null); }} autoFocus onClick={e => e.stopPropagation()} /> 
+                          : <span className={styles.cardTitleText}>{dir}</span>
+                        }
+                      </div>
+                      <button className={styles.cardMenuBtn} onClick={(e) => { e.stopPropagation(); setContextMenu({ x: e.clientX / uiScale, y: e.clientY / uiScale, path: fullPath, isFolder: true }); }}>
+                        <MoreVertical size={18} />
+                      </button>
+                    </div>
+
+                    <div className={styles.cardPreview}>
+                      <div className={styles.cardPreviewInner}>
+                        {/* Ikon Folder Preview: Emas/Coklat Kekuningan (Adaptif Tema) */}
+                        <Folder size={72} style={{ color: 'var(--amber)' }} strokeWidth={1.5} />
+                      </div>
+                    </div>
+
+                    <div className={styles.cardFooter}>
+                      <div className={styles.cardFooterText}>
+                        Folder • {formatSize(folderSize)}
+                      </div>
+                    </div>
                   </div>
                 );
               })}
@@ -1059,16 +1126,40 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
                     className={`${styles.card} ${selectedFiles.has(file.id) ? styles.selected : ''}`} 
                     draggable 
                     onDragStart={(e) => handleDragStart(e, file.path, file.id)} 
+                    onDragEnd={() => setDragSource(null)} 
                     onClick={(e) => toggleSelect(file.id, e)} 
                     onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX / uiScale, y: e.clientY / uiScale, path: file.path, file, isFolder: false }); }} 
                     onDoubleClick={() => handleFileClick(file)}
                   >
-                    <div className={styles.checkbox}><Check size={12} strokeWidth={3} /></div>
                     {file.isLocked && <div className={styles.lockOverlay}><Lock size={12} /></div>}
                     {file.isStarred && <div className={styles.starOverlay}><Star size={12} fill="currentColor" /></div>}
-                    <div className={styles.cardIcon} style={{ padding: 4 }}><FileThumbnail file={file} /></div>
-                    <div className={styles.cardName} title={name}>{renameTarget?.path === file.path && renameTarget?.id === file.id ? <input className={styles.renameInput} value={renameValue} onChange={e => setRenameValue(e.target.value)} onBlur={commitRename} onKeyDown={e => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setRenameTarget(null); }} autoFocus onClick={e => e.stopPropagation()} /> : name}</div>
-                    <div className={styles.cardMeta}>{formatSize(file.size || 0)}</div>
+                    
+                    <div className={styles.cardHeader}>
+                      <div className={styles.cardIconWrapper}>
+                        {renderFileIcon(name)}
+                      </div>
+                      <div className={styles.cardTitleWrapper} title={name}>
+                        {renameTarget?.path === file.path && renameTarget?.id === file.id ? 
+                          <input className={styles.renameInput} value={renameValue} onChange={e => setRenameValue(e.target.value)} onBlur={commitRename} onKeyDown={e => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setRenameTarget(null); }} autoFocus onClick={e => e.stopPropagation()} /> 
+                          : <span className={styles.cardTitleText}>{name}</span>
+                        }
+                      </div>
+                      <button className={styles.cardMenuBtn} onClick={(e) => { e.stopPropagation(); setContextMenu({ x: e.clientX / uiScale, y: e.clientY / uiScale, path: file.path, file, isFolder: false }); }}>
+                        <MoreVertical size={20} />
+                      </button>
+                    </div>
+
+                    <div className={styles.cardPreview}>
+                      <div className={styles.cardPreviewInner}>
+                        <FileThumbnail file={file} size={48} />
+                      </div>
+                    </div>
+
+                    <div className={styles.cardFooter}>
+                      <div className={styles.cardFooterText}>
+                        {formatItemDate(file.createdAt)} • {formatSize(file.size || 0)}
+                      </div>
+                    </div>
                   </div>
                 );
               })}
@@ -1103,6 +1194,7 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
                     className={`${styles.listRow} ${isPartOfSelection ? styles.selected : ''} ${dragOverTarget === fullPath ? styles.isDragTarget : ''}`} 
                     draggable 
                     onDragStart={(e) => handleDragStart(e, fullPath)} 
+                    onDragEnd={() => setDragSource(null)} 
                     onDragOver={(e) => { const types = Array.from(e.dataTransfer.types); if (canBeDropTarget || types.includes('Files')) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dragOverTarget !== fullPath) setDragOverTarget(fullPath); } }} 
                     onDragLeave={(e) => { const rect = e.currentTarget.getBoundingClientRect(); if (e.clientX < rect.left || e.clientX >= rect.right || e.clientY < rect.top || e.clientY >= rect.bottom) setDragOverTarget(null); }} 
                     onDrop={(e) => { setDragOverTarget(null); handleDropMove(e, fullPath); }} 
@@ -1110,7 +1202,6 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
                     onClick={(e) => toggleSelect(fullPath, e)} 
                     onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX / uiScale, y: e.clientY / uiScale, path: fullPath, isFolder: true }); }}
                   >
-                    <div className={styles.listCheckbox}>{selectedFiles.has(fullPath) && <Check size={10} strokeWidth={4} />}</div>
                     <div className={styles.listIcon} style={{ width: `calc(28px * var(--zoom))`, flexShrink: 0 }}>{isLocked ? <Lock size={iconSize - 2} style={{ color: 'var(--accent-bright)' }} /> : isStarred ? <Star size={iconSize - 2} fill="var(--amber)" style={{ color: 'var(--amber)' }} /> : <Folder size={iconSize} style={{ color: 'var(--amber)' }} />}</div>
                     <span className={`${styles.listName} truncate`} style={{ fontSize: `calc(12px * var(--zoom))`, lineHeight: 1.2 }}>{renameTarget?.path === fullPath ? <input className={styles.renameInput} value={renameValue} onChange={e => setRenameValue(e.target.value)} onBlur={commitRename} onKeyDown={e => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setRenameTarget(null); }} autoFocus onClick={e => e.stopPropagation()} /> : dir}</span>
                     <span className={styles.listSize}>{formatSize(folderSize)}</span>
@@ -1128,11 +1219,11 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
                     className={`${styles.listRow} ${selectedFiles.has(file.id) ? styles.selected : ''}`} 
                     draggable 
                     onDragStart={(e) => handleDragStart(e, file.path, file.id)} 
+                    onDragEnd={() => setDragSource(null)} 
                     onClick={(e) => toggleSelect(file.id, e)} 
                     onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX / uiScale, y: e.clientY / uiScale, path: file.path, file, isFolder: false }); }} 
                     onDoubleClick={() => handleFileClick(file)}
                   >
-                    <div className={styles.listCheckbox}>{selectedFiles.has(file.id) && <Check size={10} strokeWidth={4} />}</div>
                     <div className={styles.listIcon} style={{ width: `calc(28px * var(--zoom))`, height: `calc(28px * var(--zoom))`, display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: 4, flexShrink: 0 }}>{file.isLocked ? <Lock size={iconSize} style={{ color: 'var(--accent-bright)' }} /> : file.isStarred ? <Star size={iconSize} fill="var(--amber)" style={{ color: 'var(--amber)' }} /> : <FileThumbnail file={file} size={iconSize} />}</div>
                     <span className={`${styles.listName} truncate`} style={{ fontSize: `calc(12px * var(--zoom))`, lineHeight: 1.2 }}>{renameTarget?.path === file.path && renameTarget?.id === file.id ? <input className={styles.renameInput} value={renameValue} onChange={e => setRenameValue(e.target.value)} onBlur={commitRename} onKeyDown={e => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setRenameTarget(null); }} autoFocus onClick={e => e.stopPropagation()} /> : name}</span>
                     <span className={styles.listSize}>{formatSize(file.size || 0)}</span>
