@@ -7,25 +7,25 @@ Disbox adalah aplikasi desktop penyimpanan awan (cloud storage) modern yang mema
 ## 🚀 Fitur Utama
 
 *   **Penyimpanan Tak Terbatas:** Manfaatkan Discord Webhook untuk menyimpan file tanpa batasan kuota.
+*   **👤 Manajemen Profil & Account Switcher:** [BARU] Kelola banyak akun drive dengan Nama Alias kustom. Pindah antar akun drive secara instan melalui sistem *badge* profil di sidebar tanpa perlu relogin.
+*   **🔒 Keamanan Ganda (App Lock & Master PIN):** [BARU] Selain perlindungan folder dengan Master PIN, kini tersedia **App Lock** berbasis PIN lokal yang mengunci aplikasi setiap kali dibuka untuk privasi maksimal di perangkat fisik.
+*   **⚡ Sharing Parallel Worker:** [BARU] Pengunduhan file besar via link share kini **3x lebih cepat** berkat optimasi Cloudflare Worker dengan sistem *parallel chunk fetching*.
+*   **📊 Statistik Akun:** [BARU] Pantau total penggunaan ruang penyimpanan dan jumlah file secara real-time di halaman Profil.
 *   **Virtual File System:** Kelola file Anda dengan struktur folder, layaknya Google Drive atau Dropbox.
 *   **SQLite Engine (Optimized):** Metadata dikelola menggunakan SQLite dengan **WAL (Write-Ahead Logging) Mode** untuk sinkronisasi kilat dan integritas data yang sangat stabil.
-*   **Dukungan Multi-Bahasa:** [BARU] Tersedia dalam bahasa **Indonesia**, **English**, dan **Mandarin (China)** untuk kenyamanan pengguna global.
-*   **Cloud Save (Sync Otomatis):** [BARU] Pantau folder penyimpanan game (game saves) secara real-time dan sinkronisasikan secara otomatis ke Discord. Mendukung ekspor ZIP dan sinkronisasi antar perangkat.
-*   **Animasi Antarmuka:** [BARU] Transisi visual yang halus dan modern menggunakan `framer-motion` (dapat diaktifkan/dimatikan melalui Settings).
-*   **Smart Help Bubbles:** [BARU] Penjelasan detail untuk setiap pengaturan dalam bentuk bubble mengambang cerdas yang menyesuaikan posisi agar tidak terpotong layar.
+*   **Dukungan Multi-Bahasa:** Tersedia dalam bahasa **Indonesia**, **English**, dan **Mandarin (China)** untuk kenyamanan pengguna global.
+*   **Cloud Save (Sync Otomatis):** Pantau folder penyimpanan game (game saves) secara real-time dan sinkronisasikan secara otomatis ke Discord. Mendukung ekspor ZIP dan sinkronisasi antar perangkat.
+*   **Animasi Antarmuka:** Transisi visual yang halus dan modern menggunakan `framer-motion` (dapat diaktifkan/dimatikan melalui Settings).
+*   **Smart Help Bubbles:** Penjelasan detail untuk setiap pengaturan dalam bentuk bubble mengambang cerdas yang menyesuaikan posisi agar tidak terpotong layar.
 *   **Validasi Integritas Data:** System pengecekan otomatis untuk mencegah duplikasi nama file/folder di lokasi yang sama.
 *   **Enkripsi AES-GCM:** Keamanan tingkat tinggi untuk setiap file dan folder dengan enkripsi *end-to-end* menggunakan kunci yang diturunkan dari URL Webhook Anda.
-*   **Sistem Kunci (Locking) v3.0:** Lindungi file sensitif dengan Master PIN. Fitur buka kunci kini mendukung penempatan ke folder tujuan manapun.
 *   **UI/UX Modern & Responsif:** 
     *   Toolbar terstandarisasi (32px) untuk estetika yang simetris.
     *   Sistem Sorting kustom (Nama, Terbaru, Ukuran).
     *   Smart Breadcrumb yang tetap fungsional di folder sangat dalam.
     *   Context Menu cerdas yang tidak terpotong di pinggir layar.
-*   **Multi-Snapshot Rolling:** Sistem cadangan otomatis yang menyimpan 3 snapshot metadata terakhir di Discord.
 *   **Sistem Chunking Pintar:** File besar otomatis dipecah menjadi bagian-bagian kecil (10MB - 500MB) sesuai limit akun Discord Anda.
-*   **Sinkronisasi Antar Perangkat:** Sinkronisasi metadata otomatis antara versi Desktop dan Mobile dengan polling latar belakang setiap 30 detik.
 *   **Pratinjau File Langsung:** Dukungan Gambar, Video, Audio, PDF, dan Kode (*Syntax Highlighting*).
-*   **Versi Dinamis:** Info versi di Settings yang selalu terhubung dengan rilis terbaru di GitHub API.
 
 ## 🌍 Lokalisasi
 
@@ -93,10 +93,12 @@ Hasil build akan tersedia di folder `release/`:
 
 Disbox menggunakan **Discord Webhook** sebagai endpoint penyimpanan. Data Anda aman karena tidak ada server perantara (serverless). 
 
-**Penyimpanan Lokal (Optimized):**
-Aplikasi menggunakan **SQLite Database** (`disbox.db`) dengan optimasi performa tinggi (**WAL Mode & Synchronous Normal**). Hal ini menjamin proses tulis-baca metadata ribuan file terjadi secara instan tanpa risiko kerusakan database saat aplikasi ditutup tiba-tiba.
+**Keamanan PIN:**
+*   **Master PIN:** Dienkripsi dan disimpan dalam metadata Discord, memungkinkan sinkronisasi folder terkunci antar perangkat.
+*   **App Lock PIN:** Hanya disimpan secara lokal di perangkat Anda (`localStorage`). Digunakan untuk mengunci akses ke aplikasi Disbox secara keseluruhan.
 
-Metadata file Anda dienkripsi secara aman menggunakan **AES-GCM 256-bit** dan hanya Anda yang memiliki akses melalui URL Webhook pribadi Anda.
+**Penyimpanan Lokal (Optimized):**
+Aplikasi menggunakan **SQLite Database** (`disbox.db`) dengan optimasi performa tinggi (**WAL Mode & Synchronous Normal**). Hal ini menjamin proses tulis-baca metadata ribuan file terjadi secara instan.
 
 ## 🤝 Kontribusi
 
