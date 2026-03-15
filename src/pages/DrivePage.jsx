@@ -8,6 +8,7 @@ import FileGrid from '../components/FileGrid.jsx';
 import TransferPanel from '../components/TransferPanel.jsx';
 import CloudSavePage from './CloudSavePage.jsx';
 import SharedPage from './SharedPage.jsx';
+import ProfilePage from './ProfilePage.jsx';
 import { ShareSettingsSection } from '../components/ShareSettingsSection.jsx';
 import { useApp } from '../AppContext.jsx';
 import styles from './DrivePage.module.css';
@@ -80,6 +81,7 @@ export default function DrivePage({ activePage, onNavigate }) {
             style={{ height: '100%', display: 'flex', flexDirection: 'column' }}
           >
             {activePage === 'drive' && <FileGrid onNavigate={onNavigate} />}
+            {activePage === 'profile' && <ProfilePage />}
             {activePage === 'locked' && (
               isVerified ? (
                 <FileGrid isLockedView={true} onNavigate={onNavigate} />
@@ -269,12 +271,15 @@ function SettingsPanel({ onNavigate }) {
     animationsEnabled, setAnimationsEnabled,
     closeToTray, startMinimized, updatePrefs,
     cloudSaveEnabled, setCloudSaveEnabled,
+    appLockEnabled, setAppLockEnabled,
+    appLockPin, setAppLockPin,
     shareEnabled, shareLinks,
     hasPin, pinExists, setPinExists, setPin, removePin, verifyPin,
     language, setLanguage, t, api
   } = useApp();
 
   const [showPinModal, setShowPinModal] = useState(null);
+  const [showAppLockModal, setShowAppLockModal] = useState(null); // 'set' | 'change'
   const [currentVersion, setCurrentVersion] = useState('');
   const [latestVersion, setLatestVersion] = useState('');
   const [isUpdateAvailable, setIsUpdateAvailable] = useState(false);
@@ -423,6 +428,30 @@ function SettingsPanel({ onNavigate }) {
             <Toggle label={t('auto_close')} value={autoCloseTransfers} onChange={v => updatePrefs({ autoCloseTransfers: v })} description={t('auto_close_desc')} helpKey="auto_close" />
             <Toggle label={t('animations')} value={animationsEnabled} onChange={v => setAnimationsEnabled(v)} description={t('animations_desc')} helpKey="animations" />
             <Toggle label={t('show_recent')} value={showRecent} onChange={v => updatePrefs({ showRecent: v })} description={t('show_recent_desc')} helpKey="show_recent" />
+            <Toggle 
+              label={t('app_lock')} 
+              value={appLockEnabled} 
+              onChange={v => {
+                if (v && !appLockPin) {
+                  setShowAppLockModal('set');
+                  return;
+                }
+                setAppLockEnabled(v);
+              }} 
+              description={t('app_lock_desc')} 
+              helpKey="app_lock" 
+            />
+            {appLockEnabled && (
+              <div style={{ marginLeft: 24, marginBottom: 16 }}>
+                <button 
+                  onClick={() => setShowAppLockModal('change')}
+                  className={styles.secondaryBtn}
+                  style={{ fontSize: 11, padding: '4px 10px' }}
+                >
+                  {t('change_pin')} (Local)
+                </button>
+              </div>
+            )}
           </motion.div>
           <motion.div variants={itemVariants} className={styles.settingsSection}>
             <h3 className={styles.sectionTitle}>{t('cloud_save')}</h3>
@@ -520,6 +549,7 @@ function SettingsPanel({ onNavigate }) {
       </div>
       <AnimatePresence>
         {showPinModal && <PinSettingsModal mode={showPinModal} onClose={() => { setShowPinModal(null); hasPin().then(setPinExists); }} />}
+        {showAppLockModal && <AppLockSettingsModal mode={showAppLockModal} onClose={() => setShowAppLockModal(null)} />}
       </AnimatePresence>
     </motion.div>
   );
@@ -575,7 +605,77 @@ function PinSettingsModal({ mode, onClose }) {
             <input type="password" placeholder={t('pin_current_placeholder')} value={currentPin} onChange={e => setCurrentPin(e.target.value)} autoFocus style={{ width: '100%', background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 8, padding: 12, color: 'white', textAlign: 'center', fontSize: 18, letterSpacing: '0.2em', marginBottom: 12, outline: 'none' }} />
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 12 }}>
-              <input type="password" placeholder={t('pin_new_placeholder')} value={newPin} onChange={e => setNewPin(e.target.value)} autoFocus style={{ width: '100%', background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 8, padding: 12, color: 'white', textAlign: 'center', fontSize: 18, letterSpacing: '0.2em', outline: 'none' }} />
+              <input type="password" placeholder={t('app_lock_placeholder')} value={newPin} onChange={e => setNewPin(e.target.value)} autoFocus style={{ width: '100%', background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 8, padding: 12, color: 'white', textAlign: 'center', fontSize: 18, letterSpacing: '0.2em', outline: 'none' }} />
+              <input type="password" placeholder={t('pin_confirm_placeholder')} value={confirmPin} onChange={e => setConfirmPin(e.target.value)} style={{ width: '100%', background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 8, padding: 12, color: 'white', textAlign: 'center', fontSize: 18, letterSpacing: '0.2em', outline: 'none' }} />
+            </div>
+          )}
+          {error && <p style={{ color: 'var(--red)', fontSize: 12, textAlign: 'center', marginBottom: 12 }}>{error}</p>}
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button type="button" onClick={onClose} style={{ flex: 1, padding: 10, background: 'transparent', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-secondary)', cursor: 'pointer' }}>{t('cancel')}</button>
+            <button type="submit" disabled={loading} style={{ flex: 1, padding: 10, background: 'var(--accent)', border: 'none', borderRadius: 8, color: 'white', fontWeight: 600, cursor: 'pointer' }}>{loading ? t('verifying') : t('next')}</button>
+          </div>
+        </form>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+function AppLockSettingsModal({ mode, onClose }) {
+  const { appLockPin, setAppLockPin, setAppLockEnabled, t, animationsEnabled } = useApp();
+  const [step, setStep] = useState(mode === 'set' ? 'new' : 'verify');
+  const [currentPin, setCurrentPin] = useState('');
+  const [newPin, setNewPin] = useState('');
+  const [confirmPin, setConfirmPin] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const backdropVariants = { initial: { opacity: 0 }, animate: { opacity: 1 }, exit: { opacity: 0 } };
+  const modalVariants = {
+    initial: { opacity: 0, scale: 0.9, y: 20 },
+    animate: { opacity: 1, scale: 1, y: 0, transition: { type: 'spring', damping: 25, stiffness: 300 } },
+    exit: { opacity: 0, scale: 0.9, y: 20, transition: { duration: 0.2 } }
+  };
+
+  const handleVerify = (e) => {
+    e.preventDefault();
+    if (currentPin === appLockPin) {
+      setStep('new');
+      setCurrentPin('');
+      setError('');
+    } else {
+      setError(t('pin_error_wrong'));
+    }
+  };
+
+  const handleSetNew = async (e) => {
+    e.preventDefault();
+    if (newPin.length < 4) { setError(t('pin_error_min_length')); return; }
+    if (newPin !== confirmPin) { setError(t('pin_error_mismatch')); return; }
+    
+    setLoading(true);
+    setAppLockPin(newPin);
+    setAppLockEnabled(true);
+    toast.success(mode === 'set' ? t('pin_set_success') : t('pin_change_success'));
+    setLoading(false);
+    onClose();
+  };
+
+  const title = mode === 'set' ? t('app_lock') : t('change_pin') + ' (Local)';
+
+  return (
+    <motion.div className={styles.pinModalOverlay} onClick={onClose} initial="initial" animate="animate" exit="exit" variants={backdropVariants}>
+      <motion.div className={styles.pinModalContent} onClick={e => e.stopPropagation()} variants={modalVariants}>
+        <div style={{ textAlign: 'center', marginBottom: 20 }}>
+          <Shield size={32} style={{ color: 'var(--accent)', marginBottom: 12 }} />
+          <h3 style={{ fontSize: 18, fontWeight: 700 }}>{title}</h3>
+          <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>{step === 'verify' ? t('pin_verify_desc') : t('pin_new_desc')}</p>
+        </div>
+        <form onSubmit={step === 'verify' ? handleVerify : handleSetNew}>
+          {step === 'verify' ? (
+            <input type="password" placeholder={t('pin_current_placeholder')} value={currentPin} onChange={e => setCurrentPin(e.target.value)} autoFocus style={{ width: '100%', background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 8, padding: 12, color: 'white', textAlign: 'center', fontSize: 18, letterSpacing: '0.2em', marginBottom: 12, outline: 'none' }} />
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 12 }}>
+              <input type="password" placeholder={t('app_lock_placeholder')} value={newPin} onChange={e => setNewPin(e.target.value)} autoFocus style={{ width: '100%', background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 8, padding: 12, color: 'white', textAlign: 'center', fontSize: 18, letterSpacing: '0.2em', outline: 'none' }} />
               <input type="password" placeholder={t('pin_confirm_placeholder')} value={confirmPin} onChange={e => setConfirmPin(e.target.value)} style={{ width: '100%', background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 8, padding: 12, color: 'white', textAlign: 'center', fontSize: 18, letterSpacing: '0.2em', outline: 'none' }} />
             </div>
           )}

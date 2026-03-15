@@ -1,18 +1,23 @@
-import { HardDrive, Clock, Star, Settings, RefreshCw, LogOut, Sun, Moon, Lock, Cloud, Link2 } from 'lucide-react';
-import { useState } from 'react';
+import { 
+  HardDrive, Clock, Star, Settings, RefreshCw, LogOut, 
+  Sun, Moon, Lock, Cloud, Link2, User, Repeat, ChevronRight, Plus
+} from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
 import { useApp } from '../AppContext.jsx';
 import { ConfirmModal } from './FolderModal.jsx';
 import styles from './Sidebar.module.css';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 
 export default function Sidebar({ activePage, onNavigate }) {
   const {
     disconnect, refresh, loading, files, theme, toggleTheme,
     showRecent, t, animationsEnabled, cloudSaveEnabled, isSidebarOpen,
-    shareEnabled
+    shareEnabled, savedWebhooks, connect, webhookUrl
   } = useApp();
   const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
   const [showSharePopup, setShowSharePopup] = useState(false);
+  const [showSwitcher, setShowSwitcher] = useState(false);
+  const switcherRef = useRef(null);
 
   const handleSharedClick = () => {
     if (!shareEnabled) {
@@ -30,6 +35,27 @@ export default function Sidebar({ activePage, onNavigate }) {
     { icon: Lock,      label: t('locked'),      id: 'locked',     alwaysShow: true },
     { icon: Cloud,     label: t('cloud_save'),  id: 'cloud-save', alwaysShow: false, showKey: 'cloudSaveEnabled' },
   ];
+
+  const activeWebhook = savedWebhooks.find(w => w.url === webhookUrl);
+  const userLabel = activeWebhook ? activeWebhook.label : 'Guest User';
+
+  const handleSwitchAccount = async (url) => {
+    if (url === webhookUrl) return;
+    setShowSwitcher(false);
+    await connect(url);
+  };
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (switcherRef.current && !switcherRef.current.contains(e.target)) {
+        setShowSwitcher(false);
+      }
+    };
+    if (showSwitcher) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showSwitcher]);
 
   const totalSize = files.reduce((sum, f) => sum + (f.size || 0), 0);
   const formatSizeGB = (bytes) => {
@@ -85,6 +111,73 @@ export default function Sidebar({ activePage, onNavigate }) {
             );
           })}
       </nav>
+
+      <div className={styles.divider} />
+
+      {/* Profile Section */}
+      <div className={styles.userSection} ref={switcherRef}>
+        <div className={styles.userBadgeWrapper}>
+          <motion.button
+            whileHover={animationsEnabled ? { scale: 1.02, x: 2 } : {}}
+            whileTap={animationsEnabled ? { scale: 0.98 } : {}}
+            className={`${styles.userBadge} ${activePage === 'profile' ? styles.activeUser : ''}`}
+            onClick={() => onNavigate('profile')}
+          >
+            <div className={styles.avatar}>
+              <User size={18} />
+            </div>
+            <div className={styles.userInfo}>
+              <span className={styles.userName}>{userLabel}</span>
+              <span className={styles.userStatus}>Online</span>
+            </div>
+          </motion.button>
+          
+          <button 
+            className={styles.switchBtn} 
+            onClick={(e) => { e.stopPropagation(); setShowSwitcher(!showSwitcher); }}
+            title="Switch Account"
+          >
+            <Repeat size={14} />
+          </button>
+        </div>
+
+        <AnimatePresence>
+          {showSwitcher && (
+            <motion.div 
+              initial={{ opacity: 0, y: 10, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 10, scale: 0.95 }}
+              className={styles.switcherPopup}
+            >
+              <div className={styles.switcherHeader}>
+                <span>Switch Webhook</span>
+                <button 
+                  className={styles.addMiniBtn} 
+                  onClick={() => { setShowSwitcher(false); onNavigate('profile'); }}
+                  title="Add New Webhook"
+                >
+                  <Plus size={14} />
+                </button>
+              </div>
+              <div className={styles.switcherList}>
+                {savedWebhooks.map((webhook) => (
+                  <button
+                    key={webhook.url}
+                    className={`${styles.switcherItem} ${webhook.url === webhookUrl ? styles.switcherItemActive : ''}`}
+                    onClick={() => handleSwitchAccount(webhook.url)}
+                  >
+                    <div className={styles.switcherItemInfo}>
+                      <span className={styles.switcherItemLabel}>{webhook.label}</span>
+                      <span className={styles.switcherItemUrl}>{webhook.url.split('/').pop().slice(0, 10)}...</span>
+                    </div>
+                    {webhook.url === webhookUrl && <div className={styles.activeDot} />}
+                  </button>
+                ))}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
 
       <div className={styles.divider} />
 

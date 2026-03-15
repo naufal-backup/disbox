@@ -8,16 +8,32 @@ const SAVED_WEBHOOKS_KEY = 'disbox_saved_webhooks';
 
 function getSavedWebhooks() {
   try { return JSON.parse(localStorage.getItem(SAVED_WEBHOOKS_KEY) || '[]'); }
-  catch { return []; }
+  catch (e) { return []; }
 }
 
 function saveWebhookToList(url, label) {
   const list = getSavedWebhooks();
-  const existing = list.findIndex(w => w.url === url);
-  const entry = { url, label: label || extractWebhookLabel(url), lastUsed: Date.now() };
-  if (existing >= 0) list[existing] = entry;
-  else list.unshift(entry);
-  localStorage.setItem(SAVED_WEBHOOKS_KEY, JSON.stringify(list.slice(0, 20)));
+  const index = list.findIndex(i => i.url === url);
+  const entry = { url, label: label || (index >= 0 ? list[index].label : extractWebhookLabel(url)), lastUsed: Date.now() };
+  if (index >= 0) list.splice(index, 1);
+  list.unshift(entry);
+  localStorage.setItem(SAVED_WEBHOOKS_KEY, JSON.stringify(list.slice(0, 50))); // Increased limit to 50
+}
+
+function updateWebhookLabel(url, label) {
+  const list = getSavedWebhooks();
+  const index = list.findIndex(i => i.url === url);
+  if (index >= 0) {
+    list[index].label = label;
+    localStorage.setItem(SAVED_WEBHOOKS_KEY, JSON.stringify(list));
+    return true;
+  }
+  return false;
+}
+
+function removeWebhook(url) {
+  const list = getSavedWebhooks().filter(i => i.url !== url);
+  localStorage.setItem(SAVED_WEBHOOKS_KEY, JSON.stringify(list));
 }
 
 function extractWebhookLabel(url) {
@@ -30,6 +46,7 @@ export function AppProvider({ children }) {
   const [webhookUrl, setWebhookUrl] = useState(() => localStorage.getItem('disbox_webhook') || '');
   
   const [isConnected, setIsConnected] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(false);
   const [files, setFiles] = useState([]);
   const [fileTree, setFileTree] = useState(null);
   const [currentPath, setCurrentPath] = useState('/');
@@ -55,6 +72,13 @@ export function AppProvider({ children }) {
   const [isVerified, setIsVerified] = useState(false);
   const [pinExists, setPinExists] = useState(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [appLockEnabled, setAppLockEnabled] = useState(
+    () => localStorage.getItem('disbox_app_lock_enabled') === 'true'
+  );
+  const [appLockPin, setAppLockPin] = useState(
+    () => localStorage.getItem('disbox_app_lock_pin') || ''
+  );
+  const [isAppUnlocked, setIsAppUnlocked] = useState(false);
 
   const [cloudSaveEnabled, setCloudSaveEnabled] = useState(
     () => localStorage.getItem('disbox_cloudsave_enabled') === 'true'
@@ -162,11 +186,20 @@ export function AppProvider({ children }) {
     localStorage.setItem('disbox_share_mode', shareMode);
   }, [shareEnabled, shareMode]);
 
+  useEffect(() => {
+    localStorage.setItem('disbox_app_lock_enabled', appLockEnabled.toString());
+  }, [appLockEnabled]);
+
+  useEffect(() => {
+    localStorage.setItem('disbox_app_lock_pin', appLockPin);
+  }, [appLockPin]);
+
   const toggleTheme = useCallback(() => {
     setTheme(prev => prev === 'dark' ? 'light' : 'dark');
   }, []);
 
   const connect = useCallback(async (url, metadataId = null) => {
+    setIsConnecting(true);
     setLoading(true);
     setIsConnected(false);
     setPinExists(null);
@@ -234,6 +267,7 @@ export function AppProvider({ children }) {
       console.error('Connect failed:', e);
       return { ok: false, reason: 'unknown', message: e.message };
     } finally {
+      setIsConnecting(false);
       setLoading(false);
     }
   }, []);
@@ -636,9 +670,20 @@ export function AppProvider({ children }) {
     return abortControllersRef.current.get(id)?.signal ?? null;
   }, []);
 
+  const handleUpdateLabel = useCallback((url, label) => {
+    if (updateWebhookLabel(url, label)) {
+      setSavedWebhooks(getSavedWebhooks());
+    }
+  }, []);
+
+  const handleRemoveWebhook = useCallback((url) => {
+    removeWebhook(url);
+    setSavedWebhooks(getSavedWebhooks());
+  }, []);
+
   return (
     <AppContext.Provider value={{
-      api, webhookUrl, isConnected, files, fileTree,
+      api, webhookUrl, isConnected, isConnecting, files, fileTree,
       currentPath, setCurrentPath,
       loading, transfers, savedWebhooks,
       language, setLanguage, t,
@@ -654,6 +699,9 @@ export function AppProvider({ children }) {
       metadataStatus,
       closeToTray, startMinimized, updatePrefs,
       isVerified, setIsVerified,
+      appLockEnabled, setAppLockEnabled,
+      appLockPin, setAppLockPin,
+      isAppUnlocked, setIsAppUnlocked,
       pinExists, setPinExists,
       isSidebarOpen, setIsSidebarOpen,
       isTransferring,
@@ -673,6 +721,8 @@ export function AppProvider({ children }) {
       getAllDirs,
       addTransfer, updateTransfer, removeTransfer,
       cancelTransfer, getTransferSignal,
+      updateWebhookLabel: handleUpdateLabel,
+      removeWebhook: handleRemoveWebhook,
     }}>
       {children}
     </AppContext.Provider>

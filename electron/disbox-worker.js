@@ -200,23 +200,34 @@ function previewPage(d) {
     'function fetchAll(onProgress){' +
     '  var keyP=ENC_KEY_B64?crypto.subtle.importKey("raw",b64ToBytes(ENC_KEY_B64),{name:"AES-GCM"},false,["decrypt"]):Promise.resolve(null);' +
     '  return keyP.then(function(key){' +
-    '    var chunks=[];var i=0;' +
-    '    function next(){' +
-    '      if(i>=MESSAGE_IDS.length){' +
-    '        var total=chunks.reduce(function(s,c){return s+c.byteLength;},0);' +
-    '        var merged=new Uint8Array(total);var off=0;' +
-    '        for(var j=0;j<chunks.length;j++){merged.set(new Uint8Array(chunks[j]),off);off+=chunks[j].byteLength;}' +
-    '        return Promise.resolve(merged.buffer);' +
-    '      }' +
-    '      var entry=MESSAGE_IDS[i];' +
+    '    var chunks=new Array(MESSAGE_IDS.length);' +
+    '    var completed=0; var concurrency=3;' +
+    '    function fetchChunk(idx) {' +
+    '      if(idx>=MESSAGE_IDS.length) return Promise.resolve();' +
+    '      var entry=MESSAGE_IDS[idx];' +
     '      var msgId=typeof entry==="string"?entry:entry.msgId;' +
-    '      if(onProgress)onProgress(i,MESSAGE_IDS.length);' +
     '      return fetch("/share/"+TOKEN+"/chunk/"+msgId)' +
     '        .then(function(r){if(!r.ok)throw new Error("Gagal mengambil data");return r.arrayBuffer();})' +
     '        .then(function(buf){return key?decryptChunk(buf,key):buf;})' +
-    '        .then(function(buf){chunks.push(buf);i++;return next();});' +
+    '        .then(function(buf){' +
+    '          chunks[idx]=buf;' +
+    '          completed++; if(onProgress)onProgress(completed,MESSAGE_IDS.length);' +
+    '        });' +
     '    }' +
-    '    return next();' +
+    '    var promises=[]; var nextIdx=0;' +
+    '    function startNext() {' +
+    '      if(nextIdx>=MESSAGE_IDS.length) return Promise.resolve();' +
+    '      return fetchChunk(nextIdx++).then(startNext);' +
+    '    }' +
+    '    for(var i=0; i<concurrency; i++) promises.push(startNext());' +
+    '    return Promise.all(promises).then(function(){' +
+    '      var total=chunks.reduce(function(s,c){return s+(c?c.byteLength:0);},0);' +
+    '      var merged=new Uint8Array(total); var off=0;' +
+    '      for(var j=0; j<chunks.length; j++){' +
+    '        if(chunks[j]){ merged.set(new Uint8Array(chunks[j]),off); off+=chunks[j].byteLength; }' +
+    '      }' +
+    '      return merged.buffer;' +
+    '    });' +
     '  });' +
     '}' +
     'function loadPreview(){' +
