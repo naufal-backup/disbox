@@ -1322,6 +1322,8 @@ ipcMain.handle('share-create-link', async (_, hash, { filePath, fileId, permissi
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run(id, hash, filePath, fileId || null, token, permission, expiresAt || null, Date.now());
 
+    markMetadataDirty(hash);
+
     return { ok: true, link: `${cfWorkerUrl}/share/${token}`, token, id };
   } catch (e) {
     console.error('[share] create-link error:', e.message);
@@ -1340,6 +1342,9 @@ ipcMain.handle('share-revoke-link', async (_, hash, { id, token }) => {
       headers: { 'X-Disbox-Key': apiKey }
     }).catch(e => console.warn('[share] CF revoke failed:', e.message));
     db.prepare('DELETE FROM share_links WHERE id = ? AND hash = ?').run(id, hash);
+    
+    markMetadataDirty(hash);
+    
     return true;
   } catch (e) {
     console.error('[share] revoke-link error:', e.message);
@@ -1358,6 +1363,9 @@ ipcMain.handle('share-revoke-all', async (_, hash) => {
       headers: { 'X-Disbox-Key': apiKey }
     }).catch(e => console.warn('[share] CF revoke-all failed:', e.message));
     db.prepare('DELETE FROM share_links WHERE hash = ?').run(hash);
+    
+    markMetadataDirty(hash);
+    
     return true;
   } catch (e) {
     console.error('[share] revoke-all error:', e.message);
@@ -1609,6 +1617,7 @@ async function uploadMetadataToDiscord(hash) {
 
   let files;
   let pinHash = null;
+  let shareLinks = [];
   try {
     const rows = db.prepare(
       'SELECT id, path, message_ids as messageIds, size, created_at as createdAt, is_locked as isLocked, is_starred as isStarred FROM files WHERE hash = ?'
@@ -1623,10 +1632,22 @@ async function uploadMetadataToDiscord(hash) {
     const pinRow = db.prepare("SELECT value FROM settings WHERE hash = ? AND key = 'pin_hash'").get(hash);
     if (pinRow) pinHash = pinRow.value;
 
-    if (files.length === 0 && !pinHash) return;
+    const shareRows = db.prepare('SELECT * FROM share_links WHERE hash = ?').all(hash);
+    shareLinks = shareRows.map(s => ({
+      id: s.id,
+      hash: s.hash,
+      file_path: s.file_path,
+      file_id: s.file_id,
+      token: s.token,
+      permission: s.permission,
+      expires_at: s.expires_at,
+      created_at: s.created_at
+    }));
+
+    if (files.length === 0 && !pinHash && shareLinks.length === 0) return;
   } catch { return; }
 
-  console.log(`[metadata] UPLOADING …${hash.slice(-8)} (${files.length} items)`);
+  console.log(`[metadata] UPLOADING …${hash.slice(-8)} (${files.length} items, ${shareLinks.length} links)`);
   mainWindow?.webContents.send('metadata-status', { hash, status: 'uploading', items: files.length });
 
   let retryCount = 0;
@@ -1640,6 +1661,7 @@ async function uploadMetadataToDiscord(hash) {
       const container = {
         files,
         pinHash,
+        shareLinks,
         updatedAt: Date.now()
       };
       
@@ -1722,6 +1744,7 @@ ipcMain.handle('save-metadata', async (_, hash, data, msgId = null) => {
       const isContainer = !Array.isArray(data) && data !== null && typeof data === 'object';
       const filesToSave = isContainer ? (data.files || []) : (data || []);
       const pinHashToSync = isContainer ? data.pinHash : null;
+      const shareLinksToSync = isContainer ? (data.shareLinks || []) : [];
 
       if (msgId) {
         // Sync dari cloud: hapus HANYA file milik hash ini
@@ -1761,6 +1784,27 @@ ipcMain.handle('save-metadata', async (_, hash, data, msgId = null) => {
           db.prepare("DELETE FROM settings WHERE hash = ? AND key = 'pin_hash'").run(hash);
         }
 
+        // Sync shareLinks jika ada (khusus saat download dari cloud)
+        if (isContainer && data.shareLinks) {
+          db.prepare('DELETE FROM share_links WHERE hash = ?').run(hash);
+          const insertLink = db.prepare(`
+            INSERT INTO share_links (id, hash, file_path, file_id, token, permission, expires_at, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          `);
+          for (const s of shareLinksToSync) {
+            insertLink.run(
+              s.id,
+              s.hash,
+              s.file_path,
+              s.file_id || null,
+              s.token,
+              s.permission,
+              s.expires_at || null,
+              s.created_at || Date.now()
+            );
+          }
+        }
+
         const meta = db.prepare('SELECT snapshot_history FROM metadata_sync WHERE hash = ?').get(hash);
         let snapshotHistory = JSON.parse(meta?.snapshot_history || '[]');
         if (!snapshotHistory.includes(msgId)) {
@@ -1778,7 +1822,7 @@ ipcMain.handle('save-metadata', async (_, hash, data, msgId = null) => {
             updated_at=excluded.updated_at
         `).run(hash, msgId, JSON.stringify(snapshotHistory), Date.now());
 
-        console.log(`[metadata] SYNCED & RESTORED …${hash.slice(-8)} → ${filesToSave.length} items`);
+        console.log(`[metadata] SYNCED & RESTORED …${hash.slice(-8)} → ${filesToSave.length} items, ${shareLinksToSync.length} links`);
         mainWindow?.webContents.send('metadata-status', { hash, status: 'synced', items: filesToSave.length });
       } else {
         // Perubahan lokal: hapus HANYA file milik hash ini
