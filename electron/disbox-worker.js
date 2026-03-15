@@ -11,7 +11,7 @@ async function handleRequest(request) {
     'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Disbox-Key'
   };
-  
+
   if (request.method === 'OPTIONS') return new Response(null, { headers: cors });
 
   // Increment total requests counter (Usage)
@@ -24,9 +24,9 @@ async function handleRequest(request) {
   if (path === '/share/stats' && request.method === 'GET') {
     const list = await SHARE_KV.list({ prefix: 'share_' });
     const stats = await SHARE_KV.get('internal_stats', 'json') || { requests: 0 };
-    return new Response(JSON.stringify({ 
+    return new Response(JSON.stringify({
       links: list.keys.length,
-      requests: stats.requests 
+      requests: stats.requests
     }), { headers: { ...cors, 'Content-Type': 'application/json' } });
   }
 
@@ -35,7 +35,7 @@ async function handleRequest(request) {
       return new Response('Unauthorized', { status: 401, headers: cors });
     const body = await request.json();
     await SHARE_KV.put('share_' + body.token, JSON.stringify(body),
-                           body.expiresAt ? { expiration: Math.floor(body.expiresAt / 1000) } : undefined);
+                       body.expiresAt ? { expiration: Math.floor(body.expiresAt / 1000) } : undefined);
     return new Response(JSON.stringify({ ok: true }), { headers: { ...cors, 'Content-Type': 'application/json' } });
   }
 
@@ -76,9 +76,9 @@ async function handleRequest(request) {
       return (typeof m === 'string' ? m : m.msgId) === msgId;
     });
     if (!entry) return new Response('Chunk not found', { status: 404, headers: cors });
-    
+
     let attachmentUrl = typeof entry === 'object' ? entry.attachmentUrl : null;
-    
+
     // logic refresh Discord CDN URL jika expired (Discord link biasanya cuma tahan 24 jam)
     const isExpired = function(u) {
       if (!u) return true;
@@ -99,7 +99,7 @@ async function handleRequest(request) {
             if (entryIdx >= 0) {
               data.messageIds[entryIdx].attachmentUrl = attachmentUrl;
               await SHARE_KV.put('share_' + token, JSON.stringify(data),
-                data.expiresAt ? { expiration: Math.floor(data.expiresAt / 1000) } : undefined);
+                                 data.expiresAt ? { expiration: Math.floor(data.expiresAt / 1000) } : undefined);
             }
           }
         }
@@ -107,7 +107,7 @@ async function handleRequest(request) {
     }
 
     if (!attachmentUrl) return new Response('Attachment URL not available', { status: 404, headers: cors });
-    
+
     const cdnRes = await fetch(attachmentUrl);
     if (!cdnRes.ok) return new Response('CDN error', { status: 502, headers: cors });
     return new Response(cdnRes.body, { headers: { ...cors, 'Content-Type': 'application/octet-stream' } });
@@ -120,7 +120,7 @@ async function handleRequest(request) {
     if (!data) return new Response('Not found', { status: 404, headers: cors });
     if (data.expiresAt && Date.now() > data.expiresAt)
       return new Response('Expired', { status: 410, headers: cors });
-    
+
     // Sembunyikan webhookUrl dari public info
     const { webhookUrl, ...safeData } = data;
     return new Response(JSON.stringify(safeData), { headers: { ...cors, 'Content-Type': 'application/json' } });
@@ -147,8 +147,8 @@ function previewPage(d) {
   const name = d.filePath.split('/').pop();
   const ext = name.split('.').pop().toLowerCase();
   const expiry = d.expiresAt
-    ? 'Hingga ' + new Date(d.expiresAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })
-    : 'Selamanya';
+  ? 'Hingga ' + new Date(d.expiresAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })
+  : 'Selamanya';
   const canDownload = d.permission === 'download';
   const msgIdsJson = JSON.stringify(d.messageIds || []);
   const tokenJson = JSON.stringify(d.token);
@@ -179,164 +179,153 @@ function previewPage(d) {
   };
 
   const mediaScript = '<script>' +
-    'var TOKEN=' + tokenJson + ';' +
-    'var FILE_NAME=' + nameJson + ';' +
-    'var MESSAGE_IDS=' + msgIdsJson + ';' +
-    'var ENC_KEY_B64=' + keyB64Json + ';' +
-    'var MIME=' + mimeJson + ';' +
-    'var MAGIC=new Uint8Array([68,66,88,95,69,78,67,58]);' +
-    'function hasHeader(b){var u=new Uint8Array(b);if(u.length<8)return false;for(var i=0;i<8;i++)if(u[i]!==MAGIC[i])return false;return true;}' +
-    'function b64ToBytes(s){var bin=atob(s);var u=new Uint8Array(bin.length);for(var i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);return u;}' +
-    'function decryptChunk(buf,key){' +
-    '  if(!hasHeader(buf))return Promise.resolve(buf);' +
-    '  var u=new Uint8Array(buf);' +
-    '  var iv=u.slice(8,20);' +
-    '  var dataWithTag=u.slice(20);' +
-    '  return crypto.subtle.decrypt({name:"AES-GCM",iv:iv},key,dataWithTag).catch(function(e){' +
-    '    console.error("Decryption failed:",e);' +
-    '    return buf;' +
-    '  });' +
-    '}' +
-    'function fetchAll(onProgress){' +
-    '  var keyP=ENC_KEY_B64?crypto.subtle.importKey("raw",b64ToBytes(ENC_KEY_B64),{name:"AES-GCM"},false,["decrypt"]):Promise.resolve(null);' +
-    '  return keyP.then(function(key){' +
-    '    var chunks=new Array(MESSAGE_IDS.length);' +
-    '    var completed=0; var concurrency=3;' +
-    '    function fetchChunk(idx) {' +
-    '      if(idx>=MESSAGE_IDS.length) return Promise.resolve();' +
-    '      var entry=MESSAGE_IDS[idx];' +
-    '      var msgId=typeof entry==="string"?entry:entry.msgId;' +
-    '      return fetch("/share/"+TOKEN+"/chunk/"+msgId)' +
-    '        .then(function(r){if(!r.ok)throw new Error("Gagal mengambil data");return r.arrayBuffer();})' +
-    '        .then(function(buf){return key?decryptChunk(buf,key):buf;})' +
-    '        .then(function(buf){' +
-    '          chunks[idx]=buf;' +
-    '          completed++; if(onProgress)onProgress(completed,MESSAGE_IDS.length);' +
-    '        });' +
-    '    }' +
-    '    var promises=[]; var nextIdx=0;' +
-    '    function startNext() {' +
-    '      if(nextIdx>=MESSAGE_IDS.length) return Promise.resolve();' +
-    '      return fetchChunk(nextIdx++).then(startNext);' +
-    '    }' +
-    '    for(var i=0; i<concurrency; i++) promises.push(startNext());' +
-    '    return Promise.all(promises).then(function(){' +
-    '      var total=chunks.reduce(function(s,c){return s+(c?c.byteLength:0);},0);' +
-    '      var merged=new Uint8Array(total); var off=0;' +
-    '      for(var j=0; j<chunks.length; j++){' +
-    '        if(chunks[j]){ merged.set(new Uint8Array(chunks[j]),off); off+=chunks[j].byteLength; }' +
-    '      }' +
-    '      return merged.buffer;' +
-    '    });' +
-    '  });' +
-    '}' +
-    'function loadPreview(){' +
-    '  var el=document.getElementById("mediaEl");' +
-    '  var status=document.getElementById("statusText");' +
-    '  var prog=document.getElementById("progressBar");' +
-    '  var loader=document.getElementById("loader");' +
-    '  if(!el) return;' +
-    '  loader.style.display="flex";' +
-    '  fetchAll(function(i,total){' +
-    '    var p=Math.round(((i+1)/total)*100);' +
-    '    status.textContent="Memuat preview... "+p+"%";' +
-    '    prog.style.width=p+"%";' +
-    '  })' +
-    '  .then(function(buf){' +
-    '    var blob=new Blob([buf],{type:MIME});' +
-    '    el.src=URL.createObjectURL(blob);' +
-    '    loader.style.display="none";' +
-    '  })' +
-    '  .catch(function(e){' +
-    '    status.textContent="Gagal memuat preview: "+e.message;' +
-    '    status.style.color="#ff4d4d";' +
-    '    document.getElementById("progressContainer").style.display="none";' +
-    '  });' +
-    '}' +
-    'function startDownload(){' +
-    '  var btn=document.getElementById("dlBtn");' +
-    '  var status=document.getElementById("statusText");' +
-    '  var prog=document.getElementById("progressBar");' +
-    '  var loader=document.getElementById("loader");' +
-    '  btn.disabled=true; btn.style.opacity="0.5";' +
-    '  loader.style.display="flex";' +
-    '  fetchAll(function(i,total){' +
-    '    var p=Math.round(((i+1)/total)*100);' +
-    '    status.textContent="Mengunduh... "+p+"%";' +
-    '    prog.style.width=p+"%";' +
-    '  })' +
-    '  .then(function(buf){' +
-    '    var blob=new Blob([buf],{type:MIME});' +
-    '    var url=URL.createObjectURL(blob);' +
-    '    var a=document.createElement("a");a.href=url;a.download=FILE_NAME;a.click();' +
-    '    URL.revokeObjectURL(url);' +
-    '    status.textContent="Selesai!"; btn.disabled=false; btn.style.opacity="1";' +
-    '    setTimeout(function(){ loader.style.display="none"; }, 1000);' +
-    '  }).catch(function(e){' +
-    '    status.textContent="Error: "+e.message;' +
-    '    status.style.color="#ff4d4d";' +
-    '    btn.disabled=false; btn.style.opacity="1";' +
-    '  });' +
-    '}' +
-    'window.addEventListener("load",function(){ if(' + canPreview + ') loadPreview(); });' +
-    '<\/script>';
+  'var TOKEN=' + tokenJson + ';' +
+  'var FILE_NAME=' + nameJson + ';' +
+  'var MESSAGE_IDS=' + msgIdsJson + ';' +
+  'var ENC_KEY_B64=' + keyB64Json + ';' +
+  'var MIME=' + mimeJson + ';' +
+  'var MAGIC=new Uint8Array([68,66,88,95,69,78,67,58]);' +
+  'function hasHeader(b){var u=new Uint8Array(b);if(u.length<8)return false;for(var i=0;i<8;i++)if(u[i]!==MAGIC[i])return false;return true;}' +
+  'function b64ToBytes(s){var bin=atob(s);var u=new Uint8Array(bin.length);for(var i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);return u;}' +
+  'function decryptChunk(buf,key){' +
+  '  if(!hasHeader(buf))return Promise.resolve(buf);' +
+  '  var u=new Uint8Array(buf);' +
+  '  var iv=u.slice(8,20);' +
+  '  var dataWithTag=u.slice(20);' +
+  '  return crypto.subtle.decrypt({name:"AES-GCM",iv:iv},key,dataWithTag).catch(function(e){' +
+  '    console.error("Decryption failed:",e);' +
+  '    return buf;' +
+  '  });' +
+  '}' +
+  'function fetchAll(onProgress){' +
+  '  var keyP=ENC_KEY_B64?crypto.subtle.importKey("raw",b64ToBytes(ENC_KEY_B64),{name:"AES-GCM"},false,["decrypt"]):Promise.resolve(null);' +
+  '  return keyP.then(function(key){' +
+  '    var chunks=[];var i=0;' +
+  '    function next(){' +
+  '      if(i>=MESSAGE_IDS.length){' +
+  '        var total=chunks.reduce(function(s,c){return s+c.byteLength;},0);' +
+  '        var merged=new Uint8Array(total);var off=0;' +
+  '        for(var j=0;j<chunks.length;j++){merged.set(new Uint8Array(chunks[j]),off);off+=chunks[j].byteLength;}' +
+  '        return Promise.resolve(merged.buffer);' +
+  '      }' +
+  '      var entry=MESSAGE_IDS[i];' +
+  '      var msgId=typeof entry==="string"?entry:entry.msgId;' +
+  '      if(onProgress)onProgress(i,MESSAGE_IDS.length);' +
+  '      return fetch("/share/"+TOKEN+"/chunk/"+msgId)' +
+  '        .then(function(r){if(!r.ok)throw new Error("Gagal mengambil data");return r.arrayBuffer();})' +
+  '        .then(function(buf){return key?decryptChunk(buf,key):buf;})' +
+  '        .then(function(buf){chunks.push(buf);i++;return next();});' +
+  '    }' +
+  '    return next();' +
+  '  });' +
+  '}' +
+  'function loadPreview(){' +
+  '  var el=document.getElementById("mediaEl");' +
+  '  var status=document.getElementById("statusText");' +
+  '  var prog=document.getElementById("progressBar");' +
+  '  var loader=document.getElementById("loader");' +
+  '  if(!el) return;' +
+  '  loader.style.display="flex";' +
+  '  fetchAll(function(i,total){' +
+  '    var p=Math.round(((i+1)/total)*100);' +
+  '    status.textContent="Memuat preview... "+p+"%";' +
+  '    prog.style.width=p+"%";' +
+  '  })' +
+  '  .then(function(buf){' +
+  '    var blob=new Blob([buf],{type:MIME});' +
+  '    el.src=URL.createObjectURL(blob);' +
+  '    loader.style.display="none";' +
+  '  })' +
+  '  .catch(function(e){' +
+  '    status.textContent="Gagal memuat preview: "+e.message;' +
+  '    status.style.color="#ff4d4d";' +
+  '    document.getElementById("progressContainer").style.display="none";' +
+  '  });' +
+  '}' +
+  'function startDownload(){' +
+  '  var btn=document.getElementById("dlBtn");' +
+  '  var status=document.getElementById("statusText");' +
+  '  var prog=document.getElementById("progressBar");' +
+  '  var loader=document.getElementById("loader");' +
+  '  btn.disabled=true; btn.style.opacity="0.5";' +
+  '  loader.style.display="flex";' +
+  '  fetchAll(function(i,total){' +
+  '    var p=Math.round(((i+1)/total)*100);' +
+  '    status.textContent="Mengunduh... "+p+"%";' +
+  '    prog.style.width=p+"%";' +
+  '  })' +
+  '  .then(function(buf){' +
+  '    var blob=new Blob([buf],{type:MIME});' +
+  '    var url=URL.createObjectURL(blob);' +
+  '    var a=document.createElement("a");a.href=url;a.download=FILE_NAME;a.click();' +
+  '    URL.revokeObjectURL(url);' +
+  '    status.textContent="Selesai!"; btn.disabled=false; btn.style.opacity="1";' +
+  '    setTimeout(function(){ loader.style.display="none"; }, 1000);' +
+  '  }).catch(function(e){' +
+  '    status.textContent="Error: "+e.message;' +
+  '    status.style.color="#ff4d4d";' +
+  '    btn.disabled=false; btn.style.opacity="1";' +
+  '  });' +
+  '}' +
+  'window.addEventListener("load",function(){ if(' + canPreview + ') loadPreview(); });' +
+  '<\/script>';
 
   return '<!DOCTYPE html>' +
-    '<html lang="id"><head>' +
-    '<meta charset="UTF-8">' +
-    '<meta name="viewport" content="width=device-width,initial-scale=1">' +
-    '<title>' + name + ' | Disbox<\/title>' +
-    '<style>' +
-    '  :root{--bg:#09090b;--card:#18181b;--border:#27272a;--text:#fafafa;--text-muted:#a1a1aa;--accent:#5865f2;--accent-hover:#4752c4}' +
-    '  *{box-sizing:border-box;margin:0;padding:0}' +
-    '  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;line-height:1.5}' +
-    '  .card{background:var(--card);border:1px solid var(--border);border-radius:20px;width:100%;max-width:480px;overflow:hidden;box-shadow:0 20px 25px -5px rgba(0,0,0,0.3)}' +
-    '  .preview-container{width:100%;background:#000;display:flex;align-items:center;justify-content:center;position:relative;min-height:200px;border-bottom:1px solid var(--border)}' +
-    '  #mediaEl{max-width:100%;max-height:60vh;display:block}' +
-    '  .no-preview{padding:60px 20px;text-align:center;color:var(--text-muted);display:flex;flex-direction:column;align-items:center;gap:12px}' +
-    '  .no-preview svg{width:48px;height:48px;opacity:0.5}' +
-    '  .content{padding:32px}' +
-    '  .file-info{margin-bottom:24px;text-align:center}' +
-    '  .file-name{font-size:18px;font-weight:700;margin-bottom:6px;word-break:break-all;color:var(--text)}' +
-    '  .file-meta{font-size:13px;color:var(--text-muted);display:flex;align-items:center;justify-content:center;gap:6px}' +
-    '  .btn{width:100%;padding:14px;background:var(--accent);color:#fff;border-radius:12px;border:none;font-weight:600;font-size:15px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px;transition:all 0.2s}' +
-    '  .btn:hover:not(:disabled){background:var(--accent-hover);transform:translateY(-1px)}' +
-    '  .btn:active:not(:disabled){transform:translateY(0)}' +
-    '  .btn:disabled{opacity:0.5;cursor:not-allowed}' +
-    '  .loader-overlay{position:absolute;inset:0;background:rgba(0,0,0,0.7);display:none;flex-direction:column;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(4px)}' +
-    '  .progress-container{width:100%;max-width:200px;height:6px;background:rgba(255,255,255,0.1);border-radius:10px;overflow:hidden;margin-top:12px}' +
-    '  .progress-bar{height:100%;background:var(--accent);width:0%;transition:width 0.1s}' +
-    '  #statusText{font-size:12px;font-weight:500}' +
-    '  .view-only-badge{font-size:12px;color:var(--text-muted);background:rgba(255,255,255,0.05);padding:8px 12px;border-radius:8px;text-align:center}' +
-    '  .footer{margin-top:24px;font-size:12px;color:var(--text-muted);display:flex;align-items:center;gap:6px}' +
-    '  .footer span{color:var(--accent);font-weight:600}' +
-    '<\/style><\/head><body>' +
-    '<div class="card">' +
-    '  <div class="preview-container">' +
-    (canPreview
-      ? (isImage ? '<img id="mediaEl" />' : '<video id="mediaEl" controls></video>') +
-        '<div id="loader" class="loader-overlay">' +
-        '  <div id="statusText">Menyiapkan...</div>' +
-        '  <div class="progress-container" id="progressContainer"><div id="progressBar" class="progress-bar"></div></div>' +
-        '</div>'
-      : '<div class="no-preview">' + getIcon() + '<span>Preview tidak tersedia untuk tipe file ini</span></div>') +
-    '  </div>' +
-    '  <div class="content">' +
-    '    <div class="file-info">' +
-    '      <div class="file-name">' + name + '</div>' +
-    '      <div class="file-meta">' + getIcon() + ' • ' + expiry + '</div>' +
-    '    </div>' +
-    (canDownload
-      ? '<button class="btn" id="dlBtn" onclick="startDownload()">' + icons.download + ' Unduh File</button>'
-      : '<div class="view-only-badge">Hanya Lihat — Unduhan tidak tersedia</div>') +
-    (!canPreview && canDownload ? '<div id="loader" style="display:none;flex-direction:column;align-items:center;margin-top:16px">' +
-      '<div id="statusText" style="font-size:12px">Menyiapkan...</div>' +
-      '<div class="progress-container"><div id="progressBar" class="progress-bar"></div></div></div>' : '') +
-    '  </div>' +
-    '</div>' +
-    '<div class="footer">Dibagikan melalui <span>Disbox</span></div>' +
-    mediaScript +
-    '<\/body><\/html>';
+  '<html lang="id"><head>' +
+  '<meta charset="UTF-8">' +
+  '<meta name="viewport" content="width=device-width,initial-scale=1">' +
+  '<title>' + name + ' | Disbox<\/title>' +
+  '<style>' +
+  '  :root{--bg:#09090b;--card:#18181b;--border:#27272a;--text:#fafafa;--text-muted:#a1a1aa;--accent:#5865f2;--accent-hover:#4752c4}' +
+  '  *{box-sizing:border-box;margin:0;padding:0}' +
+  '  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;line-height:1.5}' +
+  '  .card{background:var(--card);border:1px solid var(--border);border-radius:20px;width:100%;max-width:480px;overflow:hidden;box-shadow:0 20px 25px -5px rgba(0,0,0,0.3)}' +
+  '  .preview-container{width:100%;background:#000;display:flex;align-items:center;justify-content:center;position:relative;min-height:200px;border-bottom:1px solid var(--border)}' +
+  '  #mediaEl{max-width:100%;max-height:60vh;display:block}' +
+  '  .no-preview{padding:60px 20px;text-align:center;color:var(--text-muted);display:flex;flex-direction:column;align-items:center;gap:12px}' +
+  '  .no-preview svg{width:48px;height:48px;opacity:0.5}' +
+  '  .content{padding:32px}' +
+  '  .file-info{margin-bottom:24px;text-align:center}' +
+  '  .file-name{font-size:18px;font-weight:700;margin-bottom:6px;word-break:break-all;color:var(--text)}' +
+  '  .file-meta{font-size:13px;color:var(--text-muted);display:flex;align-items:center;justify-content:center;gap:6px}' +
+  '  .btn{width:100%;padding:14px;background:var(--accent);color:#fff;border-radius:12px;border:none;font-weight:600;font-size:15px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px;transition:all 0.2s}' +
+  '  .btn:hover:not(:disabled){background:var(--accent-hover);transform:translateY(-1px)}' +
+  '  .btn:active:not(:disabled){transform:translateY(0)}' +
+  '  .btn:disabled{opacity:0.5;cursor:not-allowed}' +
+  '  .loader-overlay{position:absolute;inset:0;background:rgba(0,0,0,0.7);display:none;flex-direction:column;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(4px)}' +
+  '  .progress-container{width:100%;max-width:200px;height:6px;background:rgba(255,255,255,0.1);border-radius:10px;overflow:hidden;margin-top:12px}' +
+  '  .progress-bar{height:100%;background:var(--accent);width:0%;transition:width 0.1s}' +
+  '  #statusText{font-size:12px;font-weight:500}' +
+  '  .view-only-badge{font-size:12px;color:var(--text-muted);background:rgba(255,255,255,0.05);padding:8px 12px;border-radius:8px;text-align:center}' +
+  '  .footer{margin-top:24px;font-size:12px;color:var(--text-muted);display:flex;align-items:center;gap:6px}' +
+  '  .footer span{color:var(--accent);font-weight:600}' +
+  '<\/style><\/head><body>' +
+  '<div class="card">' +
+  '  <div class="preview-container">' +
+  (canPreview
+  ? (isImage ? '<img id="mediaEl" />' : '<video id="mediaEl" controls></video>') +
+  '<div id="loader" class="loader-overlay">' +
+  '  <div id="statusText">Menyiapkan...</div>' +
+  '  <div class="progress-container" id="progressContainer"><div id="progressBar" class="progress-bar"></div></div>' +
+  '</div>'
+  : '<div class="no-preview">' + getIcon() + '<span>Preview tidak tersedia untuk tipe file ini</span></div>') +
+  '  </div>' +
+  '  <div class="content">' +
+  '    <div class="file-info">' +
+  '      <div class="file-name">' + name + '</div>' +
+  '      <div class="file-meta">' + getIcon() + ' • ' + expiry + '</div>' +
+  '    </div>' +
+  (canDownload
+  ? '<button class="btn" id="dlBtn" onclick="startDownload()">' + icons.download + ' Unduh File</button>'
+  : '<div class="view-only-badge">Hanya Lihat — Unduhan tidak tersedia</div>') +
+  (!canPreview && canDownload ? '<div id="loader" style="display:none;flex-direction:column;align-items:center;margin-top:16px">' +
+  '<div id="statusText" style="font-size:12px">Menyiapkan...</div>' +
+  '<div class="progress-container"><div id="progressBar" class="progress-bar"></div></div></div>' : '') +
+  '  </div>' +
+  '</div>' +
+  '<div class="footer">Dibagikan melalui <span>Disbox</span></div>' +
+  mediaScript +
+  '<\/body><\/html>';
 }
 
 
