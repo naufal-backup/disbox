@@ -91,12 +91,12 @@ Untuk membuat paket aplikasi siap pakai:
 Bash
 npm run build
 Hasil build akan tersedia di folder release/:
-```
+
 Linux: .AppImage dan .deb
 
 Windows: .exe (Setup), Portable, dan .zip
-
-🔒 Keamanan & Privasi
+```
+## 🔒 Keamanan & Privasi
 Disbox menggunakan Discord Webhook sebagai endpoint penyimpanan. Data Anda aman karena tidak ada server perantara (serverless).
 
 Keamanan PIN:
@@ -108,7 +108,7 @@ App Lock PIN: Hanya disimpan secara lokal di perangkat Anda (localStorage). Digu
 Penyimpanan Lokal (Optimized):
 Aplikasi menggunakan SQLite Database (disbox.db) dengan optimasi performa tinggi (WAL Mode & Synchronous Normal). Hal ini menjamin proses tulis-baca metadata ribuan file terjadi secara instan.
 
-🤝 Kontribusi
+## 🤝 Kontribusi
 Laporan bug dan Pull Request sangat kami hargai!
 
 Fork repositori.
@@ -121,13 +121,13 @@ Push ke branch (git push origin fitur-keren).
 
 Buat Pull Request.
 
-💡 Terinspirasi
+## 💡 Terinspirasi
 https://github.com/DisboxApp/web
 
-💰 Support
+## 💰 Support
 https://saweria.co/Naufal453
 
-📄 Lisensi
+## 📄 Lisensi
 Proyek ini dilisensikan di bawah MIT License.
 
 Developed by Naufal Gastiadirrijal Fawwaz Alamsyah
