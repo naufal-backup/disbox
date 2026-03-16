@@ -1,7 +1,7 @@
-import { useState, useEffect, useMemo } from 'react';
-import {
-  Link2, Trash2, Copy, Check, Lock, Shield, Eye,
-  Grid3x3, List, ArrowUpDown, ChevronDown, Search
+import { useState, useEffect, useMemo, useRef } from 'react';
+import { 
+  Link2, Trash2, Copy, Check, Lock, Shield, Eye, X, 
+  Grid3x3, List, ArrowUpDown, ChevronDown, Search, Image as ImageIcon, Film, AlertCircle
 } from 'lucide-react';
 import { useApp } from '../AppContext.jsx';
 import toast from 'react-hot-toast';
@@ -10,7 +10,7 @@ import { formatSize, getFileIcon, getMimeType } from '../utils/disbox.js';
 import { motion, AnimatePresence } from 'framer-motion';
 import styles from './SharedPage.module.css';
 
-// ─── Thumbnail Concurrency Control ──────────────────────────────────────────
+// ─── Thumbnail Concurrency Control (Same as Drive) ──────────────────────────
 const MAX_CONCURRENT_THUMBS = 3;
 let activeThumbDownloads = 0;
 const thumbQueue = [];
@@ -44,113 +44,108 @@ function FileThumbnail({ file, size = 32 }) {
   const ext = name.split('.').pop().toLowerCase();
   const isImage = ['png', 'jpg', 'jpeg', 'webp', 'svg'].includes(ext);
   const isVideo = ['mp4', 'webm', 'ogg', 'mkv', 'mov', 'avi'].includes(ext);
-  const isMultiChunkVideo = isVideo && (file.messageIds?.length || 0) > 1;
-  const hasSavedThumb = isMultiChunkVideo && !!file.thumbnailMsgId;
 
   useEffect(() => {
     const canShowImage = showPreviews && showImagePreviews && isImage;
     const canShowVideo = showPreviews && showVideoPreviews && isVideo;
 
     if (!canShowImage && !canShowVideo) {
-      if (thumbUrl) { URL.revokeObjectURL(thumbUrl); setThumbUrl(null); }
+      if (thumbUrl) {
+        URL.revokeObjectURL(thumbUrl);
+        setThumbUrl(null);
+      }
       return;
     }
-
-    // Video multi-chunk tanpa thumbnailMsgId → tidak bisa tampilkan thumbnail
-    if (isMultiChunkVideo && !hasSavedThumb) return;
 
     let isMounted = true;
     let objectUrl = null;
     const transferId = `shared-thumb-${file.id}`;
 
-    const compressImage = (blob) => new Promise((resolve) => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        const MAX_SIZE = 256;
-        let w = img.width, h = img.height;
-        if (w > h) { if (w > MAX_SIZE) { h = Math.floor(h * MAX_SIZE / w); w = MAX_SIZE; } }
-        else { if (h > MAX_SIZE) { w = Math.floor(w * MAX_SIZE / h); h = MAX_SIZE; } }
-        canvas.width = Math.max(1, w); canvas.height = Math.max(1, h);
-        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
-        canvas.toBlob(resolve, 'image/webp', 0.7);
-      };
-      img.onerror = () => resolve(null);
-      img.src = URL.createObjectURL(blob);
-    });
+    const compressImage = (blob) => {
+      return new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const MAX_SIZE = 256; 
+          let width = img.width;
+          let height = img.height;
+          if (width > height) {
+            if (width > MAX_SIZE) {
+              height *= MAX_SIZE / width;
+              width = MAX_SIZE;
+            }
+          } else {
+            if (height > MAX_SIZE) {
+              width *= MAX_SIZE / height;
+              height = MAX_SIZE;
+            }
+          }
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+          canvas.toBlob((resultBlob) => resolve(resultBlob), 'image/webp', 0.7);
+        };
+        img.src = URL.createObjectURL(blob);
+      });
+    };
 
-    const captureVideoFrame = (blob) => new Promise((resolve) => {
-      const video = document.createElement('video');
-      video.preload = 'auto';
-      video.muted = true;
-      video.playsInline = true;
-      const url = URL.createObjectURL(blob);
-      let settled = false;
+    const captureVideoFrame = (blob) => {
+      return new Promise((resolve) => {
+        const video = document.createElement('video');
+        video.preload = 'metadata';
+        video.muted = true;
+        video.playsInline = true;
+        const url = URL.createObjectURL(blob);
+        
+        video.onloadedmetadata = () => {
+          video.currentTime = Math.min(1, video.duration / 2);
+        };
 
-      const settle = (result) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        video.src = '';
-        URL.revokeObjectURL(url);
-        resolve(result);
-      };
-
-      const drawFrame = () => {
-        try {
+        video.onseeked = () => {
           const canvas = document.createElement('canvas');
           const MAX_SIZE = 256;
-          let w = video.videoWidth || 320, h = video.videoHeight || 180;
-          if (w > h) { if (w > MAX_SIZE) { h = Math.floor(h * MAX_SIZE / w); w = MAX_SIZE; } }
-          else { if (h > MAX_SIZE) { w = Math.floor(w * MAX_SIZE / h); h = MAX_SIZE; } }
-          canvas.width = Math.max(1, w); canvas.height = Math.max(1, h);
-          canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
-          canvas.toBlob(settle, 'image/webp', 0.7);
-        } catch (e) { settle(null); }
-      };
+          let width = video.videoWidth;
+          let height = video.videoHeight;
+          if (width > height) {
+            if (width > MAX_SIZE) {
+              height *= MAX_SIZE / width;
+              width = MAX_SIZE;
+            }
+          } else {
+            if (height > MAX_SIZE) {
+              width *= MAX_SIZE / height;
+              height = MAX_SIZE;
+            }
+          }
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(video, 0, 0, width, height);
+          canvas.toBlob((resultBlob) => {
+            URL.revokeObjectURL(url);
+            resolve(resultBlob);
+          }, 'image/webp', 0.7);
+        };
 
-      const timer = setTimeout(() => drawFrame(), 8000);
-      video.onloadeddata = () => drawFrame();
-      video.oncanplay = () => { if (!settled) drawFrame(); };
-      video.onerror = () => settle(null);
-      video.src = url;
-    });
+        video.onerror = () => {
+          URL.revokeObjectURL(url);
+          resolve(null);
+        };
+
+        video.src = url;
+      });
+    };
 
     const loadThumb = async () => {
       setLoading(true);
       try {
         await enqueueThumb(transferId, async () => {
           if (!isMounted) return;
-
-          const signal = addTransfer({
-            id: transferId, name: `Thumbnail: ${name}`,
-            progress: 0, type: 'download', status: 'active', hidden: true
-          });
-
-          let buffer;
-
-          if (hasSavedThumb) {
-            // ─── Path 1: Video multi-chunk dengan thumbnailMsgId ───────────────
-            buffer = await api.downloadThumbnail(file.thumbnailMsgId, transferId);
-            if (!isMounted || signal.aborted) return;
-
-            const blob = new Blob([buffer], { type: 'image/webp' });
-            objectUrl = URL.createObjectURL(blob);
-            setThumbUrl(objectUrl);
-          } else {
-            // ─── Path 2: Image atau video single-chunk ─────────────────────────
-            buffer = await api.downloadFile(
-              file,
-              (p) => updateTransfer(transferId, { progress: p }),
-              signal,
-              transferId
-            );
-
-            if (!isMounted || signal.aborted) return;
-
-            const mime = getMimeType(name);
-            const originalBlob = new Blob([buffer], { type: mime });
-
+          const signal = addTransfer({ id: transferId, name: `Thumbnail: ${name}`, progress: 0, type: 'download', status: 'active', hidden: true });
+          const buffer = await api.downloadFile(file, (p) => updateTransfer(transferId, { progress: p }), signal, transferId);
+          if (isMounted && !signal.aborted) {
+            const originalBlob = new Blob([buffer], { type: getMimeType(name) });
             let compressedBlob;
             if (isVideo) {
               compressedBlob = await captureVideoFrame(originalBlob);
@@ -162,20 +157,17 @@ function FileThumbnail({ file, size = 32 }) {
               objectUrl = URL.createObjectURL(compressedBlob);
               setThumbUrl(objectUrl);
             }
+            updateTransfer(transferId, { status: 'done', progress: 1 });
+            setTimeout(() => removeTransfer(transferId), 500);
           }
-
-          updateTransfer(transferId, { status: 'done', progress: 1 });
-          setTimeout(() => removeTransfer(transferId), 500);
         });
       } catch (e) {
-        if (isMounted) console.error('Thumb failed:', e.message);
+        if (isMounted) console.error('Thumb failed:', e);
       } finally {
         if (isMounted) setLoading(false);
       }
     };
-
     loadThumb();
-
     return () => {
       isMounted = false;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
@@ -184,34 +176,33 @@ function FileThumbnail({ file, size = 32 }) {
       const idx = thumbQueue.findIndex(q => q.id === transferId);
       if (idx >= 0) thumbQueue.splice(idx, 1);
     };
-  }, [file.id, file.thumbnailMsgId, showPreviews, showImagePreviews, showVideoPreviews, isImage, isVideo]);
+  }, [file.id, showPreviews, showImagePreviews, showVideoPreviews, isImage, isVideo]);
 
   if (thumbUrl) {
     return (
       <div className={styles.thumbWrapper}>
         <img src={thumbUrl} alt="" className={styles.thumbImage} />
+        {/* {isVideo && <div className={styles.videoBadge}>▶</div>} */}
       </div>
     );
   }
 
-  if (loading) {
-    return <div className="skeleton" style={{ width: '100%', height: '100%', borderRadius: 6 }} />;
-  }
-
+  if (loading) return <div className="skeleton" style={{ width: '100%', height: '100%', borderRadius: 6 }} />;
+  
   return <span style={{ fontSize: size }}>{getFileIcon(name)}</span>;
 }
 
 export default function SharedPage({ onNavigateToSettings }) {
-  const {
-    shareEnabled, shareLinks, loadShareLinks, revokeShareLink, revokeAllLinks,
-    cfWorkerUrl, api, files, t, uiScale, animationsEnabled
+  const { 
+    shareEnabled, shareLinks, loadShareLinks, revokeShareLink, revokeAllLinks, 
+    cfWorkerUrl, api, files, t, uiScale, animationsEnabled 
   } = useApp();
 
   const [viewMode, setViewMode] = useState(() => localStorage.getItem('disbox_shared_view') || 'list');
   const [sortMode, setSortMode] = useState(() => localStorage.getItem('disbox_shared_sort') || 'date');
   const [showSortMenu, setShowSortMenu] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-
+  
   const [copied, setCopied] = useState(null);
   const [revoking, setRevoking] = useState(null);
   const [showRevokeAll, setShowRevokeAll] = useState(false);
@@ -221,23 +212,46 @@ export default function SharedPage({ onNavigateToSettings }) {
     if (shareEnabled && api) loadShareLinks();
   }, [shareEnabled, api]);
 
-  useEffect(() => { localStorage.setItem('disbox_shared_view', viewMode); }, [viewMode]);
-  useEffect(() => { localStorage.setItem('disbox_shared_sort', sortMode); }, [sortMode]);
+  useEffect(() => {
+    localStorage.setItem('disbox_shared_view', viewMode);
+  }, [viewMode]);
 
-  const backdropVariants = { initial: { opacity: 0 }, animate: { opacity: 1 }, exit: { opacity: 0 } };
+  useEffect(() => {
+    localStorage.setItem('disbox_shared_sort', sortMode);
+  }, [sortMode]);
+
+  const backdropVariants = {
+    initial: { opacity: 0 },
+    animate: { opacity: 1 },
+    exit: { opacity: 0 }
+  };
+
   const modalVariants = {
     initial: { opacity: 0, scale: 0.95, y: 20 },
-    animate: { opacity: 1, scale: 1, y: 0, transition: { type: 'spring', damping: 25, stiffness: 300 } },
-    exit: { opacity: 0, scale: 0.95, y: 20, transition: { duration: 0.2 } }
+    animate: { 
+      opacity: 1, 
+      scale: 1, 
+      y: 0,
+      transition: { type: 'spring', damping: 25, stiffness: 300 }
+    },
+    exit: { 
+      opacity: 0, 
+      scale: 0.95, 
+      y: 20,
+      transition: { duration: 0.2 }
+    }
   };
+
   const transition = animationsEnabled ? {} : { duration: 0 };
 
   const filteredAndSortedLinks = useMemo(() => {
     let result = [...shareLinks];
+
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       result = result.filter(l => l.file_path.toLowerCase().includes(q));
     }
+
     result.sort((a, b) => {
       if (sortMode === 'name') {
         const nameA = a.file_path.split('/').pop().toLowerCase();
@@ -252,6 +266,7 @@ export default function SharedPage({ onNavigateToSettings }) {
       }
       return 0;
     });
+
     return result;
   }, [shareLinks, searchQuery, sortMode, files]);
 
@@ -262,7 +277,9 @@ export default function SharedPage({ onNavigateToSettings }) {
           <Lock size={48} style={{ color: 'var(--text-muted)', marginBottom: 16 }} />
           <h3 className={styles.gateTitle}>{t('feature_not_active')}</h3>
           <p className={styles.gateDesc}>{t('feature_active_hint')}</p>
-          <button className={styles.gateBtn} onClick={onNavigateToSettings}>{t('go_to_settings')}</button>
+          <button className={styles.gateBtn} onClick={onNavigateToSettings}>
+            {t('go_to_settings')}
+          </button>
         </div>
       </div>
     );
@@ -285,8 +302,12 @@ export default function SharedPage({ onNavigateToSettings }) {
 
   const handleRevokeAll = async () => {
     const ok = await revokeAllLinks();
-    if (ok) { toast.success(t('revoke_all') + ' ' + t('synced').toLowerCase()); setShowRevokeAll(false); }
-    else toast.error('Error');
+    if (ok) {
+      toast.success(t('revoke_all') + ' ' + t('synced').toLowerCase());
+      setShowRevokeAll(false);
+    } else {
+      toast.error('Error');
+    }
   };
 
   const formatExpiry = (expiresAt) => {
@@ -319,26 +340,45 @@ export default function SharedPage({ onNavigateToSettings }) {
       <div className={styles.toolbar}>
         <div className={styles.searchBox}>
           <Search size={13} />
-          <input type="text" placeholder={t('search')} value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
+          <input 
+            type="text" 
+            placeholder={t('search')} 
+            value={searchQuery} 
+            onChange={e => setSearchQuery(e.target.value)}
+          />
         </div>
+
         <div className={styles.toolbarRight}>
           <div className={styles.sortBoxContainer}>
             <button className={styles.sortBox} onClick={(e) => { e.stopPropagation(); setShowSortMenu(!showSortMenu); }}>
               <ArrowUpDown size={12} />
-              <span className={styles.sortText}>{sortMode === 'name' ? t('sort_name') : sortMode === 'date' ? t('sort_date') : t('sort_size')}</span>
+              <span className={styles.sortText}>
+                {sortMode === 'name' ? t('sort_name') : sortMode === 'date' ? t('sort_date') : t('sort_size')}
+              </span>
               <ChevronDown size={12} className={showSortMenu ? styles.rotated : ''} />
             </button>
             {showSortMenu && (
               <div className={styles.sortMenu} onClick={e => e.stopPropagation()}>
-                <button className={sortMode === 'name' ? styles.active : ''} onClick={() => { setSortMode('name'); setShowSortMenu(false); }}>{t('sort_name')}</button>
-                <button className={sortMode === 'date' ? styles.active : ''} onClick={() => { setSortMode('date'); setShowSortMenu(false); }}>{t('sort_date')}</button>
-                <button className={sortMode === 'size' ? styles.active : ''} onClick={() => { setSortMode('size'); setShowSortMenu(false); }}>{t('sort_size')}</button>
+                <button className={sortMode === 'name' ? styles.active : ''} onClick={() => { setSortMode('name'); setShowSortMenu(false); }}>
+                  {t('sort_name')}
+                </button>
+                <button className={sortMode === 'date' ? styles.active : ''} onClick={() => { setSortMode('date'); setShowSortMenu(false); }}>
+                  {t('sort_date')}
+                </button>
+                <button className={sortMode === 'size' ? styles.active : ''} onClick={() => { setSortMode('size'); setShowSortMenu(false); }}>
+                  {t('sort_size')}
+                </button>
               </div>
             )}
           </div>
+
           <div className={styles.viewToggle}>
-            <button className={viewMode === 'grid' ? styles.viewActive : ''} onClick={() => setViewMode('grid')}><Grid3x3 size={14} /></button>
-            <button className={viewMode === 'list' ? styles.viewActive : ''} onClick={() => setViewMode('list')}><List size={14} /></button>
+            <button className={viewMode === 'grid' ? styles.viewActive : ''} onClick={() => setViewMode('grid')}>
+              <Grid3x3 size={14} />
+            </button>
+            <button className={viewMode === 'list' ? styles.viewActive : ''} onClick={() => setViewMode('list')}>
+              <List size={14} />
+            </button>
           </div>
         </div>
       </div>
@@ -398,12 +438,16 @@ export default function SharedPage({ onNavigateToSettings }) {
                       {link.permission === 'download' ? t('download_perm') : t('view_only')}
                     </span>
                     <span className={styles.expiry}>{formatExpiry(link.expires_at)}</span>
-                    <span className={styles.created}>{new Date(link.created_at).toLocaleDateString()}</span>
+                    <span className={styles.created}>
+                      {new Date(link.created_at).toLocaleDateString()}
+                    </span>
                   </div>
                 </div>
                 <div className={styles.linkActions}>
                   {isMedia && (
-                    <button className={styles.actionBtn} onClick={() => handlePreview(link)} title={t('preview')}><Eye size={14} /></button>
+                    <button className={styles.actionBtn} onClick={() => handlePreview(link)} title={t('preview')}>
+                      <Eye size={14} />
+                    </button>
                   )}
                   <button className={styles.actionBtn} onClick={() => handleCopy(link.share_url || `${cfWorkerUrl}/share/${link.token}`, link.id)}>
                     {copied === link.id ? <Check size={14} /> : <Copy size={14} />}
@@ -420,20 +464,26 @@ export default function SharedPage({ onNavigateToSettings }) {
 
       <AnimatePresence>
         {showRevokeAll && (
-          <motion.div
-            className={styles.confirmOverlay}
+          <motion.div 
+            className={styles.confirmOverlay} 
             onClick={() => setShowRevokeAll(false)}
-            initial="initial" animate="animate" exit="exit"
-            variants={backdropVariants} transition={transition}
+            initial="initial"
+            animate="animate"
+            exit="exit"
+            variants={backdropVariants}
+            transition={transition}
           >
-            <motion.div
-              className={styles.confirmCard}
+            <motion.div 
+              className={styles.confirmCard} 
               onClick={e => e.stopPropagation()}
-              variants={modalVariants} transition={transition}
+              variants={modalVariants}
+              transition={transition}
             >
               <Shield size={32} style={{ color: 'var(--red)', marginBottom: 12 }} />
               <h3 style={{ marginBottom: 8 }}>{t('revoke_all_confirm')}</h3>
-              <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 20, lineHeight: 1.5 }}>{t('revoke_all_desc')}</p>
+              <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 20, lineHeight: 1.5 }}>
+                {t('revoke_all_desc')}
+              </p>
               <div style={{ display: 'flex', gap: 10 }}>
                 <button className={styles.cancelBtn} onClick={() => setShowRevokeAll(false)}>{t('cancel')}</button>
                 <button className={styles.dangerBtn} onClick={handleRevokeAll}>{t('revoke_all')}</button>
@@ -442,7 +492,9 @@ export default function SharedPage({ onNavigateToSettings }) {
           </motion.div>
         )}
 
-        {previewFile && <FilePreview file={previewFile} onClose={() => setPreviewFile(null)} />}
+        {previewFile && (
+          <FilePreview file={previewFile} onClose={() => setPreviewFile(null)} />
+        )}
       </AnimatePresence>
     </div>
   );

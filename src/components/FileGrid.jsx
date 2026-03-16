@@ -63,119 +63,108 @@ function FileThumbnail({ file, size = 32 }) {
   const ext = name.split('.').pop().toLowerCase();
   const isImage = ['png', 'jpg', 'jpeg', 'webp', 'svg'].includes(ext);
   const isVideo = ['mp4', 'webm', 'ogg', 'mkv', 'mov', 'avi'].includes(ext);
-  // Video multi-chunk dengan thumbnail tersimpan
-  const isMultiChunkVideo = isVideo && (file.messageIds?.length || 0) > 1;
-  const hasSavedThumb = isMultiChunkVideo && !!file.thumbnailMsgId;
 
   useEffect(() => {
     const canShowImage = showPreviews && showImagePreviews && isImage;
     const canShowVideo = showPreviews && showVideoPreviews && isVideo;
 
     if (!canShowImage && !canShowVideo) {
-      if (thumbUrl) { URL.revokeObjectURL(thumbUrl); setThumbUrl(null); }
+      if (thumbUrl) {
+        URL.revokeObjectURL(thumbUrl);
+        setThumbUrl(null);
+      }
       return;
     }
-
-    // Video multi-chunk tanpa thumbnailMsgId → tidak bisa tampilkan thumbnail
-    if (isMultiChunkVideo && !hasSavedThumb) return;
 
     let isMounted = true;
     let objectUrl = null;
     const transferId = `thumb-${file.id}`;
 
-    const compressImage = (blob) => new Promise((resolve) => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        const MAX_SIZE = 256;
-        let w = img.width, h = img.height;
-        if (w > h) { if (w > MAX_SIZE) { h = Math.floor(h * MAX_SIZE / w); w = MAX_SIZE; } }
-        else { if (h > MAX_SIZE) { w = Math.floor(w * MAX_SIZE / h); h = MAX_SIZE; } }
-        canvas.width = Math.max(1, w); canvas.height = Math.max(1, h);
-        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
-        canvas.toBlob(resolve, 'image/webp', 0.7);
-      };
-      img.onerror = () => resolve(null);
-      img.src = URL.createObjectURL(blob);
-    });
+    const compressImage = (blob) => {
+      return new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const MAX_SIZE = 256; 
+          let width = img.width;
+          let height = img.height;
+          if (width > height) {
+            if (width > MAX_SIZE) {
+              height *= MAX_SIZE / width;
+              width = MAX_SIZE;
+            }
+          } else {
+            if (height > MAX_SIZE) {
+              width *= MAX_SIZE / height;
+              height = MAX_SIZE;
+            }
+          }
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+          canvas.toBlob((resultBlob) => resolve(resultBlob), 'image/webp', 0.7);
+        };
+        img.src = URL.createObjectURL(blob);
+      });
+    };
 
-    const captureVideoFrame = (blob) => new Promise((resolve) => {
-      const video = document.createElement('video');
-      video.preload = 'auto';
-      video.muted = true;
-      video.playsInline = true;
-      const url = URL.createObjectURL(blob);
-      let settled = false;
+    const captureVideoFrame = (blob) => {
+      return new Promise((resolve) => {
+        const video = document.createElement('video');
+        video.preload = 'metadata';
+        video.muted = true;
+        video.playsInline = true;
+        const url = URL.createObjectURL(blob);
+        
+        video.onloadedmetadata = () => {
+          video.currentTime = Math.min(1, video.duration / 2);
+        };
 
-      const settle = (result) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        video.src = '';
-        URL.revokeObjectURL(url);
-        resolve(result);
-      };
-
-      const drawFrame = () => {
-        try {
+        video.onseeked = () => {
           const canvas = document.createElement('canvas');
           const MAX_SIZE = 256;
-          let w = video.videoWidth || 320, h = video.videoHeight || 180;
-          if (w > h) { if (w > MAX_SIZE) { h = Math.floor(h * MAX_SIZE / w); w = MAX_SIZE; } }
-          else { if (h > MAX_SIZE) { w = Math.floor(w * MAX_SIZE / h); h = MAX_SIZE; } }
-          canvas.width = Math.max(1, w); canvas.height = Math.max(1, h);
-          canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
-          canvas.toBlob(settle, 'image/webp', 0.7);
-        } catch (e) { settle(null); }
-      };
+          let width = video.videoWidth;
+          let height = video.videoHeight;
+          if (width > height) {
+            if (width > MAX_SIZE) {
+              height *= MAX_SIZE / width;
+              width = MAX_SIZE;
+            }
+          } else {
+            if (height > MAX_SIZE) {
+              width *= MAX_SIZE / height;
+              height = MAX_SIZE;
+            }
+          }
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(video, 0, 0, width, height);
+          canvas.toBlob((resultBlob) => {
+            URL.revokeObjectURL(url);
+            resolve(resultBlob);
+          }, 'image/webp', 0.7);
+        };
 
-      const timer = setTimeout(() => drawFrame(), 8000);
-      video.onloadeddata = () => drawFrame();
-      video.oncanplay = () => { if (!settled) drawFrame(); };
-      video.onerror = () => settle(null);
-      video.src = url;
-    });
+        video.onerror = () => {
+          URL.revokeObjectURL(url);
+          resolve(null);
+        };
+
+        video.src = url;
+      });
+    };
 
     const loadThumb = async () => {
       setLoading(true);
       try {
         await enqueueThumb(transferId, async () => {
           if (!isMounted) return;
-
-          const signal = addTransfer({
-            id: transferId, name: `Thumbnail: ${name}`,
-            progress: 0, type: 'download', status: 'active', hidden: true
-          });
-
-          let buffer;
-
-          if (hasSavedThumb) {
-            // ─── Path 1: Video multi-chunk dengan thumbnailMsgId tersimpan ─────
-            // Download file webp kecil (~5-20KB) langsung dari Discord
-            buffer = await api.downloadThumbnail(
-              file.thumbnailMsgId,
-              transferId
-            );
-            if (!isMounted || signal.aborted) return;
-
-            // Thumbnail sudah berupa webp, langsung jadikan blob
-            const blob = new Blob([buffer], { type: 'image/webp' });
-            objectUrl = URL.createObjectURL(blob);
-            setThumbUrl(objectUrl);
-          } else {
-            // ─── Path 2: Image atau video single-chunk ─────────────────────────
-            buffer = await api.downloadFile(
-              file,
-              (p) => updateTransfer(transferId, { progress: p }),
-              signal,
-              transferId
-            );
-
-            if (!isMounted || signal.aborted) return;
-
-            const mime = getMimeType(name);
-            const originalBlob = new Blob([buffer], { type: mime });
-
+          const signal = addTransfer({ id: transferId, name: `Thumbnail: ${name}`, progress: 0, type: 'download', status: 'active', hidden: true });
+          const buffer = await api.downloadFile(file, (p) => updateTransfer(transferId, { progress: p }), signal, transferId);
+          if (isMounted && !signal.aborted) {
+            const originalBlob = new Blob([buffer], { type: getMimeType(name) });
             let compressedBlob;
             if (isVideo) {
               compressedBlob = await captureVideoFrame(originalBlob);
@@ -187,20 +176,17 @@ function FileThumbnail({ file, size = 32 }) {
               objectUrl = URL.createObjectURL(compressedBlob);
               setThumbUrl(objectUrl);
             }
+            updateTransfer(transferId, { status: 'done', progress: 1 });
+            setTimeout(() => removeTransfer(transferId), 500);
           }
-
-          updateTransfer(transferId, { status: 'done', progress: 1 });
-          setTimeout(() => removeTransfer(transferId), 500);
         });
       } catch (e) {
-        if (isMounted) console.error('Thumb failed:', e.message);
+        if (isMounted) console.error('Thumb failed:', e);
       } finally {
         if (isMounted) setLoading(false);
       }
     };
-
     loadThumb();
-
     return () => {
       isMounted = false;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
@@ -209,31 +195,31 @@ function FileThumbnail({ file, size = 32 }) {
       const idx = thumbQueue.findIndex(q => q.id === transferId);
       if (idx >= 0) thumbQueue.splice(idx, 1);
     };
-  }, [file.id, file.thumbnailMsgId, showPreviews, showImagePreviews, showVideoPreviews, isImage, isVideo]);
+  }, [file.id, showPreviews, showImagePreviews, showVideoPreviews, isImage, isVideo]);
 
   const canShowImage = showPreviews && showImagePreviews && isImage;
   const canShowVideo = showPreviews && showVideoPreviews && isVideo;
 
   if (canShowImage || canShowVideo) {
-    if (thumbUrl) return (
-      <div style={{
-        width: '100%', height: '100%', overflow: 'hidden', borderRadius: 0,
-        display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
-        flexShrink: 0, position: 'relative'
-      }}>
-        <img src={thumbUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top' }} draggable={false} />
-        {isVideo && (
-          <div style={{ position: 'absolute', bottom: 4, right: 4, background: 'rgba(0,0,0,0.6)', borderRadius: 4, padding: '2px 4px', fontSize: 10, color: 'white', display: 'flex', alignItems: 'center' }}>▶</div>
-        )}
-      </div>
-    );
-    // Skeleton hanya untuk yang sedang loading (tidak untuk multi-chunk tanpa thumb)
+    if (thumbUrl) return <div style={{ width: '100%', height: '100%', overflow: 'hidden', borderRadius: 0, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', flexShrink: 0, position: 'relative' }}>
+      <img src={thumbUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top' }} draggable={false} />
+      {isVideo && <div style={{ position: 'absolute', bottom: 4, right: 4, background: 'rgba(0,0,0,0.6)', borderRadius: 4, padding: '2px 4px', fontSize: 10, color: 'white', display: 'flex', alignItems: 'center' }}>▶</div>}
+    </div>;
     if (loading) return <div className="skeleton" style={{ width: '100%', height: '100%', borderRadius: 0 }} />;
   }
-
+  
   return (
     <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-muted)' }}>
-      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" width={size} height={size} style={{ opacity: 0.5 }}>
+      <svg 
+        xmlns="http://www.w3.org/2000/svg" 
+        fill="none" 
+        viewBox="0 0 24 24" 
+        strokeWidth={1.5} 
+        stroke="currentColor" 
+        width={size} 
+        height={size}
+        style={{ opacity: 0.5 }}
+      >
         <path strokeLinecap="round" strokeLinejoin="round" d="m20.25 7.5-.625 10.632a2.25 2.25 0 0 1-2.247 2.118H6.622a2.25 2.25 0 0 1-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z" />
       </svg>
     </span>
@@ -301,10 +287,10 @@ function PinPromptModal({ title, onSuccess, onClose }) {
 }
 
 export default function FileGrid({ isLockedView = false, isStarredView = false, isRecentView = false, onNavigate }) {
-  const {
-    api, files, currentPath, setCurrentPath,
-    addTransfer, updateTransfer, removeTransfer, cancelTransfer,
-    refresh, loading, movePath, copyPath, deletePath,
+  const { 
+    api, files, currentPath, setCurrentPath, 
+    addTransfer, updateTransfer, removeTransfer, cancelTransfer, 
+    refresh, loading, movePath, copyPath, deletePath, 
     bulkDelete, bulkMove, bulkCopy, uiScale,
     setLocked, setStarred, verifyPin, hasPin, isVerified, t, animationsEnabled,
     shareEnabled
@@ -312,16 +298,22 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
 
   const renderFileIcon = (filename) => {
     const ext = filename.split('.').pop().toLowerCase();
-    if (['png', 'jpg', 'jpeg', 'webp', 'svg', 'gif'].includes(ext))
+    
+    // Panggil SVG kustom Anda di sini
+    if (['png', 'jpg', 'jpeg', 'webp', 'svg', 'gif'].includes(ext)) 
       return <CustomImageIcon size={20} color="#ea4335" />;
-    if (['mp4', 'webm', 'mkv', 'avi', 'mov'].includes(ext))
+      
+    if (['mp4', 'webm', 'mkv', 'avi', 'mov'].includes(ext)) 
       return <CustomVideoIcon size={20} color="#ea4335" />;
+    
+    // Ikon fallback dari lucide-react (pastikan sudah di-import)
     if (['mp3', 'wav', 'ogg'].includes(ext)) return <FileAudio size={20} style={{ color: '#ea4335' }} />;
     if (['zip', 'rar', '7z', 'tar', 'gz'].includes(ext)) return <FileArchive size={20} style={{ color: 'var(--text-muted)' }} />;
-    if (['pdf'].includes(ext)) return <FileText size={20} style={{ color: '#ea4335' }} />;
-    if (['doc', 'docx', 'txt', 'md'].includes(ext)) return <FileText size={20} style={{ color: '#4285f4' }} />;
-    if (['xls', 'xlsx', 'csv'].includes(ext)) return <FileSpreadsheet size={20} style={{ color: '#34a853' }} />;
-    if (['html', 'css', 'js', 'jsx', 'ts', 'tsx', 'json'].includes(ext)) return <FileCode size={20} style={{ color: '#fbbc04' }} />;
+    if (['pdf'].includes(ext)) return <FileText size={20} style={{ color: '#ea4335' }} />; 
+    if (['doc', 'docx', 'txt', 'md'].includes(ext)) return <FileText size={20} style={{ color: '#4285f4' }} />; 
+    if (['xls', 'xlsx', 'csv'].includes(ext)) return <FileSpreadsheet size={20} style={{ color: '#34a853' }} />; 
+    if (['html', 'css', 'js', 'jsx', 'ts', 'tsx', 'json'].includes(ext)) return <FileCode size={20} style={{ color: '#fbbc04' }} />; 
+    
     return <FileGeneric size={20} style={{ color: 'var(--text-muted)' }} />;
   };
 
@@ -336,8 +328,13 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
-  useEffect(() => { localStorage.setItem('disbox_zoom', zoom.toString()); }, [zoom]);
-  useEffect(() => { localStorage.setItem('disbox_sort', sortMode); }, [sortMode]);
+  useEffect(() => {
+    localStorage.setItem('disbox_zoom', zoom.toString());
+  }, [zoom]);
+
+  useEffect(() => {
+    localStorage.setItem('disbox_sort', sortMode);
+  }, [sortMode]);
 
   const [selectedFiles, setSelectedFiles] = useState(new Set());
   const [contextMenu, setContextMenu] = useState(null);
@@ -370,10 +367,20 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
       const rect = menu.getBoundingClientRect();
       const winW = window.innerWidth;
       const winH = window.innerHeight;
+
       let { x, y } = contextMenu;
-      if (x + rect.width > winW - 10) x = winW - rect.width - 10;
-      if (y + rect.height > winH - 10) y = winH - rect.height - 10;
-      if (x !== contextMenu.x || y !== contextMenu.y) setContextMenu(prev => ({ ...prev, x, y }));
+      
+      if (x + rect.width > winW - 10) {
+        x = winW - rect.width - 10;
+      }
+      
+      if (y + rect.height > winH - 10) {
+        y = winH - rect.height - 10;
+      }
+
+      if (x !== contextMenu.x || y !== contextMenu.y) {
+        setContextMenu(prev => ({ ...prev, x, y }));
+      }
     }
   }, [contextMenu]);
 
@@ -395,13 +402,14 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
     const fileList = [];
     const dirsMap = new Map();
     const sizes = new Map();
-    const locks = new Map();
-    const dates = new Map();
+    const locks = new Map(); 
+    const dates = new Map(); 
     const starredFolders = new Set();
     const q = debouncedSearch.toLowerCase();
 
     files.forEach(f => {
       if (f.path.startsWith('cloudsave/')) return;
+
       const parts = f.path.split('/').filter(Boolean);
       const name = parts[parts.length - 1];
 
@@ -409,8 +417,10 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
       for (let i = 0; i < parts.length - 1; i++) {
         tempPath = tempPath ? `${tempPath}/${parts[i]}` : parts[i];
         sizes.set(tempPath, (sizes.get(tempPath) || 0) + (f.size || 0));
+        
         const currentMax = dates.get(tempPath) || 0;
         if ((f.createdAt || 0) > currentMax) dates.set(tempPath, f.createdAt);
+
         if (!locks.has(tempPath)) locks.set(tempPath, { count: 0, lockedCount: 0 });
         const l = locks.get(tempPath);
         l.count++;
@@ -424,7 +434,7 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
 
       const isInside = dirPath === '' || f.path.startsWith(dirPath + '/');
       const matchesSearch = !q || name.toLowerCase().includes(q);
-
+      
       let shouldIncludeFile = false;
       if (isStarredView) {
         if (f.isStarred && !f.isLocked && name !== '.keep') shouldIncludeFile = true;
@@ -440,7 +450,10 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
       if (shouldIncludeFile && matchesSearch) {
         const fileDirStr = parts.slice(0, -1).join('/');
         const isDirectChild = fileDirStr === dirPath;
-        if (q || isDirectChild || isStarredView || isRecentView) fileList.push(f);
+        
+        if (q || isDirectChild || isStarredView || isRecentView) {
+          fileList.push(f);
+        }
       }
 
       let currentAcc = '';
@@ -449,26 +462,41 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
         const parentPath = currentAcc;
         currentAcc = currentAcc ? `${currentAcc}/${dirName}` : dirName;
         const isChildOfCurrent = parentPath === dirPath;
+
         const l = locks.get(currentAcc);
         const folderIsLocked = l && l.count > 0 && l.lockedCount === l.count;
         const folderIsStarred = starredFolders.has(currentAcc);
 
         let shouldIncludeDir = false;
-        if (isStarredView) { if (folderIsStarred) shouldIncludeDir = true; }
-        else if (isRecentView) { shouldIncludeDir = false; }
-        else if (isLockedView) { if (folderIsLocked) shouldIncludeDir = true; }
-        else { if (!folderIsLocked) shouldIncludeDir = true; }
+        if (isStarredView) {
+          if (folderIsStarred) shouldIncludeDir = true;
+        } else if (isRecentView) {
+          shouldIncludeDir = false;
+        } else if (isLockedView) {
+          if (folderIsLocked) shouldIncludeDir = true;
+        } else {
+          if (!folderIsLocked) shouldIncludeDir = true;
+        }
 
         if (shouldIncludeDir) {
-          if (q) { if (dirName.toLowerCase().includes(q)) dirsMap.set(currentAcc, dirName); }
-          else if (isStarredView) { dirsMap.set(currentAcc, dirName); }
-          else if (isChildOfCurrent) { dirsMap.set(currentAcc, dirName); }
+          if (q) {
+            if (dirName.toLowerCase().includes(q)) {
+              dirsMap.set(currentAcc, dirName);
+            }
+          } else if (isStarredView) {
+            dirsMap.set(currentAcc, dirName);
+          } else if (isChildOfCurrent) {
+            dirsMap.set(currentAcc, dirName);
+          }
         }
       }
     });
 
     const dirList = Array.from(dirsMap.entries()).map(([fullPath, name]) => ({
-      name, fullPath, createdAt: dates.get(fullPath) || 0, size: sizes.get(fullPath) || 0
+      name,
+      fullPath,
+      createdAt: dates.get(fullPath) || 0,
+      size: sizes.get(fullPath) || 0
     }));
 
     const sortFn = (a, b) => {
@@ -482,10 +510,20 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
       return 0;
     };
 
-    if (isRecentView) { fileList.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)); }
-    else { fileList.sort(sortFn); dirList.sort(sortFn); }
+    if (isRecentView) {
+      fileList.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    } else {
+      fileList.sort(sortFn);
+      dirList.sort(sortFn);
+    }
 
-    return { processedFiles: fileList, processedDirs: dirList, folderSizes: sizes, folderLocks: locks, folderStars: starredFolders };
+    return {
+      processedFiles: fileList,
+      processedDirs: dirList,
+      folderSizes: sizes,
+      folderLocks: locks,
+      folderStars: starredFolders
+    };
   }, [files, dirPath, debouncedSearch, isLockedView, isStarredView, isRecentView, sortMode]);
 
   const navigate = (path) => {
@@ -498,10 +536,14 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
   const handleFolderClick = (fullPath) => {
     const l = folderLocks.get(fullPath);
     const isLocked = l && l.count > 0 && l.lockedCount === l.count;
+    
     const performNavigate = () => {
-      if (isStarredView || isRecentView) onNavigate?.('drive');
+      if (isStarredView || isRecentView) {
+        onNavigate?.('drive');
+      }
       navigate('/' + fullPath);
     };
+
     if (isLocked && !isVerified) {
       setPinPrompt({ title: 'Buka Folder Terkunci', onSuccess: performNavigate });
     } else {
@@ -527,31 +569,42 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
 
   const handleToggleLock = async (itemPath, id, isLocked) => {
     if (!isLocked) {
-      setPinPrompt({
-        title: 'Konfirmasi Buka Kunci',
+      setPinPrompt({ 
+        title: 'Konfirmasi Buka Kunci', 
         onSuccess: async () => {
           setMoveModal({
-            id, path: itemPath, mode: 'unlock',
+            id,
+            path: itemPath,
+            mode: 'unlock',
             onUnlock: async () => {
               const ok = await setLocked(id || itemPath, false);
               if (ok) toast.success('Kunci dibuka dan item dipindahkan');
               else toast.error('Berhasil pindah tapi gagal membuka kunci');
             }
           });
-        }
+        } 
       });
       setContextMenu(null);
       return;
     }
+
     const ok = await setLocked(id || itemPath, isLocked);
-    if (ok) { toast.success(isLocked ? 'Item dikunci' : 'Kunci dibuka'); setContextMenu(null); }
-    else toast.error('Gagal mengubah status kunci');
+    if (ok) {
+      toast.success(isLocked ? 'Item dikunci' : 'Kunci dibuka');
+      setContextMenu(null);
+    } else {
+      toast.error('Gagal mengubah status kunci');
+    }
   };
 
   const handleToggleStar = async (itemPath, id, isStarred) => {
     const ok = await setStarred(id || itemPath, isStarred);
-    if (ok) { toast.success(isStarred ? 'Ditambahkan ke Starred' : 'Dihapus dari Starred'); setContextMenu(null); }
-    else toast.error('Gagal mengubah status star');
+    if (ok) {
+      toast.success(isStarred ? 'Ditambahkan ke Starred' : 'Dihapus dari Starred');
+      setContextMenu(null);
+    } else {
+      toast.error('Gagal mengubah status star');
+    }
   };
 
   const handleDelete = async (targetPath, id = null) => {
@@ -611,14 +664,21 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
       const fParts = f.path.split('/');
       const fParent = fParts.slice(0, -1).join('/');
       const fName = fParts[fParts.length - 1];
+      
       if (fParent === parentDirPath) {
-        if (fName === '.keep') { const folderName = fParts[fParts.length - 2]; return folderName === newName; }
+        if (fName === '.keep') {
+          const folderName = fParts[fParts.length - 2];
+          return folderName === newName;
+        }
         return fName === newName;
       }
       return false;
     });
 
-    if (exists) { toast.error('Nama sudah digunakan di folder ini'); return; }
+    if (exists) {
+      toast.error('Nama sudah digunakan di folder ini');
+      return;
+    }
 
     try {
       await api.renamePath(oldPath, newPath, renameTarget.id);
@@ -664,7 +724,9 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
             updateTransfer(transferId, { progress, chunk });
           }, signal);
         }
-        if (isLockedView && resultFile?.id) await window.electron.setLocked(resultFile.id, api.hashedWebhook, 1);
+        if (isLockedView && resultFile?.id) {
+          await window.electron.setLocked(resultFile.id, api.hashedWebhook, 1);
+        }
         if (!signal.aborted) updateTransfer(transferId, { status: 'done', progress: 1 });
       } catch (e) {
         if (e.name !== 'AbortError' && !signal.aborted) {
@@ -741,7 +803,8 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
     const itemKey = id || itemPath;
     if (isSelectionMode && selectedFiles.has(itemKey)) {
       const payload = { bulk: true, items: [...selectedFiles] };
-      e.dataTransfer.setData('text/plain', JSON.stringify(payload));
+      const payloadStr = JSON.stringify(payload);
+      e.dataTransfer.setData('text/plain', payloadStr);
       e.dataTransfer.effectAllowed = 'move';
       setDragSource(payload);
       return;
@@ -756,13 +819,17 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
     e.preventDefault();
     let raw = e.dataTransfer.getData('text/plain');
     let data = raw;
-    if (!data || data === '') { data = dragSource; }
-    else {
+
+    if (!data || data === '') {
+      data = dragSource;
+    } else {
       try {
         const parsed = JSON.parse(data);
         if (parsed && typeof parsed === 'object') data = parsed;
-      } catch (_) {}
+      } catch (_) {
+      }
     }
+
     if (!data) return;
     if (e.dataTransfer.files.length > 0) return;
     const normalizedDest = destDir.startsWith('/') ? destDir.slice(1) : destDir;
@@ -779,24 +846,35 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
         }
       }
       const ok = await bulkMove(items, normalizedDest);
-      if (ok) { toast.success(`${items.length} item dipindahkan`); clearSelection(); }
-      else toast.error('Gagal memindahkan beberapa item');
+      if (ok) {
+        toast.success(`${items.length} item dipindahkan`);
+        clearSelection();
+      } else {
+        toast.error('Gagal memindahkan beberapa item');
+      }
       setDragSource(null); return;
     }
 
     const source = typeof data === 'string' ? data : null;
     if (!source || source.startsWith('http')) { setDragSource(null); return; }
+    
     const isId = source.includes('-') && source.length > 30;
     let sourcePath = source;
     if (isId) { const f = files.find(x => x.id === source); if (f) sourcePath = f.path; }
+    
     const sourceParent = sourcePath.split('/').slice(0, -1).join('/');
     if (sourceParent === normalizedDest) { setDragSource(null); return; }
     if (sourcePath === normalizedDest || normalizedDest.startsWith(sourcePath + '/')) {
       toast.error('Tidak bisa memindahkan ke folder yang sama atau sub-folder');
       setDragSource(null); return;
     }
+    
     const ok = await (isId ? bulkMove([source], normalizedDest) : movePath(sourcePath, normalizedDest));
-    if (ok) toast.success('Dipindahkan'); else toast.error('Gagal pindah');
+    if (ok) {
+      toast.success('Dipindahkan');
+    } else {
+      toast.error('Gagal pindah');
+    }
     setDragSource(null);
   };
 
@@ -854,11 +932,7 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
           if (changed) { setSelectedFiles(newSelection); setIsSelectionMode(newSelection.size > 0); }
         });
       };
-      const onMouseUp = () => {
-        if (rafId) cancelAnimationFrame(rafId);
-        isRubbering.current = false; rbEl.style.display = 'none'; rubberOrigin.current = null; itemBoundsCache.current = [];
-        window.removeEventListener('mousemove', onMouseMove); window.removeEventListener('mouseup', onMouseUp);
-      };
+      const onMouseUp = () => { if (rafId) cancelAnimationFrame(rafId); isRubbering.current = false; rbEl.style.display = 'none'; rubberOrigin.current = null; itemBoundsCache.current = []; window.removeEventListener('mousemove', onMouseMove); window.removeEventListener('mouseup', onMouseUp); };
       window.addEventListener('mousemove', onMouseMove); window.addEventListener('mouseup', onMouseUp);
     };
     content.addEventListener('mousedown', onMouseDown);
@@ -878,22 +952,20 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
   }, [selectedFiles, contextMenu]);
 
   return (
-    <div className={`${styles.container} ${isDragOver ? styles.dragOver : ''} ${isSelectionMode ? styles.isSelectionMode : ''}`}
-      style={{ '--zoom': zoom }}
-      onDragOver={(e) => {
-        e.preventDefault();
-        if (e.dataTransfer.types.includes('Files') && !dragSource) setIsDragOver(true);
-        else setIsDragOver(false);
-      }}
-      onDragLeave={() => setIsDragOver(false)}
-      onDrop={(e) => { setIsDragOver(false); if (e.dataTransfer.files.length > 0) handleDropZone(e); }}
-      onClick={() => { setContextMenu(null); if (!isSelectionMode) clearSelection(); }}
-      onContextMenu={(e) => {
-        if (e.target.closest('.' + styles.toolbar)) return;
-        e.preventDefault();
-        setContextMenu({ x: e.clientX / uiScale, y: e.clientY / uiScale, type: 'empty' });
-      }}
-    >
+    <div className={`${styles.container} ${isDragOver ? styles.dragOver : ''} ${isSelectionMode ? styles.isSelectionMode : ''}`} style={{ '--zoom': zoom }} onDragOver={(e) => { 
+  e.preventDefault(); 
+  // Pastikan yang di-drag adalah File dari luar OS, bukan elemen internal
+  if (e.dataTransfer.types.includes('Files') && !dragSource) {
+    setIsDragOver(true); 
+  } else {
+    // Jika itu elemen internal, pastikan overlay tetap mati
+    setIsDragOver(false);
+  }
+}} onDragLeave={() => setIsDragOver(false)} onDrop={(e) => { setIsDragOver(false); if (e.dataTransfer.files.length > 0) handleDropZone(e); }} onClick={() => { setContextMenu(null); if (!isSelectionMode) clearSelection(); }} onContextMenu={(e) => { 
+      if (e.target.closest('.' + styles.toolbar)) return;
+      e.preventDefault(); 
+      setContextMenu({ x: e.clientX / uiScale, y: e.clientY / uiScale, type: 'empty' }); 
+    }}>
       <div className={styles.toolbar}>
         {(() => {
           const totalChars = pathParts.join('').length + (pathParts.length * 3);
@@ -925,17 +997,30 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
           <div className={styles.sortBoxContainer}>
             <button className={styles.sortBox} onClick={(e) => { e.stopPropagation(); setShowSortMenu(!showSortMenu); }}>
               <ArrowUpDown size={12} className={styles.sortIconMain} />
-              <span className={styles.sortText}>{sortMode === 'name' ? t('sort_name') : sortMode === 'date' ? t('sort_date') : t('sort_size')}</span>
+              <span className={styles.sortText}>
+                {sortMode === 'name' ? t('sort_name') : sortMode === 'date' ? t('sort_date') : t('sort_size')}
+              </span>
               <ChevronDown size={12} className={`${styles.sortIconArrow} ${showSortMenu ? styles.rotated : ''}`} />
             </button>
-            {showSortMenu && (<>
-              <div className={styles.menuBackdrop} onClick={(e) => { e.stopPropagation(); setShowSortMenu(false); }} />
-              <div className={styles.sortMenu}>
-                <button className={`${styles.sortMenuItem} ${sortMode === 'name' ? styles.active : ''}`} onClick={() => { setSortMode('name'); setShowSortMenu(false); }}><div className={styles.checkIcon}>{sortMode === 'name' && <Check size={12} />}</div>{t('sort_name')}</button>
-                <button className={`${styles.sortMenuItem} ${sortMode === 'date' ? styles.active : ''}`} onClick={() => { setSortMode('date'); setShowSortMenu(false); }}><div className={styles.checkIcon}>{sortMode === 'date' && <Check size={12} />}</div>{t('sort_date')}</button>
-                <button className={`${styles.sortMenuItem} ${sortMode === 'size' ? styles.active : ''}`} onClick={() => { setSortMode('size'); setShowSortMenu(false); }}><div className={styles.checkIcon}>{sortMode === 'size' && <Check size={12} />}</div>{t('sort_size')}</button>
-              </div>
-            </>)}
+            {showSortMenu && (
+              <>
+                <div className={styles.menuBackdrop} onClick={(e) => { e.stopPropagation(); setShowSortMenu(false); }} />
+                <div className={styles.sortMenu}>
+                  <button className={`${styles.sortMenuItem} ${sortMode === 'name' ? styles.active : ''}`} onClick={() => { setSortMode('name'); setShowSortMenu(false); }}>
+                    <div className={styles.checkIcon}>{sortMode === 'name' && <Check size={12} />}</div>
+                    {t('sort_name')}
+                  </button>
+                  <button className={`${styles.sortMenuItem} ${sortMode === 'date' ? styles.active : ''}`} onClick={() => { setSortMode('date'); setShowSortMenu(false); }}>
+                    <div className={styles.checkIcon}>{sortMode === 'date' && <Check size={12} />}</div>
+                    {t('sort_date')}
+                  </button>
+                  <button className={`${styles.sortMenuItem} ${sortMode === 'size' ? styles.active : ''}`} onClick={() => { setSortMode('size'); setShowSortMenu(false); }}>
+                    <div className={styles.checkIcon}>{sortMode === 'size' && <Check size={12} />}</div>
+                    {t('sort_size')}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
           <div className={styles.viewToggle}><button className={`${styles.viewBtn} ${viewMode === 'grid' ? styles.viewActive : ''}`} onClick={() => setViewMode('grid')}><Grid3x3 size={13} /></button><button className={`${styles.viewBtn} ${viewMode === 'list' ? styles.viewActive : ''}`} onClick={() => setViewMode('list')}><List size={13} /></button></div>
           <div className={styles.zoomBox}><ZoomIn size={13} /><input type="range" min="0.6" max="1.8" step="0.1" value={zoom} onChange={e => setZoom(parseFloat(e.target.value))} className={styles.zoomSlider} /></div>
@@ -943,21 +1028,32 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
           <button className={styles.uploadBtn} onClick={handlePickFiles} disabled={uploading}><Upload size={14} /><span>{uploading ? 'Uploading…' : t('upload')}</span></button>
         </div>
       </div>
-
       <div className={styles.content} ref={contentRef} style={{ position: 'relative' }}>
         <AnimatePresence mode="wait">
           {loading && processedFiles.length === 0 && processedDirs.length === 0 ? (
-            <motion.div key="loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className={styles.loading}>
+            <motion.div 
+              key="loading"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className={styles.loading}
+            >
               {[...Array(6)].map((_, i) => <div key={i} className={`skeleton ${styles.skeletonCard}`} />)}
             </motion.div>
           ) : processedFiles.length === 0 && processedDirs.length === 0 ? (
-            <motion.div key="empty" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className={styles.empty}>
+            <motion.div 
+              key="empty"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className={styles.empty}
+            >
               <div className={styles.emptyIcon}>📂</div>
               <p className={styles.emptyTitle}>{t('empty_folder')}</p>
               <p className={styles.emptyHint}>{t('empty_hint')}</p>
             </motion.div>
           ) : viewMode === 'grid' ? (
-            <motion.div
+            <motion.div 
               key={`grid-${currentPath}-${isLockedView}-${isStarredView}-${isRecentView}`}
               initial={animationsEnabled ? { opacity: 0, y: 5 } : false}
               animate={{ opacity: 1, y: 0 }}
@@ -973,36 +1069,50 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
                 const isPartOfSelection = selectedFiles.has(fullPath);
                 const canBeDropTarget = dragSource?.bulk ? !isPartOfSelection : (dragSource && fullPath !== dragSource && !fullPath.startsWith(dragSource + '/'));
                 return (
-                  <div
-                    key={fullPath} data-item-id={fullPath}
-                    className={`${styles.card} ${isPartOfSelection ? styles.selected : ''} ${dragOverTarget === fullPath ? styles.isDragTarget : ''}`}
-                    draggable
-                    onDragStart={(e) => handleDragStart(e, fullPath)}
-                    onDragEnd={() => setDragSource(null)}
-                    onDragOver={(e) => { const types = Array.from(e.dataTransfer.types); if (canBeDropTarget || types.includes('Files')) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dragOverTarget !== fullPath) setDragOverTarget(fullPath); } }}
-                    onDragLeave={(e) => { const rect = e.currentTarget.getBoundingClientRect(); if (e.clientX < rect.left || e.clientX >= rect.right || e.clientY < rect.top || e.clientY >= rect.bottom) setDragOverTarget(null); }}
-                    onDrop={(e) => { setDragOverTarget(null); handleDropMove(e, fullPath); }}
-                    onDoubleClick={() => handleFolderClick(fullPath)}
-                    onClick={(e) => toggleSelect(fullPath, e)}
+                  <div 
+                    key={fullPath}
+                    data-item-id={fullPath} 
+                    className={`${styles.card} ${isPartOfSelection ? styles.selected : ''} ${dragOverTarget === fullPath ? styles.isDragTarget : ''}`} 
+                    draggable 
+                    onDragStart={(e) => handleDragStart(e, fullPath)} 
+                    onDragEnd={() => setDragSource(null)} 
+                    onDragOver={(e) => { const types = Array.from(e.dataTransfer.types); if (canBeDropTarget || types.includes('Files')) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dragOverTarget !== fullPath) setDragOverTarget(fullPath); } }} 
+                    onDragLeave={(e) => { const rect = e.currentTarget.getBoundingClientRect(); if (e.clientX < rect.left || e.clientX >= rect.right || e.clientY < rect.top || e.clientY >= rect.bottom) setDragOverTarget(null); }} 
+                    onDrop={(e) => { setDragOverTarget(null); handleDropMove(e, fullPath); }} 
+                    onDoubleClick={() => handleFolderClick(fullPath)} 
+                    onClick={(e) => toggleSelect(fullPath, e)} 
                     onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX / uiScale, y: e.clientY / uiScale, path: fullPath, isFolder: true }); }}
                   >
                     {isLocked && <div className={styles.lockOverlay}><Lock size={12} /></div>}
                     {isStarred && <div className={styles.starOverlay}><Star size={12} fill="currentColor" /></div>}
+                    
                     <div className={styles.cardHeader}>
-                      <div className={styles.cardIconWrapper}><Folder size={18} style={{ color: 'var(--text-secondary)' }} strokeWidth={2} /></div>
+                      <div className={styles.cardIconWrapper}>
+                        {/* Ikon Folder Header: Adaptif Tema */}
+                        <Folder size={18} style={{ color: 'var(--text-secondary)' }} strokeWidth={2} />
+                      </div>
                       <div className={styles.cardTitleWrapper} title={dir}>
-                        {renameTarget?.path === fullPath ?
-                          <input className={styles.renameInput} value={renameValue} onChange={e => setRenameValue(e.target.value)} onBlur={commitRename} onKeyDown={e => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setRenameTarget(null); }} autoFocus onClick={e => e.stopPropagation()} />
+                        {renameTarget?.path === fullPath ? 
+                          <input className={styles.renameInput} value={renameValue} onChange={e => setRenameValue(e.target.value)} onBlur={commitRename} onKeyDown={e => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setRenameTarget(null); }} autoFocus onClick={e => e.stopPropagation()} /> 
                           : <span className={styles.cardTitleText}>{dir}</span>
                         }
                       </div>
-                      <button className={styles.cardMenuBtn} onClick={(e) => { e.stopPropagation(); setContextMenu({ x: e.clientX / uiScale, y: e.clientY / uiScale, path: fullPath, isFolder: true }); }}><MoreVertical size={18} /></button>
+                      <button className={styles.cardMenuBtn} onClick={(e) => { e.stopPropagation(); setContextMenu({ x: e.clientX / uiScale, y: e.clientY / uiScale, path: fullPath, isFolder: true }); }}>
+                        <MoreVertical size={18} />
+                      </button>
                     </div>
+
                     <div className={styles.cardPreview}>
-                      <div className={styles.cardPreviewInner}><Folder size={72} style={{ color: 'var(--amber)' }} strokeWidth={1.5} /></div>
+                      <div className={styles.cardPreviewInner}>
+                        {/* Ikon Folder Preview: Emas/Coklat Kekuningan (Adaptif Tema) */}
+                        <Folder size={72} style={{ color: 'var(--amber)' }} strokeWidth={1.5} />
+                      </div>
                     </div>
+
                     <div className={styles.cardFooter}>
-                      <div className={styles.cardFooterText}>Folder • {formatSize(folderSize)}</div>
+                      <div className={styles.cardFooterText}>
+                        Folder • {formatSize(folderSize)}
+                      </div>
                     </div>
                   </div>
                 );
@@ -1010,40 +1120,52 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
               {processedFiles.map((file) => {
                 const name = file.path.split('/').pop();
                 return (
-                  <div
-                    key={file.id || file.path} data-item-id={file.id}
-                    className={`${styles.card} ${selectedFiles.has(file.id) ? styles.selected : ''}`}
-                    draggable
-                    onDragStart={(e) => handleDragStart(e, file.path, file.id)}
-                    onDragEnd={() => setDragSource(null)}
-                    onClick={(e) => toggleSelect(file.id, e)}
-                    onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX / uiScale, y: e.clientY / uiScale, path: file.path, file, isFolder: false }); }}
+                  <div 
+                    key={file.id || file.path}
+                    data-item-id={file.id} 
+                    className={`${styles.card} ${selectedFiles.has(file.id) ? styles.selected : ''}`} 
+                    draggable 
+                    onDragStart={(e) => handleDragStart(e, file.path, file.id)} 
+                    onDragEnd={() => setDragSource(null)} 
+                    onClick={(e) => toggleSelect(file.id, e)} 
+                    onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX / uiScale, y: e.clientY / uiScale, path: file.path, file, isFolder: false }); }} 
                     onDoubleClick={() => handleFileClick(file)}
                   >
                     {file.isLocked && <div className={styles.lockOverlay}><Lock size={12} /></div>}
                     {file.isStarred && <div className={styles.starOverlay}><Star size={12} fill="currentColor" /></div>}
+                    
                     <div className={styles.cardHeader}>
-                      <div className={styles.cardIconWrapper}>{renderFileIcon(name)}</div>
+                      <div className={styles.cardIconWrapper}>
+                        {renderFileIcon(name)}
+                      </div>
                       <div className={styles.cardTitleWrapper} title={name}>
-                        {renameTarget?.path === file.path && renameTarget?.id === file.id ?
-                          <input className={styles.renameInput} value={renameValue} onChange={e => setRenameValue(e.target.value)} onBlur={commitRename} onKeyDown={e => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setRenameTarget(null); }} autoFocus onClick={e => e.stopPropagation()} />
+                        {renameTarget?.path === file.path && renameTarget?.id === file.id ? 
+                          <input className={styles.renameInput} value={renameValue} onChange={e => setRenameValue(e.target.value)} onBlur={commitRename} onKeyDown={e => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setRenameTarget(null); }} autoFocus onClick={e => e.stopPropagation()} /> 
                           : <span className={styles.cardTitleText}>{name}</span>
                         }
                       </div>
-                      <button className={styles.cardMenuBtn} onClick={(e) => { e.stopPropagation(); setContextMenu({ x: e.clientX / uiScale, y: e.clientY / uiScale, path: file.path, file, isFolder: false }); }}><MoreVertical size={20} /></button>
+                      <button className={styles.cardMenuBtn} onClick={(e) => { e.stopPropagation(); setContextMenu({ x: e.clientX / uiScale, y: e.clientY / uiScale, path: file.path, file, isFolder: false }); }}>
+                        <MoreVertical size={20} />
+                      </button>
                     </div>
+
                     <div className={styles.cardPreview}>
-                      <div className={styles.cardPreviewInner}><FileThumbnail file={file} size={48} /></div>
+                      <div className={styles.cardPreviewInner}>
+                        <FileThumbnail file={file} size={48} />
+                      </div>
                     </div>
+
                     <div className={styles.cardFooter}>
-                      <div className={styles.cardFooterText}>{formatItemDate(file.createdAt)} • {formatSize(file.size || 0)}</div>
+                      <div className={styles.cardFooterText}>
+                        {formatItemDate(file.createdAt)} • {formatSize(file.size || 0)}
+                      </div>
                     </div>
                   </div>
                 );
               })}
             </motion.div>
           ) : (
-            <motion.div
+            <motion.div 
               key={`list-${currentPath}-${isLockedView}-${isStarredView}-${isRecentView}`}
               initial={animationsEnabled ? { opacity: 0, x: -5 } : false}
               animate={{ opacity: 1, x: 0 }}
@@ -1066,17 +1188,18 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
                 const canBeDropTarget = dragSource?.bulk ? !isPartOfSelection : (dragSource && fullPath !== dragSource && !fullPath.startsWith(dragSource + '/'));
                 const iconSize = Math.max(20, 22 * zoom);
                 return (
-                  <div
-                    key={fullPath} data-item-id={fullPath}
-                    className={`${styles.listRow} ${isPartOfSelection ? styles.selected : ''} ${dragOverTarget === fullPath ? styles.isDragTarget : ''}`}
-                    draggable
-                    onDragStart={(e) => handleDragStart(e, fullPath)}
-                    onDragEnd={() => setDragSource(null)}
-                    onDragOver={(e) => { const types = Array.from(e.dataTransfer.types); if (canBeDropTarget || types.includes('Files')) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dragOverTarget !== fullPath) setDragOverTarget(fullPath); } }}
-                    onDragLeave={(e) => { const rect = e.currentTarget.getBoundingClientRect(); if (e.clientX < rect.left || e.clientX >= rect.right || e.clientY < rect.top || e.clientY >= rect.bottom) setDragOverTarget(null); }}
-                    onDrop={(e) => { setDragOverTarget(null); handleDropMove(e, fullPath); }}
-                    onDoubleClick={() => handleFolderClick(fullPath)}
-                    onClick={(e) => toggleSelect(fullPath, e)}
+                  <div 
+                    key={fullPath}
+                    data-item-id={fullPath} 
+                    className={`${styles.listRow} ${isPartOfSelection ? styles.selected : ''} ${dragOverTarget === fullPath ? styles.isDragTarget : ''}`} 
+                    draggable 
+                    onDragStart={(e) => handleDragStart(e, fullPath)} 
+                    onDragEnd={() => setDragSource(null)} 
+                    onDragOver={(e) => { const types = Array.from(e.dataTransfer.types); if (canBeDropTarget || types.includes('Files')) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dragOverTarget !== fullPath) setDragOverTarget(fullPath); } }} 
+                    onDragLeave={(e) => { const rect = e.currentTarget.getBoundingClientRect(); if (e.clientX < rect.left || e.clientX >= rect.right || e.clientY < rect.top || e.clientY >= rect.bottom) setDragOverTarget(null); }} 
+                    onDrop={(e) => { setDragOverTarget(null); handleDropMove(e, fullPath); }} 
+                    onDoubleClick={() => handleFolderClick(fullPath)} 
+                    onClick={(e) => toggleSelect(fullPath, e)} 
                     onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX / uiScale, y: e.clientY / uiScale, path: fullPath, isFolder: true }); }}
                   >
                     <div className={styles.listIcon} style={{ width: `calc(28px * var(--zoom))`, flexShrink: 0 }}>{isLocked ? <Lock size={iconSize - 2} style={{ color: 'var(--accent-bright)' }} /> : isStarred ? <Star size={iconSize - 2} fill="var(--amber)" style={{ color: 'var(--amber)' }} /> : <Folder size={iconSize} style={{ color: 'var(--amber)' }} />}</div>
@@ -1090,14 +1213,15 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
                 const name = file.path.split('/').pop();
                 const iconSize = Math.max(18, 20 * zoom);
                 return (
-                  <div
-                    key={file.id || file.path} data-item-id={file.id}
-                    className={`${styles.listRow} ${selectedFiles.has(file.id) ? styles.selected : ''}`}
-                    draggable
-                    onDragStart={(e) => handleDragStart(e, file.path, file.id)}
-                    onDragEnd={() => setDragSource(null)}
-                    onClick={(e) => toggleSelect(file.id, e)}
-                    onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX / uiScale, y: e.clientY / uiScale, path: file.path, file, isFolder: false }); }}
+                  <div 
+                    key={file.id || file.path}
+                    data-item-id={file.id} 
+                    className={`${styles.listRow} ${selectedFiles.has(file.id) ? styles.selected : ''}`} 
+                    draggable 
+                    onDragStart={(e) => handleDragStart(e, file.path, file.id)} 
+                    onDragEnd={() => setDragSource(null)} 
+                    onClick={(e) => toggleSelect(file.id, e)} 
+                    onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX / uiScale, y: e.clientY / uiScale, path: file.path, file, isFolder: false }); }} 
                     onDoubleClick={() => handleFileClick(file)}
                   >
                     <div className={styles.listIcon} style={{ width: `calc(28px * var(--zoom))`, height: `calc(28px * var(--zoom))`, display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: 4, flexShrink: 0 }}>{file.isLocked ? <Lock size={iconSize} style={{ color: 'var(--accent-bright)' }} /> : file.isStarred ? <Star size={iconSize} fill="var(--amber)" style={{ color: 'var(--amber)' }} /> : <FileThumbnail file={file} size={iconSize} />}</div>
@@ -1116,40 +1240,20 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
           )}
         </AnimatePresence>
       </div>
-
       {contextMenu && <div className={styles.contextMenuBackdrop} onClick={() => setContextMenu(null)} onContextMenu={(e) => { e.preventDefault(); setContextMenu(null); }} />}
       {contextMenu && (
         <div ref={contextMenuRef} className={styles.contextMenu} style={{ top: contextMenu.y, left: contextMenu.x }} onClick={e => e.stopPropagation()}>
-          {contextMenu.type === 'empty' ? (
-            <><button onClick={() => { setShowCreateFolder(true); setContextMenu(null); }}><FolderPlus size={13} /> {t('new_folder')}</button><button onClick={() => { handlePickFiles(); setContextMenu(null); }}><Upload size={13} /> {t('upload')} File</button><div className={styles.contextDivider} /><button onClick={() => { refresh(); setContextMenu(null); }}><RefreshCw size={13} /> {t('refresh')}</button></>
-          ) : selectedFiles.size > 1 && selectedFiles.has(contextMenu.isFolder ? contextMenu.path : contextMenu.file?.id) ? (
-            <><button onClick={() => { handleBulkMove('move'); setContextMenu(null); }}><Move size={13} /> {t('pindah_item', { count: selectedFiles.size })}</button><button onClick={() => { handleBulkMove('copy'); setContextMenu(null); }}><Copy size={13} /> {t('salin_item', { count: selectedFiles.size })}</button><div className={styles.contextDivider} /><button className={styles.dangerItem} onClick={() => { handleBulkDelete(); setContextMenu(null); }}><Trash2 size={13} /> {t('hapus_item', { count: selectedFiles.size })}</button></>
-          ) : (
-            <>
-              {!contextMenu.isFolder && (<button onClick={() => { downloadFile(contextMenu.file); setContextMenu(null); }}><Download size={13} /> {t('download')}</button>)}
-              <button onClick={() => { setMoveModal({ id: contextMenu.isFolder ? null : contextMenu.file?.id, path: contextMenu.path, mode: 'move' }); setContextMenu(null); }}><Move size={13} /> {t('move')}</button>
-              <button onClick={() => { setMoveModal({ id: contextMenu.isFolder ? null : contextMenu.file?.id, path: contextMenu.path, mode: 'copy' }); setContextMenu(null); }}><Copy size={13} /> {t('copy')}</button>
-              <button onClick={() => startRename(contextMenu.path, contextMenu.isFolder, contextMenu.isFolder ? null : contextMenu.file?.id)}><Edit3 size={13} /> {t('rename')}</button>
-              {contextMenu.isFolder ? (() => {
-                const l = folderLocks.get(contextMenu.path);
-                const isLocked = l && l.count > 0 && l.lockedCount === l.count;
-                return <button onClick={() => handleToggleLock(contextMenu.path, null, !isLocked)}>{isLocked ? <><Unlock size={13} /> {t('unlock')}</> : <><Lock size={13} /> {t('lock')}</>}</button>;
-              })() : <button onClick={() => handleToggleLock(contextMenu.path, contextMenu.file?.id, !contextMenu.file?.isLocked)}>{contextMenu.file?.isLocked ? <><Unlock size={13} /> {t('unlock')}</> : <><Lock size={13} /> {t('lock')}</>}</button>}
-              {contextMenu.isFolder ? (() => {
-                const isStarred = folderStars.has(contextMenu.path);
-                return <button onClick={() => handleToggleStar(contextMenu.path, null, !isStarred)}>{isStarred ? <><Star size={13} fill="currentColor" /> {t('unstar')}</> : <><Star size={13} /> {t('star')}</>}</button>;
-              })() : <button onClick={() => handleToggleStar(contextMenu.path, contextMenu.file?.id, !contextMenu.file?.isStarred)}>{contextMenu.file?.isStarred ? <><Star size={13} fill="currentColor" /> {t('unstar')}</> : <><Star size={13} /> {t('star')}</>}</button>}
-              <div className={styles.contextDivider} />
-              {shareEnabled && !contextMenu.isFolder && <button onClick={() => { setShareDialog({ path: contextMenu.path, file: contextMenu.file }); setContextMenu(null); }}><Link2 size={13} /> Share</button>}
-              <div className={styles.contextDivider} />
-              <button className={styles.dangerItem} onClick={() => { handleDelete(contextMenu.path, contextMenu.isFolder ? null : contextMenu.file?.id); setContextMenu(null); }}><Trash2 size={13} /> {t('delete')}</button>
-            </>
-          )}
+          {contextMenu.type === 'empty' ? (<><button onClick={() => { setShowCreateFolder(true); setContextMenu(null); }}><FolderPlus size={13} /> {t('new_folder')}</button><button onClick={() => { handlePickFiles(); setContextMenu(null); }}><Upload size={13} /> {t('upload')} File</button><div className={styles.contextDivider} /><button onClick={() => { refresh(); setContextMenu(null); }}><RefreshCw size={13} /> {t('refresh')}</button></>) : selectedFiles.size > 1 && selectedFiles.has(contextMenu.isFolder ? contextMenu.path : contextMenu.file?.id) ? (<><button onClick={() => { handleBulkMove('move'); setContextMenu(null); }}><Move size={13} /> {t('pindah_item', { count: selectedFiles.size })}</button><button onClick={() => { handleBulkMove('copy'); setContextMenu(null); }}><Copy size={13} /> {t('salin_item', { count: selectedFiles.size })}</button><div className={styles.contextDivider} /><button className={styles.dangerItem} onClick={() => { handleBulkDelete(); setContextMenu(null); }}><Trash2 size={13} /> {t('hapus_item', { count: selectedFiles.size })}</button></>) : (<>{!contextMenu.isFolder && (<button onClick={() => { downloadFile(contextMenu.file); setContextMenu(null); }}><Download size={13} /> {t('download')}</button>)}<button onClick={() => { setMoveModal({ id: contextMenu.isFolder ? null : contextMenu.file?.id, path: contextMenu.path, mode: 'move' }); setContextMenu(null); }}><Move size={13} /> {t('move')}</button><button onClick={() => { setMoveModal({ id: contextMenu.isFolder ? null : contextMenu.file?.id, path: contextMenu.path, mode: 'copy' }); setContextMenu(null); }}><Copy size={13} /> {t('copy')}</button><button onClick={() => startRename(contextMenu.path, contextMenu.isFolder, contextMenu.isFolder ? null : contextMenu.file?.id)}><Edit3 size={13} /> {t('rename')}</button>{contextMenu.isFolder ? (() => {
+            const l = folderLocks.get(contextMenu.path);
+            const isLocked = l && l.count > 0 && l.lockedCount === l.count;
+            return <button onClick={() => handleToggleLock(contextMenu.path, null, !isLocked)}>{isLocked ? <><Unlock size={13} /> {t('unlock')}</> : <><Lock size={13} /> {t('lock')}</>}</button>;
+          })() : <button onClick={() => handleToggleLock(contextMenu.path, contextMenu.file?.id, !contextMenu.file?.isLocked)}>{contextMenu.file?.isLocked ? <><Unlock size={13} /> {t('unlock')}</> : <><Lock size={13} /> {t('lock')}</>}</button>}{contextMenu.isFolder ? (() => {
+            const isStarred = folderStars.has(contextMenu.path);
+            return <button onClick={() => handleToggleStar(contextMenu.path, null, !isStarred)}>{isStarred ? <><Star size={13} fill="currentColor" /> {t('unstar')}</> : <><Star size={13} /> {t('star')}</>}</button>;
+          })() : <button onClick={() => handleToggleStar(contextMenu.path, contextMenu.file?.id, !contextMenu.file?.isStarred)}>{contextMenu.file?.isStarred ? <><Star size={13} fill="currentColor" /> {t('unstar')}</> : <><Star size={13} /> {t('star')}</>}</button>}<div className={styles.contextDivider} />{shareEnabled && !contextMenu.isFolder && <button onClick={() => { setShareDialog({ path: contextMenu.path, file: contextMenu.file }); setContextMenu(null); }}><Link2 size={13} /> Share</button>}<div className={styles.contextDivider} /><button className={styles.dangerItem} onClick={() => { handleDelete(contextMenu.path, contextMenu.isFolder ? null : contextMenu.file?.id); setContextMenu(null); }}><Trash2 size={13} /> {t('delete')}</button></>)}
         </div>
       )}
-
       {isDragOver && <div className={styles.dropOverlay}><Upload size={40} /><p>Drop untuk upload</p></div>}
-
       <AnimatePresence>
         {showCreateFolder && <CreateFolderModal onClose={() => setShowCreateFolder(false)} />}
         {moveModal && <MoveModal id={moveModal.id} file={moveModal.path} paths={moveModal.paths} mode={moveModal.mode} onClose={() => { setMoveModal(null); clearSelection(); }} onUnlock={moveModal.onUnlock} />}
