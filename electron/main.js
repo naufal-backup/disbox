@@ -7,7 +7,6 @@ const archiver = require('archiver');
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
-// ─── Tangkap SIGINT/SIGTERM agar before-quit terpicu ─────────────────────────
 process.on('SIGINT', () => {
   console.log('[main] SIGINT received, calling app.quit() untuk trigger before-quit...');
   app.quit();
@@ -49,7 +48,6 @@ function encrypt(data, key) {
   const cipher = cryptoNode.createCipheriv('aes-256-gcm', key, iv);
   const encrypted = Buffer.concat([cipher.update(data), cipher.final()]);
   const tag = cipher.getAuthTag();
-  // Web Crypto format: [MAGIC][IV][CIPHERTEXT][TAG]
   return Buffer.concat([MAGIC_HEADER, iv, encrypted, tag]);
 }
 
@@ -77,24 +75,18 @@ const METADATA_DIR = process.platform === 'win32'
 
 if (!fs.existsSync(METADATA_DIR)) fs.mkdirSync(METADATA_DIR, { recursive: true });
 
-// [REFACTOR] SQLite Setup
 const Database = require('better-sqlite3');
 const DB_PATH = path.join(METADATA_DIR, 'disbox.db');
 const db = new Database(DB_PATH);
 
-// [OPTIMIZATION] Enable WAL mode and other performance tweaks
 db.exec(`
   PRAGMA journal_mode = WAL;
   PRAGMA synchronous = NORMAL;
-  PRAGMA cache_size = -16000; -- 16MB cache
-  PRAGMA journal_size_limit = 67108864; -- 64MB journal limit
+  PRAGMA cache_size = -16000;
+  PRAGMA journal_size_limit = 67108864;
 `);
 
-// [FIX] Cek dan migrate tabel files SEBELUM membuat index yang butuh kolom hash
-// Ini harus jalan duluan karena CREATE INDEX IF NOT EXISTS akan error
-// jika tabel sudah ada tapi belum punya kolom hash
 try {
-  // Pastikan tabel files minimal ada dulu (versi lama tanpa hash)
   db.exec(`
     CREATE TABLE IF NOT EXISTS files (
       id TEXT NOT NULL,
@@ -151,12 +143,10 @@ try {
     );
   `);
 
-  // Tambahkan kolom webhook_url ke share_settings jika belum ada (migrasi)
   try {
     db.prepare("ALTER TABLE share_settings ADD COLUMN webhook_url TEXT").run();
   } catch (_) {}
 
-  // Sekarang cek apakah kolom hash sudah ada
   const cols = db.prepare("PRAGMA table_info(files)").all();
   const hasHash = cols.some(c => c.name === 'hash');
   const hasIsLocked = cols.some(c => c.name === 'is_locked');
@@ -185,16 +175,13 @@ try {
     })();
   } else {
     if (!hasIsLocked) {
-      console.log('[migration] Kolom is_locked belum ada, migrasi...');
       db.exec(`ALTER TABLE files ADD COLUMN is_locked INTEGER DEFAULT 0`);
     }
     if (!hasIsStarred) {
-      console.log('[migration] Kolom is_starred belum ada, migrasi...');
       db.exec(`ALTER TABLE files ADD COLUMN is_starred INTEGER DEFAULT 0`);
     }
   }
 
-  // Sekarang aman untuk buat index (kolom hash sudah pasti ada)
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_hash ON files(hash);
     CREATE INDEX IF NOT EXISTS idx_path ON files(path, hash);
@@ -203,10 +190,9 @@ try {
 
 } catch (e) {
   console.error('[migration] Setup database gagal:', e.message);
-  throw e; // Fatal — app tidak bisa jalan tanpa DB
+  throw e;
 }
 
-// [REFACTOR] Automatic Migration from JSON to SQLite
 function migrateJsonToSqlite() {
   const filesInDir = fs.readdirSync(METADATA_DIR);
   const jsonFiles = filesInDir.filter(f => f.endsWith('.json') && f !== 'preferences.json' && !f.endsWith('.bak'));
@@ -239,7 +225,6 @@ function migrateJsonToSqlite() {
           meta.updatedAt || Date.now()
         );
 
-        // [FIX] Insert files dengan hash
         const insertFile = db.prepare(`
           INSERT INTO files (id, hash, path, parent_path, name, size, created_at, message_ids)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -279,7 +264,6 @@ function migrateJsonToSqlite() {
 
 migrateJsonToSqlite();
 
-// Preferensi default
 let prefs = {
   closeToTray: false,
   startMinimized: false,
@@ -411,7 +395,6 @@ ipcMain.handle('set-prefs', (_, newPrefs) => {
   return prefs;
 });
 
-// ─── Simpan webhookUrl dari renderer untuk dipakai saat quit ─────────────────
 let activeWebhookUrl = null;
 let activeWebhookHash = null;
 
@@ -542,7 +525,7 @@ ipcMain.handle('window-is-maximized', () => mainWindow?.isMaximized());
 const cloudWatchers = new Map();
 
 function showSyncNotification(name, type) {
-  const title = 'Disbox Cloud Save';
+  const title = 'Disbox Cloud Sync';
   const body = type === 'upload' 
     ? `${name} synced to Disbox` 
     : `${name} updated from Disbox`;
@@ -564,7 +547,6 @@ ipcMain.handle('cloudsave-get-status', async (_, id) => {
     const entry = db.prepare('SELECT * FROM cloudsave_entries WHERE id = ?').get(id);
     if (!entry) return null;
     
-    // Normalize path for query
     const searchPath = entry.discord_path.replace(/^\/+/, '').replace(/\/+$/, '');
     const fileCount = db.prepare('SELECT COUNT(*) as count FROM files WHERE hash = ? AND (path LIKE ? OR path LIKE ? OR path LIKE ? OR path LIKE ?)')
       .get(entry.webhook_hash, searchPath + '/%', searchPath + '%', '/' + searchPath + '/%', '/' + searchPath + '%').count;
@@ -585,7 +567,6 @@ ipcMain.handle('cloudsave-get-status', async (_, id) => {
 ipcMain.handle('cloudsave-add', async (_, hash, entry) => {
   try {
     const id = cryptoNode.randomUUID();
-    // Normalize discord_path: no leading, yes trailing
     const discordPath = entry.discord_path.replace(/^\/+/, '').replace(/\/+$/, '') + '/';
     db.prepare(`
       INSERT INTO cloudsave_entries (id, webhook_hash, name, local_path, discord_path, last_synced, last_modified)
@@ -693,7 +674,6 @@ ipcMain.handle('cloudsave-export-zip', async (_, id) => {
 
     for (const file of files) {
       file.messageIds = JSON.parse(file.message_ids);
-      // Strip both possible path starts
       let relativePath = file.path.startsWith('/') ? file.path.slice(1) : file.path;
       relativePath = relativePath.replace(searchPath, '').replace(/^\/+/, '');
       
@@ -733,7 +713,6 @@ ipcMain.handle('cloudsave-restore', async (_, { id, force }) => {
       .all(entry.webhook_hash, searchPath + '/%', searchPath + '%', '/' + searchPath + '/%', '/' + searchPath + '%');
     
     if (files.length === 0) {
-      console.log(`[cloudsave] No files found for restore: ${searchPath}`);
       return { ok: false, reason: 'no_files_in_cloud' };
     }
 
@@ -816,10 +795,8 @@ async function handleLocalChange(id, filePath, type) {
     
     console.log(`[cloudsave] Local ${type}: ${filePath} -> ${discordPath}`);
     
-    // Trigger upload via renderer (keeping existing upload flow for simplicity/encryption)
     mainWindow?.webContents.send('cloudsave-do-upload-file', { id, filePath, discordPath });
     
-    // Wait for response
     const success = await new Promise(resolve => {
       ipcMain.once(`cloudsave-upload-file-result-${id}-${discordPath}`, (_, res) => resolve(res));
       setTimeout(() => resolve(false), 60000);
@@ -840,7 +817,6 @@ async function handleLocalDelete(id, filePath) {
     const entry = db.prepare('SELECT * FROM cloudsave_entries WHERE id = ?').get(id);
     if (!entry) return;
 
-    // Set local_path = null and notify
     db.prepare('UPDATE cloudsave_entries SET local_path = NULL WHERE id = ?').run(id);
     if (cloudWatchers.has(id)) {
       cloudWatchers.get(id).close();
@@ -849,15 +825,8 @@ async function handleLocalDelete(id, filePath) {
 
     mainWindow?.webContents.send('cloudsave-local-missing', { id });
 
-    tray?.displayBalloon({
-      iconType: 'warning',
-      title: 'Disbox Cloud Save',
-      content: `${entry.name} local folder missing, data still safe in Disbox`
-    });
-    
-    // For Linux/macOS where displayBalloon might not work
     new Notification({
-      title: 'Disbox Cloud Save',
+      title: 'Disbox Cloud Sync',
       body: `${entry.name} local folder missing, data still safe in Disbox`
     }).show();
 
@@ -871,14 +840,12 @@ async function triggerCloudSync(id) {
     const entry = db.prepare('SELECT * FROM cloudsave_entries WHERE id = ?').get(id);
     if (!entry) return;
 
-    // Check if localPath exists
     if (!entry.local_path || !fs.existsSync(entry.local_path)) {
-      return; // Wait for user to restore
+      return;
     }
 
     mainWindow?.webContents.send('cloudsave-sync-status', { id, status: 'syncing' });
 
-    // Get local last modified
     let localLastModified = 0;
     const getLatestMtime = (dir) => {
       let max = fs.statSync(dir).mtimeMs;
@@ -897,12 +864,10 @@ async function triggerCloudSync(id) {
     };
     localLastModified = getLatestMtime(entry.local_path);
 
-    // Get Discord last modified from metadata_sync
     const metaSync = db.prepare('SELECT updated_at FROM metadata_sync WHERE hash = ?').get(entry.webhook_hash);
     const discordLastModified = metaSync ? metaSync.updated_at : 0;
 
     if (localLastModified > entry.last_synced) {
-      // Local is newer -> Upload
       console.log(`[cloudsave] Syncing ${entry.name}: Local is newer.`);
       const success = await uploadCloudFolder(entry);
       if (success) {
@@ -914,7 +879,6 @@ async function triggerCloudSync(id) {
         mainWindow?.webContents.send('cloudsave-sync-status', { id, status: 'error' });
       }
     } else if (discordLastModified > entry.last_synced) {
-      // Discord is newer -> Download
       console.log(`[cloudsave] Syncing ${entry.name}: Discord is newer.`);
       const searchPath = entry.discord_path.replace(/^\/+/, '').replace(/\/+$/, '');
       const files = db.prepare('SELECT * FROM files WHERE hash = ? AND (path LIKE ? OR path LIKE ?)')
@@ -952,7 +916,6 @@ async function uploadCloudFolder(entry) {
   });
 }
 
-// Background polling every 5 minutes
 setInterval(() => {
   if (activeWebhookHash) {
     const entries = db.prepare('SELECT id FROM cloudsave_entries WHERE webhook_hash = ?').all(activeWebhookHash);
@@ -997,33 +960,26 @@ ipcMain.handle('share-save-settings', async (_, hash, settings) => {
 ipcMain.handle('share-deploy-worker', async (_, { apiToken }) => {
   console.log('[share] Starting worker deployment...');
   try {
-    // 1. Verify Token
     const verifyRes = await net.fetch('https://api.cloudflare.com/client/v4/user/tokens/verify', {
       headers: { 'Authorization': `Bearer ${apiToken}`, 'Content-Type': 'application/json' }
     });
     const verifyData = JSON.parse(await verifyRes.text());
     if (!verifyRes.ok || !verifyData.success) {
-      console.error('[share] Token verification failed:', verifyData);
       return { ok: false, reason: 'invalid_token', message: 'API Token tidak valid atau tidak memiliki izin yang cukup.' };
     }
 
-    // 2. Get Account ID
     const accountsRes = await net.fetch('https://api.cloudflare.com/client/v4/accounts', {
       headers: { 'Authorization': `Bearer ${apiToken}` }
     });
     const accountsData = JSON.parse(await accountsRes.text());
     if (!accountsRes.ok || !accountsData.success || !accountsData.result?.[0]) {
-      console.error('[share] Could not fetch accounts:', accountsData);
       return { ok: false, reason: 'no_account', message: 'Gagal mengambil ID akun Cloudflare.' };
     }
     
-    // Gunakan account pertama (paling umum untuk user personal)
     const accountId = accountsData.result[0].id;
     const accountName = accountsData.result[0].name;
     console.log(`[share] Using Cloudflare account: ${accountName} (${accountId})`);
 
-    // 3. Create/Get KV Namespace (Must be done BEFORE script upload for binding)
-    console.log('[share] Setting up KV namespace...');
     let kvNamespaceId = null;
     
     const listKvRes = await net.fetch(
@@ -1037,7 +993,6 @@ ipcMain.handle('share-deploy-worker', async (_, { apiToken }) => {
     }
 
     if (!kvNamespaceId) {
-      console.log('[share] Creating new KV namespace: disbox_share_kv');
       const kvRes = await net.fetch(
         `https://api.cloudflare.com/client/v4/accounts/${accountId}/storage/kv/namespaces`,
         {
@@ -1050,19 +1005,17 @@ ipcMain.handle('share-deploy-worker', async (_, { apiToken }) => {
       if (kvRes.ok && kvData.success) {
         kvNamespaceId = kvData.result.id;
       } else {
-        console.warn('[share] KV creation failed:', kvData);
         return { ok: false, reason: 'kv_failed', message: 'Gagal membuat KV Namespace. Pastikan token punya izin KV.' };
       }
     }
 
-    // 4. Deploy Script Code with Bindings (Multipart)
     const uniqueId = cryptoNode.randomBytes(3).toString('hex');
     const scriptName = `disbox-worker-${uniqueId}`;
     console.log(`[share] Deploying script: ${scriptName} with KV binding...`);
 
     const boundary = '----DisboxWorkerBoundary' + uniqueId;
     const metadata = {
-      body_part: 'script', // PENTING: Untuk Service Worker (non-module)
+      body_part: 'script',
       bindings: [
         { type: 'kv_namespace', name: 'SHARE_KV', namespace_id: kvNamespaceId }
       ]
@@ -1070,7 +1023,6 @@ ipcMain.handle('share-deploy-worker', async (_, { apiToken }) => {
 
     const workerCode = getDisboxWorkerCode();
     
-    // Construct Multipart Body secara presisi
     const bodyParts = [
       `--${boundary}\r\n`,
       `Content-Disposition: form-data; name="metadata"\r\n`,
@@ -1098,13 +1050,10 @@ ipcMain.handle('share-deploy-worker', async (_, { apiToken }) => {
 
     const deployData = JSON.parse(await deployRes.text());
     if (!deployRes.ok || !deployData.success) {
-      console.error('[share] Deployment failed:', deployData);
       const errMsg = deployData.errors?.[0]?.message || 'Gagal deploy Worker.';
       return { ok: false, reason: 'deploy_failed', message: errMsg };
     }
 
-    // Langkah Tambahan: Explicit Binding (Fallback untuk memastikan KV terikat)
-    console.log('[share] Applying explicit KV binding...');
     await net.fetch(
       `https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/scripts/${scriptName}/bindings`,
       {
@@ -1114,8 +1063,6 @@ ipcMain.handle('share-deploy-worker', async (_, { apiToken }) => {
       }
     ).catch(e => console.warn('[share] Explicit binding failed:', e.message));
 
-    // 5. Enable workers.dev subdomain for this script
-    console.log(`[share] Enabling workers.dev subdomain for ${scriptName}...`);
     await net.fetch(
       `https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/scripts/${scriptName}/subdomain`,
       {
@@ -1125,8 +1072,6 @@ ipcMain.handle('share-deploy-worker', async (_, { apiToken }) => {
       }
     ).catch(e => console.warn('[share] Could not enable subdomain:', e.message));
 
-    // 6. Get Subdomain & Worker URL
-    console.log('[share] Fetching worker subdomain...');
     const subdomainRes = await net.fetch(
       `https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/subdomain`,
       { headers: { 'Authorization': `Bearer ${apiToken}` } }
@@ -1141,8 +1086,6 @@ ipcMain.handle('share-deploy-worker', async (_, { apiToken }) => {
     const workerUrl = `https://${scriptName}.${subdomain}.workers.dev`;
     console.log('[share] Worker URL:', workerUrl);
 
-    // 7. Set Secrets
-    console.log('[share] Setting DISBOX_API_KEY secret...');
     const userApiKey = cryptoNode.randomBytes(24).toString('hex');
     const secretRes = await net.fetch(
       `https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/scripts/${scriptName}/secrets`,
@@ -1179,19 +1122,19 @@ function getApiKey(settings, cfWorkerUrl) {
   const normalize = (u) => u?.toLowerCase().replace(/^https?:\/\//, '').replace(/\/+$/, '').trim();
   const target = normalize(cfWorkerUrl);
   
-  console.log(`[share] Mapping key for worker: ${cfWorkerUrl} (normalized: ${target})`);
-  
   for (const [url, key] of Object.entries(PUBLIC_API_KEYS)) {
     if (normalize(url) === target) {
-      console.log(`[share] Found match! Using key: ${key.slice(0, 8)}...`);
       return key.trim();
     }
   }
 
-  console.log(`[share] No specific mapping found, using default key: ${DEFAULT_PUBLIC_API_KEY.slice(0, 8)}...`);
   return DEFAULT_PUBLIC_API_KEY.trim();
 }
 
+// ─── share-create-link ────────────────────────────────────────────────────────
+// New architecture: messageIds are stored with just msgId (no pre-fetched attachmentUrl).
+// The Cloudflare Worker fetches from Discord directly using stored webhookUrl.
+// webhookUrl is kept server-side in KV — never exposed to link recipients.
 ipcMain.handle('share-create-link', async (_, hash, { filePath, fileId, permission, expiresAt }) => {
   try {
     const token = cryptoNode.randomUUID().replace(/-/g, '');
@@ -1213,12 +1156,11 @@ ipcMain.handle('share-create-link', async (_, hash, { filePath, fileId, permissi
 
     let apiKey = getApiKey(settings, cfWorkerUrl);
 
-    console.log(`[share] PREPARING REQUEST:`);
-    console.log(`[share] > Worker: ${cfWorkerUrl}`);
-    console.log(`[share] > API Key (first 8): ${apiKey?.slice(0, 8)}...`);
-    console.log(`[share] > Mode: ${settings?.mode || 'public'}`);
+    console.log(`[share] Creating link for ${filePath || fileId}`);
+    console.log(`[share] Worker: ${cfWorkerUrl}`);
 
-    // Ambil messageIds + attachment URLs dari Discord
+    // Get messageIds from local DB — just the IDs, no pre-fetching attachment URLs.
+    // The worker will fetch from Discord on-demand using stored webhookUrl.
     let messageIds = [];
     try {
       const fileRow = fileId
@@ -1227,79 +1169,47 @@ ipcMain.handle('share-create-link', async (_, hash, { filePath, fileId, permissi
 
       if (fileRow) {
         const rawIds = JSON.parse(fileRow.message_ids || '[]');
-        console.log(`[share] > Chunks to fetch: ${rawIds.length}`);
-        const https = require('https');
-        
-        for (let i = 0; i < rawIds.length; i++) {
-          const item = rawIds[i];
-          const msgId = typeof item === 'string' ? item : item.msgId;
-          const msgUrl = `${activeWebhookUrl}/messages/${msgId}`;
-          
-          console.log(`[share] > Fetching chunk ${i+1}/${rawIds.length}: ${msgId}`);
-          
-          let retryCount = 0;
-          let success = false;
-          while (retryCount < 3 && !success) {
-            const result = await new Promise((resolve) => {
-              https.get(msgUrl, { headers: { 'User-Agent': 'Mozilla/5.0 Disbox/2.0' } }, (res) => {
-                let data = '';
-                res.on('data', (c) => data += c);
-                res.on('end', () => {
-                  if (res.statusCode === 200) {
-                    try {
-                      const msg = JSON.parse(data);
-                      resolve({ ok: true, attachmentUrl: msg.attachments?.[0]?.url || null });
-                    } catch (e) { resolve({ ok: false, retry: false }); }
-                  } else if (res.statusCode === 429) {
-                    try {
-                      const backoff = (JSON.parse(data).retry_after || 1) * 1000 + 500;
-                      resolve({ ok: false, retry: true, delay: backoff, reason: '429' });
-                    } catch (e) { resolve({ ok: false, retry: true, delay: 2000, reason: '429' }); }
-                  } else {
-                    resolve({ ok: false, retry: false, status: res.statusCode });
-                  }
-                });
-              }).on('error', (err) => resolve({ ok: false, retry: true, delay: 1000, reason: err.message }));
-            });
-
-            if (result.ok) {
-              messageIds.push({ msgId, attachmentUrl: result.attachmentUrl });
-              success = true;
-            } else if (result.retry) {
-              console.warn(`[share] > Retry ${retryCount+1}/3 for ${msgId} due to ${result.reason}. Waiting ${result.delay}ms...`);
-              retryCount++;
-              await new Promise(r => setTimeout(r, result.delay));
-            } else {
-              console.error(`[share] > Failed to fetch ${msgId} (Status: ${result.status})`);
-              messageIds.push({ msgId, attachmentUrl: null });
-              break;
-            }
-          }
-        }
+        // Store only msgId — worker fetches attachment URLs from Discord
+        messageIds = rawIds.map(item => ({
+          msgId: typeof item === 'string' ? item : item.msgId,
+          attachmentUrl: null  // Worker will populate on first access
+        }));
+        console.log(`[share] Prepared ${messageIds.length} chunk IDs for link`);
       }
-    } catch (e) { console.warn('[share] Could not fetch messageIds:', e.message); }
+    } catch (e) {
+      console.warn('[share] Could not get messageIds:', e.message);
+    }
 
-    // Derive encryption key dari webhook URL dan encode ke base64
-    // Disimpan di KV agar browser bisa decrypt chunks saat download
+    // Derive encryption key and encode as base64 for browser-side decryption
+    // The actual webhookUrl is NOT sent — only the derived key
     let encryptionKeyB64 = null;
     try {
       const encKey = getEncryptionKey(activeWebhookUrl);
       if (encKey) encryptionKeyB64 = encKey.toString('base64');
-    } catch (e) { console.warn('[share] Could not get encryption key:', e.message); }
-
-    console.log(`[share] > All messageIds prepared. Sending to Cloudflare...`);
-    console.log(`[share] > Target: ${cfWorkerUrl}/share/create`);
-    console.log(`[share] > Key: ${apiKey.trim().slice(0, 8)}...`);
+    } catch (e) {
+      console.warn('[share] Could not get encryption key:', e.message);
+    }
 
     const headers = {
       'Content-Type': 'application/json',
       'X-Disbox-Key': apiKey.trim()
     };
 
+    // Send webhookUrl to worker (stored server-side in KV, never sent to link recipients)
     const res = await net.fetch(`${cfWorkerUrl}/share/create`, {
       method: 'POST',
       headers: headers,
-      body: JSON.stringify({ token, fileId, filePath, permission, expiresAt, webhookHash: hash, messageIds, encryptionKeyB64, webhookUrl: activeWebhookUrl })
+      body: JSON.stringify({
+        token,
+        fileId,
+        filePath,
+        permission,
+        expiresAt,
+        webhookHash: hash,
+        messageIds,
+        encryptionKeyB64,
+        webhookUrl: activeWebhookUrl   // Stored in KV, never exposed to link recipients
+      })
     }).catch(e => {
       if (e.message.includes('ERR_SSL') || e.message.includes('ERR_CERT')) {
         throw new Error('SSL Cloudflare belum siap. Tunggu 1-2 menit agar sertifikat aktif.');
@@ -1380,10 +1290,10 @@ ipcMain.handle('share-open-cf-token-page', async () => {
 });
 
 function getDisboxWorkerCode() {
-  // Baca worker code dari file terpisah — menghindari masalah escaping string
   const workerPath = require('path').join(__dirname, 'disbox-worker.js');
   return require('fs').readFileSync(workerPath, 'utf8');
 }
+
 ipcMain.handle('dialog-open-files', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ['openFile', 'multiSelections'],
@@ -1498,7 +1408,6 @@ ipcMain.handle('get-latest-metadata-msgid', async (_, hash) => {
   return null;
 });
 
-// [FIX] load-metadata: filter by hash
 ipcMain.handle('load-metadata', async (_, hash) => {
   try {
     const files = db.prepare(
@@ -1517,7 +1426,10 @@ ipcMain.handle('load-metadata', async (_, hash) => {
   }
 });
 
-// Helper to mark metadata as dirty and trigger timer
+// ─── Pending sync queue ────────────────────────────────────────────────────────
+// Changes made while a sync is in progress are queued and not lost.
+const pendingSyncQueue = new Map(); // hash -> { files, pinHash, shareLinks }
+
 function markMetadataDirty(hash) {
   try {
     db.prepare(`
@@ -1611,9 +1523,17 @@ ipcMain.handle('remove-pin', async (_, hash) => {
 
 // ─── Upload metadata ke Discord ──────────────────────────────────────────────
 let metadataUploadTimer = null;
+// Track in-progress upload per hash to prevent concurrent uploads losing data
+const uploadingHashes = new Set();
 
 async function uploadMetadataToDiscord(hash) {
   if (!activeWebhookUrl || activeWebhookHash !== hash) return;
+
+  // If already uploading for this hash, re-queue after current upload finishes
+  if (uploadingHashes.has(hash)) {
+    console.log(`[metadata] Upload already in progress for ${hash.slice(-8)}, will re-queue`);
+    return;
+  }
 
   let files;
   let pinHash = null;
@@ -1647,107 +1567,119 @@ async function uploadMetadataToDiscord(hash) {
     if (files.length === 0 && !pinHash && shareLinks.length === 0) return;
   } catch { return; }
 
+  uploadingHashes.add(hash);
   console.log(`[metadata] UPLOADING …${hash.slice(-8)} (${files.length} items, ${shareLinks.length} links)`);
   mainWindow?.webContents.send('metadata-status', { hash, status: 'uploading', items: files.length });
 
   let retryCount = 0;
   const maxRetries = 5;
 
-  while (retryCount <= maxRetries) {
-    try {
-      const key = getEncryptionKey(activeWebhookUrl);
-      
-      // MetadataContainer format
-      const container = {
-        files,
-        pinHash,
-        shareLinks,
-        updatedAt: Date.now()
-      };
-      
-      const jsonBuf = Buffer.from(JSON.stringify(container));
-      const encryptedBuf = encrypt(jsonBuf, key);
-      const bodyBuf = buildMetadataFormData(encryptedBuf, 'disbox_metadata.json');
-      
-      const response = await net.fetch(activeWebhookUrl + '?wait=true', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'multipart/form-data; boundary=----DisboxFlushBoundary',
-          'User-Agent': 'Mozilla/5.0 Disbox/2.0',
-        },
-        body: new Uint8Array(bodyBuf),
-      });
+  try {
+    while (retryCount <= maxRetries) {
+      try {
+        const key = getEncryptionKey(activeWebhookUrl);
+        
+        const container = {
+          files,
+          pinHash,
+          shareLinks,
+          updatedAt: Date.now()
+        };
+        
+        const jsonBuf = Buffer.from(JSON.stringify(container));
+        const encryptedBuf = encrypt(jsonBuf, key);
+        const bodyBuf = buildMetadataFormData(encryptedBuf, 'disbox_metadata.json');
+        
+        const response = await net.fetch(activeWebhookUrl + '?wait=true', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'multipart/form-data; boundary=----DisboxFlushBoundary',
+            'User-Agent': 'Mozilla/5.0 Disbox/2.0',
+          },
+          body: new Uint8Array(bodyBuf),
+        });
 
-      if (!response.ok) {
-        if ((response.status === 503 || response.status === 429) && retryCount < maxRetries) {
+        if (!response.ok) {
+          if ((response.status === 503 || response.status === 429) && retryCount < maxRetries) {
+            retryCount++;
+            const delay = Math.pow(2, retryCount) * 1000 + Math.random() * 1000;
+            console.warn(`[metadata] Upload failed with ${response.status}, retrying in ${Math.round(delay)}ms...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            continue;
+          }
+          mainWindow?.webContents.send('metadata-status', { hash, status: 'error' });
+          return;
+        }
+
+        const data = JSON.parse(await response.text());
+        const newMsgId = data.id;
+
+        db.transaction(() => {
+          const meta = db.prepare('SELECT snapshot_history FROM metadata_sync WHERE hash = ?').get(hash);
+          let snapshotHistory = JSON.parse(meta?.snapshot_history || '[]');
+          
+          snapshotHistory.push(newMsgId);
+          if (snapshotHistory.length > 3) snapshotHistory.shift();
+
+          db.prepare(`
+            INSERT INTO metadata_sync (hash, last_msg_id, snapshot_history, is_dirty, updated_at)
+            VALUES (?, ?, ?, 0, ?)
+            ON CONFLICT(hash) DO UPDATE SET
+              last_msg_id=excluded.last_msg_id,
+              snapshot_history=excluded.snapshot_history,
+              is_dirty=0,
+              updated_at=excluded.updated_at
+          `).run(hash, newMsgId, JSON.stringify(snapshotHistory), Date.now());
+        })();
+
+        console.log(`[metadata] UPLOAD DONE ✓ ID: ${newMsgId}`);
+        mainWindow?.webContents.send('metadata-status', { hash, status: 'synced', items: files.length });
+
+        await net.fetch(activeWebhookUrl, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: `dbx: ${newMsgId}` }),
+        }).catch(() => {});
+
+        // Check if new dirty changes came in while we were uploading — re-queue if so
+        const freshMeta = db.prepare('SELECT is_dirty FROM metadata_sync WHERE hash = ?').get(hash);
+        if (freshMeta?.is_dirty) {
+          console.log(`[metadata] New changes detected after upload — re-queuing for ${hash.slice(-8)}`);
+          if (metadataUploadTimer) clearTimeout(metadataUploadTimer);
+          metadataUploadTimer = setTimeout(() => {
+            metadataUploadTimer = null;
+            uploadMetadataToDiscord(hash);
+          }, 1000);
+        }
+        
+        return;
+      } catch (e) {
+        if (retryCount < maxRetries) {
           retryCount++;
           const delay = Math.pow(2, retryCount) * 1000 + Math.random() * 1000;
-          console.warn(`[metadata] Upload failed with ${response.status}, retrying in ${Math.round(delay)}ms...`);
+          console.warn(`[metadata] Upload attempt ${retryCount} failed: ${e.message}, retrying...`);
           await new Promise(resolve => setTimeout(resolve, delay));
-          continue;
+        } else {
+          console.error('[metadata] UPLOAD error:', e.message);
+          mainWindow?.webContents.send('metadata-status', { hash, status: 'error' });
+          return;
         }
-        mainWindow?.webContents.send('metadata-status', { hash, status: 'error' });
-        return;
-      }
-
-      const data = JSON.parse(await response.text());
-      const newMsgId = data.id;
-
-      db.transaction(() => {
-        const meta = db.prepare('SELECT snapshot_history FROM metadata_sync WHERE hash = ?').get(hash);
-        let snapshotHistory = JSON.parse(meta?.snapshot_history || '[]');
-        
-        snapshotHistory.push(newMsgId);
-        if (snapshotHistory.length > 3) snapshotHistory.shift();
-
-        db.prepare(`
-          INSERT INTO metadata_sync (hash, last_msg_id, snapshot_history, is_dirty, updated_at)
-          VALUES (?, ?, ?, 0, ?)
-          ON CONFLICT(hash) DO UPDATE SET
-            last_msg_id=excluded.last_msg_id,
-            snapshot_history=excluded.snapshot_history,
-            is_dirty=0,
-            updated_at=excluded.updated_at
-        `).run(hash, newMsgId, JSON.stringify(snapshotHistory), Date.now());
-      })();
-
-      console.log(`[metadata] UPLOAD DONE ✓ ID: ${newMsgId}`);
-      mainWindow?.webContents.send('metadata-status', { hash, status: 'synced', items: files.length });
-
-      await net.fetch(activeWebhookUrl, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: `dbx: ${newMsgId}` }),
-      }).catch(() => {});
-      
-      return; // Success
-    } catch (e) {
-      if (retryCount < maxRetries) {
-        retryCount++;
-        const delay = Math.pow(2, retryCount) * 1000 + Math.random() * 1000;
-        console.warn(`[metadata] Upload attempt ${retryCount} failed: ${e.message}, retrying...`);
-        await new Promise(resolve => setTimeout(resolve, delay));
-      } else {
-        console.error('[metadata] UPLOAD error:', e.message);
-        mainWindow?.webContents.send('metadata-status', { hash, status: 'error' });
-        return;
       }
     }
+  } finally {
+    uploadingHashes.delete(hash);
   }
 }
 
-// [FIX] save-metadata: semua operasi filter/delete by hash
 ipcMain.handle('save-metadata', async (_, hash, data, msgId = null) => {
   try {
     db.transaction(() => {
-      // Handle both MetadataContainer object and legacy array format
       const isContainer = !Array.isArray(data) && data !== null && typeof data === 'object';
       const filesToSave = isContainer ? (data.files || []) : (data || []);
       const pinHashToSync = isContainer ? data.pinHash : null;
       const shareLinksToSync = isContainer ? (data.shareLinks || []) : [];
 
       if (msgId) {
-        // Sync dari cloud: hapus HANYA file milik hash ini
         db.prepare('DELETE FROM files WHERE hash = ?').run(hash);
         
         const insertFile = db.prepare(`
@@ -1773,18 +1705,15 @@ ipcMain.handle('save-metadata', async (_, hash, data, msgId = null) => {
           );
         }
 
-        // Sync pinHash jika ada (khusus saat download dari cloud)
         if (pinHashToSync) {
           db.prepare(`
             INSERT INTO settings (hash, key, value) VALUES (?, 'pin_hash', ?)
             ON CONFLICT(hash, key) DO UPDATE SET value = excluded.value
           `).run(hash, pinHashToSync);
         } else if (isContainer) {
-          // Jika container eksplisit tapi pinHash null/kosong, hapus pin lokal agar sync
           db.prepare("DELETE FROM settings WHERE hash = ? AND key = 'pin_hash'").run(hash);
         }
 
-        // Sync shareLinks jika ada (khusus saat download dari cloud)
         if (isContainer && data.shareLinks) {
           db.prepare('DELETE FROM share_links WHERE hash = ?').run(hash);
           const insertLink = db.prepare(`
@@ -1825,7 +1754,9 @@ ipcMain.handle('save-metadata', async (_, hash, data, msgId = null) => {
         console.log(`[metadata] SYNCED & RESTORED …${hash.slice(-8)} → ${filesToSave.length} items, ${shareLinksToSync.length} links`);
         mainWindow?.webContents.send('metadata-status', { hash, status: 'synced', items: filesToSave.length });
       } else {
-        // Perubahan lokal: hapus HANYA file milik hash ini
+        // Local change: update files, mark dirty
+        // If an upload is currently in progress, the re-queue logic in uploadMetadataToDiscord
+        // will pick up these changes after the current upload finishes.
         db.prepare('DELETE FROM files WHERE hash = ?').run(hash);
         
         const insertFile = db.prepare(`
@@ -1973,7 +1904,6 @@ ipcMain.handle('upload-file-from-path', async (event, webhookUrl, nativePath, de
           const buf = Buffer.allocUnsafe(size);
           fs.readSync(fd, buf, 0, size, start);
 
-          // [ENCRYPT] Encrypt chunk sebelum upload
           const key = getEncryptionKey(webhookUrl);
           const encryptedBuf = encrypt(buf, key);
 
