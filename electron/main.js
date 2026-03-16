@@ -553,10 +553,13 @@ const cloudWatchers = new Map();
 
 function showSyncNotification(name, type) {
 <<<<<<< HEAD
+<<<<<<< HEAD
   const title = 'Disbox Cloud Sync';
   const body = type === 'upload'
     ? `${name} synced to Disbox`
 =======
+=======
+>>>>>>> parent of 13ba95d (update change cloudsave to cloud sync)
   const title = 'Disbox Cloud Save';
   const body = type === 'upload' 
     ? `${name} synced to Disbox` 
@@ -584,6 +587,9 @@ ipcMain.handle('cloudsave-get-status', async (_, id) => {
 =======
     
     // Normalize path for query
+<<<<<<< HEAD
+>>>>>>> parent of 13ba95d (update change cloudsave to cloud sync)
+=======
 >>>>>>> parent of 13ba95d (update change cloudsave to cloud sync)
     const searchPath = entry.discord_path.replace(/^\/+/, '').replace(/\/+$/, '');
     const fileCount = db.prepare('SELECT COUNT(*) as count FROM files WHERE hash = ? AND (path LIKE ? OR path LIKE ? OR path LIKE ? OR path LIKE ?)')
@@ -845,6 +851,9 @@ async function handleLocalChange(id, filePath, type) {
     mainWindow?.webContents.send('cloudsave-do-upload-file', { id, filePath, discordPath });
     
     // Wait for response
+<<<<<<< HEAD
+>>>>>>> parent of 13ba95d (update change cloudsave to cloud sync)
+=======
 >>>>>>> parent of 13ba95d (update change cloudsave to cloud sync)
     const success = await new Promise(resolve => {
       ipcMain.once(`cloudsave-upload-file-result-${id}-${discordPath}`, (_, res) => resolve(res));
@@ -1047,6 +1056,9 @@ ipcMain.handle('share-deploy-worker', async (_, { apiToken }) => {
 =======
     
     // Gunakan account pertama (paling umum untuk user personal)
+<<<<<<< HEAD
+>>>>>>> parent of 13ba95d (update change cloudsave to cloud sync)
+=======
 >>>>>>> parent of 13ba95d (update change cloudsave to cloud sync)
     const accountId = accountsData.result[0].id;
     const accountName = accountsData.result[0].name;
@@ -1104,6 +1116,9 @@ ipcMain.handle('share-deploy-worker', async (_, { apiToken }) => {
 =======
     
     // Construct Multipart Body secara presisi
+<<<<<<< HEAD
+>>>>>>> parent of 13ba95d (update change cloudsave to cloud sync)
+=======
 >>>>>>> parent of 13ba95d (update change cloudsave to cloud sync)
     const bodyParts = [
       `--${boundary}\r\n`,
@@ -1218,6 +1233,9 @@ function getApiKey(settings, cfWorkerUrl) {
   
   console.log(`[share] Mapping key for worker: ${cfWorkerUrl} (normalized: ${target})`);
   
+<<<<<<< HEAD
+>>>>>>> parent of 13ba95d (update change cloudsave to cloud sync)
+=======
 >>>>>>> parent of 13ba95d (update change cloudsave to cloud sync)
   for (const [url, key] of Object.entries(PUBLIC_API_KEYS)) {
     if (normalize(url) === target) {
@@ -1257,6 +1275,10 @@ ipcMain.handle('share-create-link', async (_, hash, { filePath, fileId, permissi
     console.log(`[share] > Mode: ${settings?.mode || 'public'}`);
 
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+    // Ambil messageIds + attachment URLs dari Discord
+>>>>>>> parent of 13ba95d (update change cloudsave to cloud sync)
 =======
     // Ambil messageIds + attachment URLs dari Discord
 >>>>>>> parent of 13ba95d (update change cloudsave to cloud sync)
@@ -1268,6 +1290,7 @@ ipcMain.handle('share-create-link', async (_, hash, { filePath, fileId, permissi
 
       if (fileRow) {
         const rawIds = JSON.parse(fileRow.message_ids || '[]');
+<<<<<<< HEAD
 <<<<<<< HEAD
         messageIds = rawIds.map(item => ({
           msgId: typeof item === 'string' ? item : item.msgId,
@@ -1315,6 +1338,43 @@ ipcMain.handle('share-create-link', async (_, hash, { filePath, fileId, permissi
               }).on('error', (err) => resolve({ ok: false, retry: true, delay: 1000, reason: err.message }));
             });
 
+=======
+        console.log(`[share] > Chunks to fetch: ${rawIds.length}`);
+        const https = require('https');
+        
+        for (let i = 0; i < rawIds.length; i++) {
+          const item = rawIds[i];
+          const msgId = typeof item === 'string' ? item : item.msgId;
+          const msgUrl = `${activeWebhookUrl}/messages/${msgId}`;
+          
+          console.log(`[share] > Fetching chunk ${i+1}/${rawIds.length}: ${msgId}`);
+          
+          let retryCount = 0;
+          let success = false;
+          while (retryCount < 3 && !success) {
+            const result = await new Promise((resolve) => {
+              https.get(msgUrl, { headers: { 'User-Agent': 'Mozilla/5.0 Disbox/2.0' } }, (res) => {
+                let data = '';
+                res.on('data', (c) => data += c);
+                res.on('end', () => {
+                  if (res.statusCode === 200) {
+                    try {
+                      const msg = JSON.parse(data);
+                      resolve({ ok: true, attachmentUrl: msg.attachments?.[0]?.url || null });
+                    } catch (e) { resolve({ ok: false, retry: false }); }
+                  } else if (res.statusCode === 429) {
+                    try {
+                      const backoff = (JSON.parse(data).retry_after || 1) * 1000 + 500;
+                      resolve({ ok: false, retry: true, delay: backoff, reason: '429' });
+                    } catch (e) { resolve({ ok: false, retry: true, delay: 2000, reason: '429' }); }
+                  } else {
+                    resolve({ ok: false, retry: false, status: res.statusCode });
+                  }
+                });
+              }).on('error', (err) => resolve({ ok: false, retry: true, delay: 1000, reason: err.message }));
+            });
+
+>>>>>>> parent of 13ba95d (update change cloudsave to cloud sync)
             if (result.ok) {
               messageIds.push({ msgId, attachmentUrl: result.attachmentUrl });
               success = true;
@@ -1334,6 +1394,9 @@ ipcMain.handle('share-create-link', async (_, hash, { filePath, fileId, permissi
 
     // Derive encryption key dari webhook URL dan encode ke base64
     // Disimpan di KV agar browser bisa decrypt chunks saat download
+<<<<<<< HEAD
+>>>>>>> parent of 13ba95d (update change cloudsave to cloud sync)
+=======
 >>>>>>> parent of 13ba95d (update change cloudsave to cloud sync)
     let encryptionKeyB64 = null;
     try {
@@ -1354,6 +1417,7 @@ ipcMain.handle('share-create-link', async (_, hash, { filePath, fileId, permissi
       method: 'POST',
       headers: headers,
 <<<<<<< HEAD
+<<<<<<< HEAD
       body: JSON.stringify({
         token,
         fileId,
@@ -1365,6 +1429,9 @@ ipcMain.handle('share-create-link', async (_, hash, { filePath, fileId, permissi
         encryptionKeyB64,
         webhookUrl: activeWebhookUrl
       })
+=======
+      body: JSON.stringify({ token, fileId, filePath, permission, expiresAt, webhookHash: hash, messageIds, encryptionKeyB64, webhookUrl: activeWebhookUrl })
+>>>>>>> parent of 13ba95d (update change cloudsave to cloud sync)
 =======
       body: JSON.stringify({ token, fileId, filePath, permission, expiresAt, webhookHash: hash, messageIds, encryptionKeyB64, webhookUrl: activeWebhookUrl })
 >>>>>>> parent of 13ba95d (update change cloudsave to cloud sync)
@@ -1587,9 +1654,13 @@ ipcMain.handle('load-metadata', async (_, hash) => {
 });
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 // ─── Pending sync queue ────────────────────────────────────────────────────────
 const pendingSyncQueue = new Map();
 
+=======
+// Helper to mark metadata as dirty and trigger timer
+>>>>>>> parent of 13ba95d (update change cloudsave to cloud sync)
 =======
 // Helper to mark metadata as dirty and trigger timer
 >>>>>>> parent of 13ba95d (update change cloudsave to cloud sync)
@@ -1687,7 +1758,10 @@ ipcMain.handle('remove-pin', async (_, hash) => {
 // ─── Upload metadata ke Discord ──────────────────────────────────────────────
 let metadataUploadTimer = null;
 <<<<<<< HEAD
+<<<<<<< HEAD
 const uploadingHashes = new Set();
+=======
+>>>>>>> parent of 13ba95d (update change cloudsave to cloud sync)
 =======
 >>>>>>> parent of 13ba95d (update change cloudsave to cloud sync)
 
@@ -1695,11 +1769,14 @@ async function uploadMetadataToDiscord(hash) {
   if (!activeWebhookUrl || activeWebhookHash !== hash) return;
 
 <<<<<<< HEAD
+<<<<<<< HEAD
   if (uploadingHashes.has(hash)) {
     console.log(`[metadata] Upload already in progress for ${hash.slice(-8)}, will re-queue`);
     return;
   }
 
+=======
+>>>>>>> parent of 13ba95d (update change cloudsave to cloud sync)
 =======
 >>>>>>> parent of 13ba95d (update change cloudsave to cloud sync)
   let files;
@@ -1740,6 +1817,7 @@ async function uploadMetadataToDiscord(hash) {
   let retryCount = 0;
   const maxRetries = 5;
 
+<<<<<<< HEAD
 <<<<<<< HEAD
   try {
     while (retryCount <= maxRetries) {
@@ -1821,6 +1899,35 @@ async function uploadMetadataToDiscord(hash) {
         return;
       } catch (e) {
         if (retryCount < maxRetries) {
+=======
+  while (retryCount <= maxRetries) {
+    try {
+      const key = getEncryptionKey(activeWebhookUrl);
+      
+      // MetadataContainer format
+      const container = {
+        files,
+        pinHash,
+        shareLinks,
+        updatedAt: Date.now()
+      };
+      
+      const jsonBuf = Buffer.from(JSON.stringify(container));
+      const encryptedBuf = encrypt(jsonBuf, key);
+      const bodyBuf = buildMetadataFormData(encryptedBuf, 'disbox_metadata.json');
+      
+      const response = await net.fetch(activeWebhookUrl + '?wait=true', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'multipart/form-data; boundary=----DisboxFlushBoundary',
+          'User-Agent': 'Mozilla/5.0 Disbox/2.0',
+        },
+        body: new Uint8Array(bodyBuf),
+      });
+
+      if (!response.ok) {
+        if ((response.status === 503 || response.status === 429) && retryCount < maxRetries) {
+>>>>>>> parent of 13ba95d (update change cloudsave to cloud sync)
 =======
   while (retryCount <= maxRetries) {
     try {
@@ -1997,6 +2104,10 @@ ipcMain.handle('save-metadata', async (_, hash, data, msgId = null) => {
         mainWindow?.webContents.send('metadata-status', { hash, status: 'synced', items: filesToSave.length });
       } else {
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+        // Perubahan lokal: hapus HANYA file milik hash ini
+>>>>>>> parent of 13ba95d (update change cloudsave to cloud sync)
 =======
         // Perubahan lokal: hapus HANYA file milik hash ini
 >>>>>>> parent of 13ba95d (update change cloudsave to cloud sync)
