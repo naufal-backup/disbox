@@ -1,7 +1,7 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { 
-  Link2, Trash2, Copy, Check, Lock, Shield, Eye, X, 
-  Grid3x3, List, ArrowUpDown, ChevronDown, Search, Image as ImageIcon, Film, AlertCircle
+  Link2, Trash2, Copy, Check, Lock, Shield, Eye,
+  Grid3x3, List, ArrowUpDown, ChevronDown, Search
 } from 'lucide-react';
 import { useApp } from '../AppContext.jsx';
 import toast from 'react-hot-toast';
@@ -10,8 +10,8 @@ import { formatSize, getFileIcon, getMimeType } from '../utils/disbox.js';
 import { motion, AnimatePresence } from 'framer-motion';
 import styles from './SharedPage.module.css';
 
-// ─── Thumbnail Concurrency Control (Same as Drive) ──────────────────────────
-const MAX_CONCURRENT_THUMBS = 1;
+// ─── Thumbnail Concurrency Control ──────────────────────────────────────────
+const MAX_CONCURRENT_THUMBS = 3;
 let activeThumbDownloads = 0;
 const thumbQueue = [];
 
@@ -74,8 +74,6 @@ function FileThumbnail({ file, size = 32 }) {
       img.src = URL.createObjectURL(blob);
     });
 
-    // FIX: chunk pertama tidak support seek (duration NaN/Infinity)
-    // Draw frame langsung saat onloadeddata/canplay, tanpa seek
     const captureVideoFrame = (blob) => new Promise((resolve) => {
       const video = document.createElement('video');
       video.preload = 'auto';
@@ -106,10 +104,7 @@ function FileThumbnail({ file, size = 32 }) {
         } catch (e) { settle(null); }
       };
 
-      // Fallback timeout 8 detik
       const timer = setTimeout(() => drawFrame(), 8000);
-
-      // Draw saat data tersedia — tidak seek karena chunk pertama tidak support it
       video.onloadeddata = () => drawFrame();
       video.oncanplay = () => { if (!settled) drawFrame(); };
       video.onerror = () => settle(null);
@@ -117,9 +112,6 @@ function FileThumbnail({ file, size = 32 }) {
     });
 
     const loadThumb = async () => {
-      const jitter = Math.random() * 1500;
-      await new Promise(r => setTimeout(r, jitter));
-      if (!isMounted) return;
       setLoading(true);
       try {
         await enqueueThumb(transferId, async () => {
@@ -130,14 +122,17 @@ function FileThumbnail({ file, size = 32 }) {
             progress: 0, type: 'download', status: 'active', hidden: true
           });
 
-          // VIDEO: hanya download chunk pertama untuk hemat bandwidth
-          let fileToDownload = file;
-          if (isVideo && file.messageIds?.length > 0) {
-            fileToDownload = { ...file, messageIds: [file.messageIds[0]] };
+          // VIDEO: skip thumbnail untuk multi-chunk video
+          // Browser tidak bisa decode partial video (moov atom ada di akhir file)
+          // Hanya tampilkan thumbnail untuk video single-chunk (ukuran < chunk size)
+          if (isVideo && (file.messageIds?.length || 0) > 1) {
+            updateTransfer(transferId, { status: 'done', progress: 1 });
+            setTimeout(() => removeTransfer(transferId), 500);
+            return;
           }
 
           const buffer = await api.downloadFile(
-            fileToDownload,
+            file,
             (p) => updateTransfer(transferId, { progress: p }),
             signal,
             transferId
@@ -190,7 +185,10 @@ function FileThumbnail({ file, size = 32 }) {
     );
   }
 
-  if (loading) return <div className="skeleton" style={{ width: '100%', height: '100%', borderRadius: 6 }} />;
+  // Jangan tampilkan skeleton untuk video multi-chunk, langsung fallback ke icon
+  if (loading && !(isVideo && (file.messageIds?.length || 0) > 1)) {
+    return <div className="skeleton" style={{ width: '100%', height: '100%', borderRadius: 6 }} />;
+  }
 
   return <span style={{ fontSize: size }}>{getFileIcon(name)}</span>;
 }
