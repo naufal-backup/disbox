@@ -12,8 +12,9 @@ export default function CloudSavePage() {
   const [newName, setNewName] = useState('');
   const [newPath, setNewPath] = useState('');
 
-  const [confirmRemove, setConfirmRemove] = useState(null);
-  const [confirmRestore, setConfirmRestore] = useState(null);
+  // Confirmation states
+  const [confirmRemove, setConfirmRemove] = useState(null); // save entry
+  const [confirmRestore, setConfirmRestore] = useState(null); // { id }
 
   const handleAdd = async () => {
     if (!newName || !newPath) return;
@@ -21,7 +22,7 @@ export default function CloudSavePage() {
     setShowAddModal(false);
     setNewName('');
     setNewPath('');
-    toast.success(t('cloudsync_added'));
+    toast.success('Cloud Save added');
   };
 
   const handleBrowse = async () => {
@@ -38,7 +39,7 @@ export default function CloudSavePage() {
         toast.error('Restore failed: ' + res.reason);
       }
     } else {
-      toast.success(t('cloudsync_restored'));
+      toast.success('Cloud Save restored');
     }
   };
 
@@ -57,9 +58,6 @@ export default function CloudSavePage() {
           <div className={styles.emptyState}>
             <Cloud className={styles.emptyIcon} />
             <p className={styles.emptyText}>{t('no_cloud_saves')}</p>
-            <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 8, textAlign: 'center', maxWidth: 320 }}>
-              {t('cloud_save_empty_hint')}
-            </p>
           </div>
         ) : (
           <div className={styles.list}>
@@ -76,9 +74,9 @@ export default function CloudSavePage() {
                     save={save} 
                     onSync={() => syncCloudSave(save.id)}
                     onExport={async () => {
-                      const toastId = toast.loading(t('exporting_zip'));
+                      const toastId = toast.loading('Exporting ZIP...');
                       const res = await exportCloudSave(save.id);
-                      if (res.ok) toast.success(t('export_complete'), { id: toastId });
+                      if (res.ok) toast.success('Export complete', { id: toastId });
                       else toast.error('Export failed: ' + res.reason, { id: toastId });
                     }}
                     onRemove={() => setConfirmRemove(save)}
@@ -107,28 +105,25 @@ export default function CloudSavePage() {
               className={styles.modal}
             >
               <h3>{t('add_cloud_save')}</h3>
-              <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 16, lineHeight: 1.5 }}>
-                {t('add_cloud_save_desc')}
-              </p>
               <div className={styles.formGroup}>
-                <label>{t('sync_name_label')}</label>
+                <label>Name</label>
                 <input 
                   className={styles.input}
                   value={newName}
                   onChange={e => setNewName(e.target.value)}
-                  placeholder={t('sync_name_placeholder')}
+                  placeholder="Game Name (e.g. Elden Ring)"
                 />
               </div>
               <div className={styles.formGroup}>
-                <label>{t('local_folder_label')}</label>
+                <label>Local Folder</label>
                 <div className={styles.pathSelector}>
                   <input 
                     className={styles.input}
                     value={newPath}
                     readOnly
-                    placeholder={t('choose_folder')}
+                    placeholder="Choose folder..."
                   />
-                  <button className={styles.browseBtn} onClick={handleBrowse}>{t('browse')}</button>
+                  <button className={styles.browseBtn} onClick={handleBrowse}>Browse</button>
                 </div>
               </div>
               <div className={styles.modalActions}>
@@ -149,7 +144,7 @@ export default function CloudSavePage() {
       {confirmRemove && (
         <ConfirmModal
           title={t('remove')}
-          message={`${t('remove_cloudsync_confirm')} "${confirmRemove.name}"? ${t('remove_cloudsync_desc')}`}
+          message={`Remove "${confirmRemove.name}" from Cloud Save? Local files will NOT be deleted.`}
           danger={true}
           onConfirm={() => {
             removeCloudSave(confirmRemove.id);
@@ -161,8 +156,8 @@ export default function CloudSavePage() {
 
       {confirmRestore && (
         <ConfirmModal
-          title={t('folder_not_empty_title')}
-          message={t('folder_not_empty_confirm')}
+          title="Folder Not Empty"
+          message="The chosen folder is not empty. Overwrite existing files?"
           danger={true}
           onConfirm={() => {
             handleRestore(confirmRestore.id, true);

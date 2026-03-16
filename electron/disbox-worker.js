@@ -60,9 +60,6 @@ async function handleRequest(request) {
     return new Response(JSON.stringify({ ok: true }), { headers: { ...cors, 'Content-Type': 'application/json' } });
   }
 
-  // ─── Chunk proxy: worker fetches from Discord directly ───────────────────
-  // /share/:token/chunk/:msgId — worker uses stored webhookUrl to fetch from Discord
-  // webhookUrl is NEVER sent to the client, it stays server-side in KV
   if (path.match(/^\/share\/[^\/]+\/chunk\/[^\/]+$/) && request.method === 'GET') {
     const parts = path.split('/');
     const token = parts[2];
@@ -73,17 +70,11 @@ async function handleRequest(request) {
       return new Response('Expired', { status: 410, headers: cors });
     if (data.permission !== 'download' && data.permission !== 'view')
       return new Response('Forbidden', { status: 403, headers: cors });
-
-    // webhookUrl stored server-side, never exposed to client
-    const webhookUrl = data.webhookUrl;
-    if (!webhookUrl) return new Response('No webhook configured', { status: 500, headers: cors });
-
     const entry = (data.messageIds || []).find(function(m) {
       return (typeof m === 'string' ? m : m.msgId) === msgId;
     });
     if (!entry) return new Response('Chunk not found', { status: 404, headers: cors });
 
-    // Try cached attachmentUrl first, refresh if expired
     let attachmentUrl = typeof entry === 'object' ? entry.attachmentUrl : null;
 
     const isExpired = function(u) {
@@ -93,24 +84,16 @@ async function handleRequest(request) {
       return (parseInt(m[1], 16) * 1000) < (Date.now() + 300000);
     };
 
-    if (isExpired(attachmentUrl)) {
+    if ((!attachmentUrl || isExpired(attachmentUrl)) && data.webhookUrl) {
       try {
-        // Worker fetches from Discord using stored webhookUrl — client never sees it
-        const msgRes = await fetch(webhookUrl.split('?')[0] + '/messages/' + msgId, {
-          headers: { 'User-Agent': 'Disbox-Worker/1.0' }
-        });
+        const msgRes = await fetch(data.webhookUrl.split('?')[0] + '/messages/' + msgId);
         if (msgRes.ok) {
           const msg = await msgRes.json();
           attachmentUrl = msg.attachments?.[0]?.url || null;
           if (attachmentUrl) {
-            // Update cache in KV
             const entryIdx = data.messageIds.findIndex(m => (typeof m === 'string' ? m : m.msgId) === msgId);
             if (entryIdx >= 0) {
-              if (typeof data.messageIds[entryIdx] === 'string') {
-                data.messageIds[entryIdx] = { msgId, attachmentUrl };
-              } else {
-                data.messageIds[entryIdx].attachmentUrl = attachmentUrl;
-              }
+              data.messageIds[entryIdx].attachmentUrl = attachmentUrl;
               await SHARE_KV.put('share_' + token, JSON.stringify(data),
                                  data.expiresAt ? { expiration: Math.floor(data.expiresAt / 1000) } : undefined);
             }
@@ -123,11 +106,9 @@ async function handleRequest(request) {
 
     const cdnRes = await fetch(attachmentUrl);
     if (!cdnRes.ok) return new Response('CDN error', { status: 502, headers: cors });
-    // Stream the raw (possibly encrypted) chunk directly to client
     return new Response(cdnRes.body, { headers: { ...cors, 'Content-Type': 'application/octet-stream' } });
   }
 
-  // /share/:token/info — returns file info WITHOUT webhookUrl
   if (path.match(/^\/share\/[^\/]+\/info$/) && request.method === 'GET') {
     const parts = path.split('/');
     const token = parts[2];
@@ -136,12 +117,10 @@ async function handleRequest(request) {
     if (data.expiresAt && Date.now() > data.expiresAt)
       return new Response('Expired', { status: 410, headers: cors });
 
-    // Strip webhookUrl — never expose to client
     const { webhookUrl, ...safeData } = data;
     return new Response(JSON.stringify(safeData), { headers: { ...cors, 'Content-Type': 'application/json' } });
   }
 
-  // /share/:token — HTML preview page
   if (path.match(/^\/share\/[^\/]+$/) && request.method === 'GET') {
     const parts = path.split('/');
     const token = parts[2];
@@ -169,8 +148,6 @@ function previewPage(d) {
   const msgIdsJson = JSON.stringify(d.messageIds || []);
   const tokenJson = JSON.stringify(d.token);
   const nameJson = JSON.stringify(name);
-  // encryptionKeyB64 is sent to allow browser-side decryption
-  // The actual webhookUrl is NEVER sent — only the derived key
   const keyB64Json = JSON.stringify(d.encryptionKeyB64 || null);
 
   const isImage = ['jpg','jpeg','png','gif','webp','svg'].includes(ext);
@@ -201,8 +178,6 @@ function previewPage(d) {
     return icons.file;
   };
 
-  // All chunk fetches go through /share/:token/chunk/:msgId on the worker
-  // The worker then fetches from Discord using stored webhookUrl — client never sees it
   const mediaScript = '<script>' +
   'var TOKEN=' + tokenJson + ';' +
   'var FILE_NAME=' + nameJson + ';' +
@@ -223,7 +198,6 @@ function previewPage(d) {
   '    return buf;' +
   '  });' +
   '}' +
-  // Fetch ALL chunks through worker proxy — Discord webhook URL stays server-side
   'function fetchAll(onProgress){' +
   '  var keyP=ENC_KEY_B64?crypto.subtle.importKey("raw",b64ToBytes(ENC_KEY_B64),{name:"AES-GCM"},false,["decrypt"]):Promise.resolve(null);' +
   '  return keyP.then(function(key){' +
@@ -238,9 +212,8 @@ function previewPage(d) {
   '      var entry=MESSAGE_IDS[i];' +
   '      var msgId=typeof entry==="string"?entry:entry.msgId;' +
   '      if(onProgress)onProgress(i,MESSAGE_IDS.length);' +
-  // Worker endpoint proxies chunk from Discord — no webhook URL in client
   '      return fetch("/share/"+TOKEN+"/chunk/"+msgId)' +
-  '        .then(function(r){if(!r.ok)throw new Error("Gagal mengambil data ("+r.status+")");return r.arrayBuffer();})' +
+  '        .then(function(r){if(!r.ok)throw new Error("Gagal mengambil data");return r.arrayBuffer();})' +
   '        .then(function(buf){return key?decryptChunk(buf,key):buf;})' +
   '        .then(function(buf){chunks.push(buf);i++;return next();});' +
   '    }' +
