@@ -91,7 +91,7 @@ Untuk membuat paket aplikasi siap pakai:
 Bash
 npm run build
 Hasil build akan tersedia di folder release/:
-
+```
 Linux: .AppImage dan .deb
 
 Windows: .exe (Setup), Portable, dan .zip
