@@ -97,6 +97,7 @@ try {
       size INTEGER DEFAULT 0,
       created_at INTEGER,
       message_ids TEXT NOT NULL,
+      thumbnail_msg_id TEXT DEFAULT NULL,
       is_locked INTEGER DEFAULT 0,
       is_starred INTEGER DEFAULT 0,
       PRIMARY KEY (id, hash)
@@ -151,6 +152,7 @@ try {
   const hasHash = cols.some(c => c.name === 'hash');
   const hasIsLocked = cols.some(c => c.name === 'is_locked');
   const hasIsStarred = cols.some(c => c.name === 'is_starred');
+  const hasThumbnailMsgId = cols.some(c => c.name === 'thumbnail_msg_id');
 
   if (!hasHash) {
     console.log('[migration] Kolom hash belum ada, migrasi tabel files...');
@@ -166,6 +168,7 @@ try {
           size INTEGER DEFAULT 0,
           created_at INTEGER,
           message_ids TEXT NOT NULL,
+          thumbnail_msg_id TEXT DEFAULT NULL,
           is_locked INTEGER DEFAULT 0,
           is_starred INTEGER DEFAULT 0,
           PRIMARY KEY (id, hash)
@@ -179,6 +182,11 @@ try {
     }
     if (!hasIsStarred) {
       db.exec(`ALTER TABLE files ADD COLUMN is_starred INTEGER DEFAULT 0`);
+    }
+    // ─── Migrasi: tambah kolom thumbnail_msg_id jika belum ada ───────────────
+    if (!hasThumbnailMsgId) {
+      console.log('[migration] Menambah kolom thumbnail_msg_id ke tabel files...');
+      db.exec(`ALTER TABLE files ADD COLUMN thumbnail_msg_id TEXT DEFAULT NULL`);
     }
   }
 
@@ -226,15 +234,16 @@ function migrateJsonToSqlite() {
         );
 
         const insertFile = db.prepare(`
-          INSERT INTO files (id, hash, path, parent_path, name, size, created_at, message_ids)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO files (id, hash, path, parent_path, name, size, created_at, message_ids, thumbnail_msg_id)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(id, hash) DO UPDATE SET
             path=excluded.path,
             parent_path=excluded.parent_path,
             name=excluded.name,
             size=excluded.size,
             created_at=excluded.created_at,
-            message_ids=excluded.message_ids
+            message_ids=excluded.message_ids,
+            thumbnail_msg_id=excluded.thumbnail_msg_id
         `);
 
         for (const f of files) {
@@ -249,7 +258,8 @@ function migrateJsonToSqlite() {
             name,
             f.size || 0,
             f.createdAt || Date.now(),
-            JSON.stringify(f.messageIds || [])
+            JSON.stringify(f.messageIds || []),
+            f.thumbnailMsgId || null
           );
         }
       })();
@@ -285,7 +295,7 @@ function savePrefs() {
 
 function createWindow() {
   const iconPath = path.join(__dirname, 'icon.png');
-  
+
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 820,
@@ -335,7 +345,7 @@ function createTray() {
     path.join(__dirname, '../icon.png'),
     path.join(__dirname, '../public/icon.png')
   ];
-  
+
   let trayIcon = null;
   for (const p of iconPaths) {
     if (fs.existsSync(p)) {
@@ -407,7 +417,7 @@ ipcMain.on('set-active-webhook', (_, webhookUrl, hash) => {
 // ─── Flush metadata ke Discord sebelum quit ───────────────────────────────────
 app.on('before-quit', (event) => {
   if (isQuitting && !metadataUploadTimer) return;
-  
+
   if (!activeWebhookUrl || !activeWebhookHash || !metadataUploadTimer) {
     isQuitting = true;
     return;
@@ -526,10 +536,10 @@ const cloudWatchers = new Map();
 
 function showSyncNotification(name, type) {
   const title = 'Disbox Cloud Sync';
-  const body = type === 'upload' 
-    ? `${name} synced to Disbox` 
+  const body = type === 'upload'
+    ? `${name} synced to Disbox`
     : `${name} updated from Disbox`;
-  
+
   new Notification({ title, body }).show();
 }
 
@@ -546,7 +556,7 @@ ipcMain.handle('cloudsave-get-status', async (_, id) => {
   try {
     const entry = db.prepare('SELECT * FROM cloudsave_entries WHERE id = ?').get(id);
     if (!entry) return null;
-    
+
     const searchPath = entry.discord_path.replace(/^\/+/, '').replace(/\/+$/, '');
     const fileCount = db.prepare('SELECT COUNT(*) as count FROM files WHERE hash = ? AND (path LIKE ? OR path LIKE ? OR path LIKE ? OR path LIKE ?)')
       .get(entry.webhook_hash, searchPath + '/%', searchPath + '%', '/' + searchPath + '/%', '/' + searchPath + '%').count;
@@ -572,7 +582,7 @@ ipcMain.handle('cloudsave-add', async (_, hash, entry) => {
       INSERT INTO cloudsave_entries (id, webhook_hash, name, local_path, discord_path, last_synced, last_modified)
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run(id, hash, entry.name, entry.local_path, discordPath, 0, 0);
-    
+
     if (entry.local_path) setupCloudWatcher(id, entry.local_path, hash);
     return id;
   } catch (e) {
@@ -590,7 +600,7 @@ ipcMain.handle('cloudsave-update', async (_, id, fields) => {
     const setClause = keys.map(k => `${k} = ?`).join(', ');
     const values = keys.map(k => fields[k]);
     db.prepare(`UPDATE cloudsave_entries SET ${setClause} WHERE id = ?`).run(...values, id);
-    
+
     const entry = db.prepare('SELECT * FROM cloudsave_entries WHERE id = ?').get(id);
     if (fields.local_path) {
       setupCloudWatcher(id, fields.local_path, entry.webhook_hash);
@@ -627,7 +637,7 @@ async function downloadDiscordFile(webhookUrl, file, destPath) {
       if (!response.ok) throw new Error(`Failed to get message ${msgId}`);
       const msgData = JSON.parse(await response.text());
       const attachmentUrl = msgData.attachments[0].url;
-      
+
       const fileRes = await net.fetch(attachmentUrl);
       if (!fileRes.ok) throw new Error(`Failed to download attachment from ${attachmentUrl}`);
       const buffer = Buffer.from(await fileRes.arrayBuffer());
@@ -653,7 +663,7 @@ ipcMain.handle('cloudsave-export-zip', async (_, id) => {
     const searchPath = entry.discord_path.replace(/^\/+/, '').replace(/\/+$/, '');
     const files = db.prepare('SELECT * FROM files WHERE hash = ? AND (path LIKE ? OR path LIKE ? OR path LIKE ? OR path LIKE ?)')
       .all(entry.webhook_hash, searchPath + '/%', searchPath + '%', '/' + searchPath + '/%', '/' + searchPath + '%');
-    
+
     if (files.length === 0) {
       console.log(`[cloudsave] No files found for hash ${entry.webhook_hash.slice(-8)} and path ${searchPath}`);
       return { ok: false, reason: 'no_files_in_cloud' };
@@ -676,7 +686,7 @@ ipcMain.handle('cloudsave-export-zip', async (_, id) => {
       file.messageIds = JSON.parse(file.message_ids);
       let relativePath = file.path.startsWith('/') ? file.path.slice(1) : file.path;
       relativePath = relativePath.replace(searchPath, '').replace(/^\/+/, '');
-      
+
       const destPath = path.join(tempDir, relativePath);
       await downloadDiscordFile(webhookUrl, file, destPath);
     }
@@ -709,9 +719,9 @@ ipcMain.handle('cloudsave-restore', async (_, { id, force }) => {
     if (!entry) return { ok: false, reason: 'entry_not_found' };
 
     const searchPath = entry.discord_path.replace(/^\/+/, '').replace(/\/+$/, '');
-    const files = db.prepare('SELECT * FROM files WHERE hash = ? AND (path LIKE ? OR path LIKE ? OR path LIKE ? OR path LIKE ?)')
-      .all(entry.webhook_hash, searchPath + '/%', searchPath + '%', '/' + searchPath + '/%', '/' + searchPath + '%');
-    
+    const files = db.prepare('SELECT * FROM files WHERE hash = ? AND (path LIKE ? OR path LIKE ?)')
+      .all(entry.webhook_hash, searchPath + '/%', searchPath + '%');
+
     if (files.length === 0) {
       return { ok: false, reason: 'no_files_in_cloud' };
     }
@@ -734,7 +744,7 @@ ipcMain.handle('cloudsave-restore', async (_, { id, force }) => {
       file.messageIds = JSON.parse(file.message_ids);
       let relativePath = file.path.startsWith('/') ? file.path.slice(1) : file.path;
       relativePath = relativePath.replace(searchPath, '').replace(/^\/+/, '');
-      
+
       const destPath = path.join(chosenPath, relativePath);
       await downloadDiscordFile(webhookUrl, file, destPath);
     }
@@ -792,11 +802,11 @@ async function handleLocalChange(id, filePath, type) {
 
     const relativePath = path.relative(entry.local_path, filePath).replace(/\\/g, '/');
     const discordPath = (entry.discord_path + '/' + relativePath).replace(/\/+/g, '/');
-    
+
     console.log(`[cloudsave] Local ${type}: ${filePath} -> ${discordPath}`);
-    
+
     mainWindow?.webContents.send('cloudsave-do-upload-file', { id, filePath, discordPath });
-    
+
     const success = await new Promise(resolve => {
       ipcMain.once(`cloudsave-upload-file-result-${id}-${discordPath}`, (_, res) => resolve(res));
       setTimeout(() => resolve(false), 60000);
@@ -883,7 +893,7 @@ async function triggerCloudSync(id) {
       const searchPath = entry.discord_path.replace(/^\/+/, '').replace(/\/+$/, '');
       const files = db.prepare('SELECT * FROM files WHERE hash = ? AND (path LIKE ? OR path LIKE ?)')
         .all(entry.webhook_hash, searchPath + '/%', searchPath + '%');
-      
+
       const webhookRow = db.prepare('SELECT value FROM settings WHERE hash = ? AND key = ?').get(entry.webhook_hash, 'webhook_url');
       const webhookUrl = webhookRow?.value || activeWebhookUrl;
 
@@ -891,7 +901,7 @@ async function triggerCloudSync(id) {
         file.messageIds = JSON.parse(file.message_ids);
         let relativePath = file.path.startsWith('/') ? file.path.slice(1) : file.path;
         relativePath = relativePath.replace(searchPath, '').replace(/^\/+/, '');
-        
+
         const destPath = path.join(entry.local_path, relativePath);
         await downloadDiscordFile(webhookUrl, file, destPath);
       }
@@ -975,13 +985,13 @@ ipcMain.handle('share-deploy-worker', async (_, { apiToken }) => {
     if (!accountsRes.ok || !accountsData.success || !accountsData.result?.[0]) {
       return { ok: false, reason: 'no_account', message: 'Gagal mengambil ID akun Cloudflare.' };
     }
-    
+
     const accountId = accountsData.result[0].id;
     const accountName = accountsData.result[0].name;
     console.log(`[share] Using Cloudflare account: ${accountName} (${accountId})`);
 
     let kvNamespaceId = null;
-    
+
     const listKvRes = await net.fetch(
       `https://api.cloudflare.com/client/v4/accounts/${accountId}/storage/kv/namespaces`,
       { headers: { 'Authorization': `Bearer ${apiToken}` } }
@@ -1022,7 +1032,7 @@ ipcMain.handle('share-deploy-worker', async (_, { apiToken }) => {
     };
 
     const workerCode = getDisboxWorkerCode();
-    
+
     const bodyParts = [
       `--${boundary}\r\n`,
       `Content-Disposition: form-data; name="metadata"\r\n`,
@@ -1040,7 +1050,7 @@ ipcMain.handle('share-deploy-worker', async (_, { apiToken }) => {
       `https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/scripts/${scriptName}`,
       {
         method: 'PUT',
-        headers: { 
+        headers: {
           'Authorization': `Bearer ${apiToken}`,
           'Content-Type': `multipart/form-data; boundary=${boundary}`
         },
@@ -1077,7 +1087,7 @@ ipcMain.handle('share-deploy-worker', async (_, { apiToken }) => {
       { headers: { 'Authorization': `Bearer ${apiToken}` } }
     );
     const subdomainData = JSON.parse(await subdomainRes.text());
-    
+
     if (!subdomainRes.ok || !subdomainData.success || !subdomainData.result?.subdomain) {
       return { ok: false, reason: 'no_subdomain', message: 'Subdomain Workers belum diset di Cloudflare.' };
     }
@@ -1118,10 +1128,10 @@ function getApiKey(settings, cfWorkerUrl) {
   if (settings?.mode === 'private' && settings?.cf_api_token) {
     return settings.cf_api_token.trim();
   }
-  
+
   const normalize = (u) => u?.toLowerCase().replace(/^https?:\/\//, '').replace(/\/+$/, '').trim();
   const target = normalize(cfWorkerUrl);
-  
+
   for (const [url, key] of Object.entries(PUBLIC_API_KEYS)) {
     if (normalize(url) === target) {
       return key.trim();
@@ -1131,19 +1141,15 @@ function getApiKey(settings, cfWorkerUrl) {
   return DEFAULT_PUBLIC_API_KEY.trim();
 }
 
-// ─── share-create-link ────────────────────────────────────────────────────────
-// New architecture: messageIds are stored with just msgId (no pre-fetched attachmentUrl).
-// The Cloudflare Worker fetches from Discord directly using stored webhookUrl.
-// webhookUrl is kept server-side in KV — never exposed to link recipients.
 ipcMain.handle('share-create-link', async (_, hash, { filePath, fileId, permission, expiresAt }) => {
   try {
     const token = cryptoNode.randomUUID().replace(/-/g, '');
     const settings = db.prepare('SELECT * FROM share_settings WHERE hash = ?').get(hash);
-    
+
     if (!activeWebhookUrl && settings?.webhook_url) {
       activeWebhookUrl = settings.webhook_url;
     }
-    
+
     if (activeWebhookUrl) {
       activeWebhookUrl = activeWebhookUrl.split('?')[0].replace(/\/+$/, '');
     }
@@ -1159,8 +1165,6 @@ ipcMain.handle('share-create-link', async (_, hash, { filePath, fileId, permissi
     console.log(`[share] Creating link for ${filePath || fileId}`);
     console.log(`[share] Worker: ${cfWorkerUrl}`);
 
-    // Get messageIds from local DB — just the IDs, no pre-fetching attachment URLs.
-    // The worker will fetch from Discord on-demand using stored webhookUrl.
     let messageIds = [];
     try {
       const fileRow = fileId
@@ -1169,10 +1173,9 @@ ipcMain.handle('share-create-link', async (_, hash, { filePath, fileId, permissi
 
       if (fileRow) {
         const rawIds = JSON.parse(fileRow.message_ids || '[]');
-        // Store only msgId — worker fetches attachment URLs from Discord
         messageIds = rawIds.map(item => ({
           msgId: typeof item === 'string' ? item : item.msgId,
-          attachmentUrl: null  // Worker will populate on first access
+          attachmentUrl: null
         }));
         console.log(`[share] Prepared ${messageIds.length} chunk IDs for link`);
       }
@@ -1180,8 +1183,6 @@ ipcMain.handle('share-create-link', async (_, hash, { filePath, fileId, permissi
       console.warn('[share] Could not get messageIds:', e.message);
     }
 
-    // Derive encryption key and encode as base64 for browser-side decryption
-    // The actual webhookUrl is NOT sent — only the derived key
     let encryptionKeyB64 = null;
     try {
       const encKey = getEncryptionKey(activeWebhookUrl);
@@ -1195,7 +1196,6 @@ ipcMain.handle('share-create-link', async (_, hash, { filePath, fileId, permissi
       'X-Disbox-Key': apiKey.trim()
     };
 
-    // Send webhookUrl to worker (stored server-side in KV, never sent to link recipients)
     const res = await net.fetch(`${cfWorkerUrl}/share/create`, {
       method: 'POST',
       headers: headers,
@@ -1208,7 +1208,7 @@ ipcMain.handle('share-create-link', async (_, hash, { filePath, fileId, permissi
         webhookHash: hash,
         messageIds,
         encryptionKeyB64,
-        webhookUrl: activeWebhookUrl   // Stored in KV, never exposed to link recipients
+        webhookUrl: activeWebhookUrl
       })
     }).catch(e => {
       if (e.message.includes('ERR_SSL') || e.message.includes('ERR_CERT')) {
@@ -1246,15 +1246,15 @@ ipcMain.handle('share-revoke-link', async (_, hash, { id, token }) => {
     const settings = db.prepare('SELECT * FROM share_settings WHERE hash = ?').get(hash);
     const cfWorkerUrl = (settings?.cf_worker_url || PUBLIC_WORKER_URL).replace(/\/+$/, '');
     let apiKey = getApiKey(settings, cfWorkerUrl);
-    
+
     await net.fetch(`${cfWorkerUrl}/share/revoke/${token}`, {
       method: 'DELETE',
       headers: { 'X-Disbox-Key': apiKey }
     }).catch(e => console.warn('[share] CF revoke failed:', e.message));
     db.prepare('DELETE FROM share_links WHERE id = ? AND hash = ?').run(id, hash);
-    
+
     markMetadataDirty(hash);
-    
+
     return true;
   } catch (e) {
     console.error('[share] revoke-link error:', e.message);
@@ -1273,9 +1273,9 @@ ipcMain.handle('share-revoke-all', async (_, hash) => {
       headers: { 'X-Disbox-Key': apiKey }
     }).catch(e => console.warn('[share] CF revoke-all failed:', e.message));
     db.prepare('DELETE FROM share_links WHERE hash = ?').run(hash);
-    
+
     markMetadataDirty(hash);
-    
+
     return true;
   } catch (e) {
     console.error('[share] revoke-all error:', e.message);
@@ -1395,9 +1395,9 @@ ipcMain.handle('get-latest-metadata-msgid', async (_, hash) => {
   try {
     const meta = db.prepare('SELECT last_msg_id, snapshot_history, is_dirty FROM metadata_sync WHERE hash = ?').get(hash);
     if (!meta) return null;
-    
+
     if (meta.is_dirty) return 'pending';
-    
+
     return {
       lastMsgId: meta.last_msg_id,
       snapshotHistory: JSON.parse(meta.snapshot_history || '[]')
@@ -1411,14 +1411,15 @@ ipcMain.handle('get-latest-metadata-msgid', async (_, hash) => {
 ipcMain.handle('load-metadata', async (_, hash) => {
   try {
     const files = db.prepare(
-      'SELECT id, path, message_ids as messageIds, size, created_at as createdAt, is_locked as isLocked, is_starred as isStarred FROM files WHERE hash = ?'
+      'SELECT id, path, message_ids as messageIds, size, created_at as createdAt, thumbnail_msg_id as thumbnailMsgId, is_locked as isLocked, is_starred as isStarred FROM files WHERE hash = ?'
     ).all(hash);
-    
+
     return files.map(f => ({
       ...f,
       messageIds: JSON.parse(f.messageIds),
       isLocked: !!f.isLocked,
       isStarred: !!f.isStarred
+      // thumbnailMsgId: string | null — tidak perlu transform
     }));
   } catch (e) {
     console.error('[load-metadata] error:', e.message);
@@ -1427,8 +1428,7 @@ ipcMain.handle('load-metadata', async (_, hash) => {
 });
 
 // ─── Pending sync queue ────────────────────────────────────────────────────────
-// Changes made while a sync is in progress are queued and not lost.
-const pendingSyncQueue = new Map(); // hash -> { files, pinHash, shareLinks }
+const pendingSyncQueue = new Map();
 
 function markMetadataDirty(hash) {
   try {
@@ -1523,13 +1523,11 @@ ipcMain.handle('remove-pin', async (_, hash) => {
 
 // ─── Upload metadata ke Discord ──────────────────────────────────────────────
 let metadataUploadTimer = null;
-// Track in-progress upload per hash to prevent concurrent uploads losing data
 const uploadingHashes = new Set();
 
 async function uploadMetadataToDiscord(hash) {
   if (!activeWebhookUrl || activeWebhookHash !== hash) return;
 
-  // If already uploading for this hash, re-queue after current upload finishes
   if (uploadingHashes.has(hash)) {
     console.log(`[metadata] Upload already in progress for ${hash.slice(-8)}, will re-queue`);
     return;
@@ -1540,7 +1538,7 @@ async function uploadMetadataToDiscord(hash) {
   let shareLinks = [];
   try {
     const rows = db.prepare(
-      'SELECT id, path, message_ids as messageIds, size, created_at as createdAt, is_locked as isLocked, is_starred as isStarred FROM files WHERE hash = ?'
+      'SELECT id, path, message_ids as messageIds, size, created_at as createdAt, thumbnail_msg_id as thumbnailMsgId, is_locked as isLocked, is_starred as isStarred FROM files WHERE hash = ?'
     ).all(hash);
     files = rows.map(f => ({
       ...f,
@@ -1548,7 +1546,7 @@ async function uploadMetadataToDiscord(hash) {
       isLocked: !!f.isLocked,
       isStarred: !!f.isStarred
     }));
-    
+
     const pinRow = db.prepare("SELECT value FROM settings WHERE hash = ? AND key = 'pin_hash'").get(hash);
     if (pinRow) pinHash = pinRow.value;
 
@@ -1578,18 +1576,18 @@ async function uploadMetadataToDiscord(hash) {
     while (retryCount <= maxRetries) {
       try {
         const key = getEncryptionKey(activeWebhookUrl);
-        
+
         const container = {
           files,
           pinHash,
           shareLinks,
           updatedAt: Date.now()
         };
-        
+
         const jsonBuf = Buffer.from(JSON.stringify(container));
         const encryptedBuf = encrypt(jsonBuf, key);
         const bodyBuf = buildMetadataFormData(encryptedBuf, 'disbox_metadata.json');
-        
+
         const response = await net.fetch(activeWebhookUrl + '?wait=true', {
           method: 'POST',
           headers: {
@@ -1617,7 +1615,7 @@ async function uploadMetadataToDiscord(hash) {
         db.transaction(() => {
           const meta = db.prepare('SELECT snapshot_history FROM metadata_sync WHERE hash = ?').get(hash);
           let snapshotHistory = JSON.parse(meta?.snapshot_history || '[]');
-          
+
           snapshotHistory.push(newMsgId);
           if (snapshotHistory.length > 3) snapshotHistory.shift();
 
@@ -1641,7 +1639,6 @@ async function uploadMetadataToDiscord(hash) {
           body: JSON.stringify({ name: `dbx: ${newMsgId}` }),
         }).catch(() => {});
 
-        // Check if new dirty changes came in while we were uploading — re-queue if so
         const freshMeta = db.prepare('SELECT is_dirty FROM metadata_sync WHERE hash = ?').get(hash);
         if (freshMeta?.is_dirty) {
           console.log(`[metadata] New changes detected after upload — re-queuing for ${hash.slice(-8)}`);
@@ -1651,7 +1648,7 @@ async function uploadMetadataToDiscord(hash) {
             uploadMetadataToDiscord(hash);
           }, 1000);
         }
-        
+
         return;
       } catch (e) {
         if (retryCount < maxRetries) {
@@ -1681,10 +1678,10 @@ ipcMain.handle('save-metadata', async (_, hash, data, msgId = null) => {
 
       if (msgId) {
         db.prepare('DELETE FROM files WHERE hash = ?').run(hash);
-        
+
         const insertFile = db.prepare(`
-          INSERT INTO files (id, hash, path, parent_path, name, size, created_at, message_ids, is_locked, is_starred)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO files (id, hash, path, parent_path, name, size, created_at, message_ids, thumbnail_msg_id, is_locked, is_starred)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
 
         for (const f of filesToSave) {
@@ -1700,6 +1697,7 @@ ipcMain.handle('save-metadata', async (_, hash, data, msgId = null) => {
             f.size || 0,
             f.createdAt || Date.now(),
             JSON.stringify(f.messageIds || []),
+            f.thumbnailMsgId || null,
             f.isLocked ? 1 : 0,
             f.isStarred ? 1 : 0
           );
@@ -1754,14 +1752,11 @@ ipcMain.handle('save-metadata', async (_, hash, data, msgId = null) => {
         console.log(`[metadata] SYNCED & RESTORED …${hash.slice(-8)} → ${filesToSave.length} items, ${shareLinksToSync.length} links`);
         mainWindow?.webContents.send('metadata-status', { hash, status: 'synced', items: filesToSave.length });
       } else {
-        // Local change: update files, mark dirty
-        // If an upload is currently in progress, the re-queue logic in uploadMetadataToDiscord
-        // will pick up these changes after the current upload finishes.
         db.prepare('DELETE FROM files WHERE hash = ?').run(hash);
-        
+
         const insertFile = db.prepare(`
-          INSERT INTO files (id, hash, path, parent_path, name, size, created_at, message_ids, is_locked, is_starred)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO files (id, hash, path, parent_path, name, size, created_at, message_ids, thumbnail_msg_id, is_locked, is_starred)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
 
         for (const f of filesToSave) {
@@ -1777,6 +1772,7 @@ ipcMain.handle('save-metadata', async (_, hash, data, msgId = null) => {
             f.size || 0,
             f.createdAt || Date.now(),
             JSON.stringify(f.messageIds || []),
+            f.thumbnailMsgId || null,
             f.isLocked ? 1 : 0,
             f.isStarred ? 1 : 0
           );

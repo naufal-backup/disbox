@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { 
+import {
   Link2, Trash2, Copy, Check, Lock, Shield, Eye,
   Grid3x3, List, ArrowUpDown, ChevronDown, Search
 } from 'lucide-react';
@@ -44,6 +44,8 @@ function FileThumbnail({ file, size = 32 }) {
   const ext = name.split('.').pop().toLowerCase();
   const isImage = ['png', 'jpg', 'jpeg', 'webp', 'svg'].includes(ext);
   const isVideo = ['mp4', 'webm', 'ogg', 'mkv', 'mov', 'avi'].includes(ext);
+  const isMultiChunkVideo = isVideo && (file.messageIds?.length || 0) > 1;
+  const hasSavedThumb = isMultiChunkVideo && !!file.thumbnailMsgId;
 
   useEffect(() => {
     const canShowImage = showPreviews && showImagePreviews && isImage;
@@ -53,6 +55,9 @@ function FileThumbnail({ file, size = 32 }) {
       if (thumbUrl) { URL.revokeObjectURL(thumbUrl); setThumbUrl(null); }
       return;
     }
+
+    // Video multi-chunk tanpa thumbnailMsgId → tidak bisa tampilkan thumbnail
+    if (isMultiChunkVideo && !hasSavedThumb) return;
 
     let isMounted = true;
     let objectUrl = null;
@@ -122,37 +127,41 @@ function FileThumbnail({ file, size = 32 }) {
             progress: 0, type: 'download', status: 'active', hidden: true
           });
 
-          // VIDEO: skip thumbnail untuk multi-chunk video
-          // Browser tidak bisa decode partial video (moov atom ada di akhir file)
-          // Hanya tampilkan thumbnail untuk video single-chunk (ukuran < chunk size)
-          if (isVideo && (file.messageIds?.length || 0) > 1) {
-            updateTransfer(transferId, { status: 'done', progress: 1 });
-            setTimeout(() => removeTransfer(transferId), 500);
-            return;
-          }
+          let buffer;
 
-          const buffer = await api.downloadFile(
-            file,
-            (p) => updateTransfer(transferId, { progress: p }),
-            signal,
-            transferId
-          );
+          if (hasSavedThumb) {
+            // ─── Path 1: Video multi-chunk dengan thumbnailMsgId ───────────────
+            buffer = await api.downloadThumbnail(file.thumbnailMsgId, transferId);
+            if (!isMounted || signal.aborted) return;
 
-          if (!isMounted || signal.aborted) return;
-
-          const mime = getMimeType(name);
-          const originalBlob = new Blob([buffer], { type: mime });
-
-          let compressedBlob;
-          if (isVideo) {
-            compressedBlob = await captureVideoFrame(originalBlob);
-          } else {
-            compressedBlob = await compressImage(originalBlob);
-          }
-
-          if (compressedBlob && isMounted) {
-            objectUrl = URL.createObjectURL(compressedBlob);
+            const blob = new Blob([buffer], { type: 'image/webp' });
+            objectUrl = URL.createObjectURL(blob);
             setThumbUrl(objectUrl);
+          } else {
+            // ─── Path 2: Image atau video single-chunk ─────────────────────────
+            buffer = await api.downloadFile(
+              file,
+              (p) => updateTransfer(transferId, { progress: p }),
+              signal,
+              transferId
+            );
+
+            if (!isMounted || signal.aborted) return;
+
+            const mime = getMimeType(name);
+            const originalBlob = new Blob([buffer], { type: mime });
+
+            let compressedBlob;
+            if (isVideo) {
+              compressedBlob = await captureVideoFrame(originalBlob);
+            } else {
+              compressedBlob = await compressImage(originalBlob);
+            }
+
+            if (compressedBlob && isMounted) {
+              objectUrl = URL.createObjectURL(compressedBlob);
+              setThumbUrl(objectUrl);
+            }
           }
 
           updateTransfer(transferId, { status: 'done', progress: 1 });
@@ -175,7 +184,7 @@ function FileThumbnail({ file, size = 32 }) {
       const idx = thumbQueue.findIndex(q => q.id === transferId);
       if (idx >= 0) thumbQueue.splice(idx, 1);
     };
-  }, [file.id, showPreviews, showImagePreviews, showVideoPreviews, isImage, isVideo]);
+  }, [file.id, file.thumbnailMsgId, showPreviews, showImagePreviews, showVideoPreviews, isImage, isVideo]);
 
   if (thumbUrl) {
     return (
@@ -185,8 +194,7 @@ function FileThumbnail({ file, size = 32 }) {
     );
   }
 
-  // Jangan tampilkan skeleton untuk video multi-chunk, langsung fallback ke icon
-  if (loading && !(isVideo && (file.messageIds?.length || 0) > 1)) {
+  if (loading) {
     return <div className="skeleton" style={{ width: '100%', height: '100%', borderRadius: 6 }} />;
   }
 
@@ -194,9 +202,9 @@ function FileThumbnail({ file, size = 32 }) {
 }
 
 export default function SharedPage({ onNavigateToSettings }) {
-  const { 
-    shareEnabled, shareLinks, loadShareLinks, revokeShareLink, revokeAllLinks, 
-    cfWorkerUrl, api, files, t, uiScale, animationsEnabled 
+  const {
+    shareEnabled, shareLinks, loadShareLinks, revokeShareLink, revokeAllLinks,
+    cfWorkerUrl, api, files, t, uiScale, animationsEnabled
   } = useApp();
 
   const [viewMode, setViewMode] = useState(() => localStorage.getItem('disbox_shared_view') || 'list');

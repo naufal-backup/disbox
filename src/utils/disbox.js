@@ -21,14 +21,56 @@ function throwIfAborted(signal) {
   }
 }
 
+// ─── Video Thumbnail Helper ────────────────────────────────────────────────
+// Capture satu frame dari video blob (untuk video single-chunk / faststart)
+export async function captureVideoThumbnail(videoBlob) {
+  return new Promise((resolve) => {
+    const video = document.createElement('video');
+    video.preload = 'auto';
+    video.muted = true;
+    video.playsInline = true;
+    const url = URL.createObjectURL(videoBlob);
+    let settled = false;
+
+    const settle = (result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      video.src = '';
+      URL.revokeObjectURL(url);
+      resolve(result);
+    };
+
+    const drawFrame = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        const MAX_SIZE = 256;
+        let w = video.videoWidth || 320;
+        let h = video.videoHeight || 180;
+        if (w > h) { if (w > MAX_SIZE) { h = Math.floor(h * MAX_SIZE / w); w = MAX_SIZE; } }
+        else { if (h > MAX_SIZE) { w = Math.floor(w * MAX_SIZE / h); h = MAX_SIZE; } }
+        canvas.width = Math.max(1, w);
+        canvas.height = Math.max(1, h);
+        canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob(settle, 'image/webp', 0.75);
+      } catch (e) { settle(null); }
+    };
+
+    // Timeout fallback 8 detik
+    const timer = setTimeout(() => drawFrame(), 8000);
+    video.onloadeddata = () => drawFrame();
+    video.oncanplay = () => { if (!settled) drawFrame(); };
+    video.onerror = () => settle(null);
+    video.src = url;
+  });
+}
+
 export class DisboxAPI {
   constructor(webhookUrl) {
     this.webhookUrl = webhookUrl.split('?')[0];
     this.hashedWebhook = null;
     this.encryptionKey = null;
     this.MAGIC_HEADER = new TextEncoder().encode('DBX_ENC:'); // 8 bytes
-    // [FIX] lastSyncedId = null pada setiap instance baru
-    // Ini memastikan instance baru (ganti webhook) selalu download dari Discord
     this.lastSyncedId = null;
     const savedChunkSize = Number(localStorage.getItem('disbox_chunk_size'));
     this.chunkSize = (savedChunkSize && savedChunkSize < 8 * 1024 * 1024) ? savedChunkSize : 7.5 * 1024 * 1024;
@@ -84,12 +126,11 @@ export class DisboxAPI {
   async decrypt(data) {
     if (!this.encryptionKey) return data;
     const uint8 = new Uint8Array(data);
-    
-    // Cek magic header
+
     for (let i = 0; i < this.MAGIC_HEADER.length; i++) {
       if (uint8[i] !== this.MAGIC_HEADER[i]) {
         console.log('[crypto] No magic header, assuming unencrypted data');
-        return data; // Backward compatibility
+        return data;
       }
     }
 
@@ -104,7 +145,7 @@ export class DisboxAPI {
       return decrypted;
     } catch (e) {
       console.error('[crypto] Decryption failed:', e);
-      return data; 
+      return data;
     }
   }
 
@@ -113,7 +154,7 @@ export class DisboxAPI {
   async _getMsgIdFromDiscovery() {
     const localRes = await window.electron.getLatestMetadataMsgId?.(this.hashedWebhook);
     if (localRes === 'pending') return 'pending';
-    
+
     const localMsgId = typeof localRes === 'object' ? localRes?.lastMsgId : localRes;
     const snapshotHistory = localRes?.snapshotHistory || [];
 
@@ -134,7 +175,7 @@ export class DisboxAPI {
     }
     const best = candidates.reduce((a, b) => BigInt(a) >= BigInt(b) ? a : b);
     console.log(`[sync] Discovery: local=${localMsgId}, webhook=${webhookMsgId} → pakai: ${best}`);
-    
+
     return { best, snapshotHistory };
   }
 
@@ -152,11 +193,10 @@ export class DisboxAPI {
     const decryptedBytes = await this.decrypt(bytes);
     const jsonStr = new TextDecoder().decode(decryptedBytes);
     const data = JSON.parse(jsonStr);
-    
-    // Support MetadataContainer object or legacy array
+
     const isValid = Array.isArray(data) || (data !== null && typeof data === 'object');
     if (!isValid) throw new Error('Format metadata tidak valid');
-    
+
     return data;
   }
 
@@ -196,7 +236,7 @@ export class DisboxAPI {
         data = await this._downloadMetadataFromMsg(msgId);
       } catch (e) {
         console.error('[sync] Download gagal untuk msgId:', msgId, e.message);
-        
+
         const fallbackCandidates = [...snapshotHistory].reverse().filter(id => id !== msgId);
         if (this.lastSyncedId && !fallbackCandidates.includes(this.lastSyncedId) && this.lastSyncedId !== msgId) {
           fallbackCandidates.push(this.lastSyncedId);
@@ -225,7 +265,7 @@ export class DisboxAPI {
       await window.electron.saveMetadata(this.hashedWebhook, data, resolvedMsgId);
       this.lastSyncedId = resolvedMsgId;
       localStorage.setItem(`dbx_last_sync_${this.hashedWebhook}`, this.lastSyncedId);
-      
+
       const itemCount = Array.isArray(data) ? data.length : (data.files?.length || 0);
       console.log('[sync] ✓ Berhasil sync. msgId:', this.lastSyncedId, '| items:', itemCount);
       return true;
@@ -294,10 +334,17 @@ export class DisboxAPI {
     await this.uploadMetadataToDiscord(files);
   }
 
-  async createFile(filePath, messageIds, size = 0, id = null) {
+  async createFile(filePath, messageIds, size = 0, id = null, thumbnailMsgId = null) {
     const files = await this.getFileSystem();
     const fileId = id || crypto.randomUUID();
-    const entry = { path: filePath, messageIds, size, createdAt: Date.now(), id: fileId };
+    const entry = {
+      path: filePath,
+      messageIds,
+      size,
+      createdAt: Date.now(),
+      id: fileId,
+      ...(thumbnailMsgId ? { thumbnailMsgId } : {})
+    };
     const existing = files.findIndex(f => f.id === fileId);
     if (existing >= 0) files[existing] = entry;
     else files.push(entry);
@@ -374,9 +421,9 @@ export class DisboxAPI {
     const toAdd = [];
     files.forEach(f => {
       if ((id && f.id === id) || (!id && f.path === oldPath)) {
-        toAdd.push({ path: newPath, messageIds: [...f.messageIds], size: f.size, createdAt: Date.now(), id: crypto.randomUUID() });
+        toAdd.push({ path: newPath, messageIds: [...f.messageIds], size: f.size, createdAt: Date.now(), id: crypto.randomUUID(), ...(f.thumbnailMsgId ? { thumbnailMsgId: f.thumbnailMsgId } : {}) });
       } else if (f.path.startsWith(oldPath + '/')) {
-        toAdd.push({ path: f.path.replace(oldPath + '/', newPath + '/'), messageIds: [...f.messageIds], size: f.size, createdAt: Date.now(), id: crypto.randomUUID() });
+        toAdd.push({ path: f.path.replace(oldPath + '/', newPath + '/'), messageIds: [...f.messageIds], size: f.size, createdAt: Date.now(), id: crypto.randomUUID(), ...(f.thumbnailMsgId ? { thumbnailMsgId: f.thumbnailMsgId } : {}) });
       }
     });
     if (toAdd.length > 0) await this._saveFileSystem([...files, ...toAdd]);
@@ -398,9 +445,9 @@ export class DisboxAPI {
       if (sourcePath === newPath || newPath.startsWith(sourcePath + '/')) return;
       files.forEach(f => {
         if (f.path === sourcePath) {
-          toAdd.push({ path: newPath, messageIds: [...f.messageIds], size: f.size, createdAt: Date.now(), id: crypto.randomUUID() });
+          toAdd.push({ path: newPath, messageIds: [...f.messageIds], size: f.size, createdAt: Date.now(), id: crypto.randomUUID(), ...(f.thumbnailMsgId ? { thumbnailMsgId: f.thumbnailMsgId } : {}) });
         } else if (f.path.startsWith(sourcePath + '/')) {
-          toAdd.push({ path: f.path.replace(sourcePath + '/', newPath + '/'), messageIds: [...f.messageIds], size: f.size, createdAt: Date.now(), id: crypto.randomUUID() });
+          toAdd.push({ path: f.path.replace(sourcePath + '/', newPath + '/'), messageIds: [...f.messageIds], size: f.size, createdAt: Date.now(), id: crypto.randomUUID(), ...(f.thumbnailMsgId ? { thumbnailMsgId: f.thumbnailMsgId } : {}) });
         }
       });
     });
@@ -411,11 +458,62 @@ export class DisboxAPI {
   async deleteFile(filePath) { return this.deletePath(filePath); }
   async renameFile(oldPath, newPath) { return this.renamePath(oldPath, newPath); }
 
+  // ─── Upload Thumbnail Video ───────────────────────────────────────────────
+  // Capture frame dari chunk pertama video yang sudah di-decrypt,
+  // compress ke webp, upload ke Discord, kembalikan msgId thumbnail
+  async _uploadVideoThumbnail(fileId, firstChunkBuffer, fileName) {
+    try {
+      const ext = fileName.split('.').pop().toLowerCase();
+      const videoExts = ['mp4', 'webm', 'ogg', 'mkv', 'mov', 'avi'];
+      if (!videoExts.includes(ext)) return null;
+
+      // Buat blob video dari chunk pertama
+      const mimeMap = {
+        mp4: 'video/mp4', webm: 'video/webm', ogg: 'video/ogg',
+        mkv: 'video/x-matroska', mov: 'video/quicktime', avi: 'video/x-msvideo'
+      };
+      const mime = mimeMap[ext] || 'video/mp4';
+      const videoBlob = new Blob([firstChunkBuffer], { type: mime });
+
+      // Capture frame
+      const thumbBlob = await captureVideoThumbnail(videoBlob);
+      if (!thumbBlob) {
+        console.log('[thumb] Frame capture gagal untuk', fileName);
+        return null;
+      }
+
+      console.log(`[thumb] Frame captured: ${(thumbBlob.size / 1024).toFixed(1)}KB untuk ${fileName}`);
+
+      // Convert blob ke base64 untuk upload
+      const thumbBuffer = await thumbBlob.arrayBuffer();
+      const thumbName = `${fileId}_thumb.webp`;
+      const thumbB64 = await _bufferToBase64(thumbBuffer);
+
+      // Upload thumbnail ke Discord (tidak dienkripsi, ini hanya preview publik kecil)
+      const res = await window.electron.uploadChunk(this.webhookUrl, thumbB64, thumbName);
+      if (!res.ok) {
+        console.warn('[thumb] Upload thumbnail gagal:', res.status);
+        return null;
+      }
+
+      const data = JSON.parse(res.body);
+      console.log('[thumb] Thumbnail uploaded, msgId:', data.id);
+      return data.id;
+    } catch (e) {
+      console.warn('[thumb] _uploadVideoThumbnail error:', e.message);
+      return null;
+    }
+  }
+
   // ─── Upload ───────────────────────────────────────────────────────────────
 
   async uploadFile(file, filePath, onProgress, signal = null, transferId = null) {
     const fileId = crypto.randomUUID();
     throwIfAborted(signal);
+
+    const fileName = filePath.split('/').pop();
+    const ext = fileName.split('.').pop().toLowerCase();
+    const isVideo = ['mp4', 'webm', 'ogg', 'mkv', 'mov', 'avi'].includes(ext);
 
     if (file.nativePath && window.electron?.uploadFileFromPath) {
       const tid = transferId || fileId;
@@ -425,7 +523,7 @@ export class DisboxAPI {
         const res = await window.electron.uploadFileFromPath(
           this.webhookUrl,
           file.nativePath,
-          `${fileId}_${filePath.split('/').pop()}`,
+          `${fileId}_${fileName}`,
           (progress) => { if (!signal?.aborted) onProgress?.(progress); },
           tid,
           this.chunkSize
@@ -435,7 +533,29 @@ export class DisboxAPI {
           if (res.error === 'UPLOAD_CANCELLED') throw new DOMException('Transfer dibatalkan', 'AbortError');
           throw new Error(res.error || 'Upload gagal');
         }
-        return await this.createFile(filePath, res.messageIds, res.size, fileId);
+
+        // Untuk video multi-chunk: capture thumbnail dari chunk pertama
+        let thumbnailMsgId = null;
+        if (isVideo && res.messageIds?.length > 1) {
+          try {
+            // Download dan decrypt chunk pertama untuk capture frame
+            const firstMsgId = res.messageIds[0];
+            const msgRes = await window.electron.fetch(`${this.webhookUrl}/messages/${firstMsgId}`);
+            if (msgRes.ok) {
+              const msg = JSON.parse(msgRes.body);
+              const attachmentUrl = msg.attachments?.[0]?.url;
+              if (attachmentUrl) {
+                const chunkData = await window.electron.proxyDownload(attachmentUrl);
+                const decrypted = await this.decrypt(chunkData);
+                thumbnailMsgId = await this._uploadVideoThumbnail(fileId, decrypted, fileName);
+              }
+            }
+          } catch (e) {
+            console.warn('[thumb] Gagal capture thumbnail dari native upload:', e.message);
+          }
+        }
+
+        return await this.createFile(filePath, res.messageIds, res.size, fileId, thumbnailMsgId);
       } catch (e) {
         if (e.message === 'UPLOAD_CANCELLED') throw new DOMException('Transfer dibatalkan', 'AbortError');
         throw e;
@@ -444,18 +564,26 @@ export class DisboxAPI {
       }
     }
 
+    // Buffer upload path (web / drag-drop)
     const totalSize = file.buffer.byteLength;
     const numChunks = Math.ceil(totalSize / this.chunkSize) || 1;
     const messageIds = [];
+    let firstDecryptedChunk = null;
+
     for (let i = 0; i < numChunks; i++) {
       throwIfAborted(signal);
       const start = i * this.chunkSize;
       const chunk = file.buffer.slice(start, Math.min(start + this.chunkSize, totalSize));
-      // [ENCRYPT] Encrypt chunk sebelum upload
+
+      // Simpan chunk pertama (sebelum enkripsi) untuk thumbnail video
+      if (i === 0 && isVideo && numChunks > 1) {
+        firstDecryptedChunk = chunk;
+      }
+
       const encryptedChunk = await this.encrypt(chunk);
       const chunkB64 = await _bufferToBase64(encryptedChunk);
       throwIfAborted(signal);
-      const chunkName = `${fileId}_${filePath.split('/').pop()}.part${i}`;
+      const chunkName = `${fileId}_${fileName}.part${i}`;
       const res = await window.electron.uploadChunk(this.webhookUrl, chunkB64, chunkName);
       throwIfAborted(signal);
       if (!res.ok) throw new Error(`Upload chunk ${i} gagal (${res.status}): ${res.body?.slice(0, 200)}`);
@@ -463,8 +591,32 @@ export class DisboxAPI {
       messageIds.push(data.id);
       onProgress?.((i + 1) / numChunks);
     }
+
     throwIfAborted(signal);
-    return await this.createFile(filePath, messageIds, totalSize, fileId);
+
+    // Upload thumbnail untuk video multi-chunk
+    let thumbnailMsgId = null;
+    if (isVideo && numChunks > 1 && firstDecryptedChunk) {
+      thumbnailMsgId = await this._uploadVideoThumbnail(fileId, firstDecryptedChunk, fileName);
+    }
+
+    return await this.createFile(filePath, messageIds, totalSize, fileId, thumbnailMsgId);
+  }
+
+  // ─── Download Thumbnail ───────────────────────────────────────────────────
+  // Download thumbnail webp dari Discord berdasarkan thumbnailMsgId
+  async downloadThumbnail(thumbnailMsgId, transferId = null) {
+    const msgUrl = `${this.webhookUrl}/messages/${thumbnailMsgId}`;
+    const msgRes = await window.electron.fetch(msgUrl, { transferId });
+    if (!msgRes.ok) throw new Error(`Gagal fetch thumbnail message: ${msgRes.status}`);
+
+    const msg = JSON.parse(msgRes.body);
+    const attachmentUrl = msg.attachments?.[0]?.url;
+    if (!attachmentUrl) throw new Error('Tidak ada attachment di thumbnail message');
+
+    // Thumbnail tidak dienkripsi, langsung download
+    const data = await window.electron.proxyDownload(attachmentUrl, transferId);
+    return data;
   }
 
   // ─── Download ─────────────────────────────────────────────────────────────
@@ -474,7 +626,7 @@ export class DisboxAPI {
     const chunks = [];
     for (let i = 0; i < messageIds.length; i++) {
       throwIfAborted(signal);
-      
+
       const item = messageIds[i];
       const msgId = typeof item === 'string' ? item : item.msgId;
       const msgUrl = `${this.webhookUrl}/messages/${msgId}`;
@@ -491,8 +643,7 @@ export class DisboxAPI {
 
           if (!msgRes.ok) {
             if (msgRes.error === 'ABORTED') throw new DOMException('Transfer dibatalkan oleh pengguna', 'AbortError');
-            
-            // Handle 503 (Service Unavailable) or 429 (Rate Limit) with backoff
+
             if ((msgRes.status === 503 || msgRes.status === 429) && retryCount < maxRetries) {
               retryCount++;
               const delay = Math.pow(2, retryCount) * 1000 + Math.random() * 1000;
@@ -506,9 +657,9 @@ export class DisboxAPI {
           const msg = JSON.parse(msgRes.body);
           const attachmentUrl = msg.attachments?.[0]?.url;
           if (!attachmentUrl) throw new Error('Attachment URL tidak ditemukan');
-          
+
           chunkData = await window.electron.proxyDownload(attachmentUrl, transferId);
-          break; // Success
+          break;
         } catch (e) {
           if (e.name === 'AbortError') throw e;
           if (retryCount < maxRetries) {
@@ -523,8 +674,7 @@ export class DisboxAPI {
       }
 
       throwIfAborted(signal);
-      
-      // [DECRYPT] Decrypt chunk setelah download
+
       const decryptedChunk = await this.decrypt(chunkData);
       chunks.push(decryptedChunk);
       onProgress?.((i + 1) / messageIds.length);
