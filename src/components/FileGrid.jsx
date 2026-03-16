@@ -93,8 +93,6 @@ function FileThumbnail({ file, size = 32 }) {
       img.src = URL.createObjectURL(blob);
     });
 
-    // FIX: chunk pertama tidak support seek (duration NaN/Infinity)
-    // Draw frame langsung saat onloadeddata/canplay, tanpa seek
     const captureVideoFrame = (blob) => new Promise((resolve) => {
       const video = document.createElement('video');
       video.preload = 'auto';
@@ -125,10 +123,8 @@ function FileThumbnail({ file, size = 32 }) {
         } catch (e) { settle(null); }
       };
 
-      // Fallback timeout 8 detik
       const timer = setTimeout(() => drawFrame(), 8000);
 
-      // Draw saat data tersedia — tidak seek karena chunk pertama tidak support it
       video.onloadeddata = () => drawFrame();
       video.oncanplay = () => { if (!settled) drawFrame(); };
       video.onerror = () => settle(null);
@@ -146,14 +142,17 @@ function FileThumbnail({ file, size = 32 }) {
             progress: 0, type: 'download', status: 'active', hidden: true
           });
 
-          // VIDEO: hanya download chunk pertama untuk hemat bandwidth
-          let fileToDownload = file;
-          if (isVideo && file.messageIds?.length > 0) {
-            fileToDownload = { ...file, messageIds: [file.messageIds[0]] };
+          // VIDEO: skip thumbnail untuk multi-chunk video
+          // Browser tidak bisa decode partial video (moov atom ada di akhir file)
+          // Hanya tampilkan thumbnail untuk video single-chunk (ukuran < chunk size)
+          if (isVideo && (file.messageIds?.length || 0) > 1) {
+            updateTransfer(transferId, { status: 'done', progress: 1 });
+            setTimeout(() => removeTransfer(transferId), 500);
+            return;
           }
 
           const buffer = await api.downloadFile(
-            fileToDownload,
+            file,
             (p) => updateTransfer(transferId, { progress: p }),
             signal,
             transferId
@@ -214,7 +213,7 @@ function FileThumbnail({ file, size = 32 }) {
         )}
       </div>
     );
-    if (loading) return <div className="skeleton" style={{ width: '100%', height: '100%', borderRadius: 0 }} />;
+    if (loading && !(isVideo && (file.messageIds?.length || 0) > 1)) return <div className="skeleton" style={{ width: '100%', height: '100%', borderRadius: 0 }} />;
   }
 
   return (

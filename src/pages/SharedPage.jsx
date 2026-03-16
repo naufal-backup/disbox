@@ -11,7 +11,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import styles from './SharedPage.module.css';
 
 // ─── Thumbnail Concurrency Control (Same as Drive) ──────────────────────────
-const MAX_CONCURRENT_THUMBS = 3;
+const MAX_CONCURRENT_THUMBS = 1;
 let activeThumbDownloads = 0;
 const thumbQueue = [];
 
@@ -117,6 +117,9 @@ function FileThumbnail({ file, size = 32 }) {
     });
 
     const loadThumb = async () => {
+      const jitter = Math.random() * 1500;
+      await new Promise(r => setTimeout(r, jitter));
+      if (!isMounted) return;
       setLoading(true);
       try {
         await enqueueThumb(transferId, async () => {
