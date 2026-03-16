@@ -43,7 +43,7 @@ Pengaturan dapat diubah kapan saja melalui menu **Settings > Language**.
 
 | Document Viewer | Context Menu |
 |:---:|:---:|
-| ![Preview](preview/preview_documents.jpg) | ![Context](preview/right_click.png) |
+| ![Preview](preview/preview_documents.png) | ![Context](preview/right_click.png) |
 
 | Profile Page | Settings Page |
 |:---:|:---:|
