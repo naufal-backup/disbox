@@ -116,4 +116,12 @@ contextBridge.exposeInMainWorld('electron', {
   shareRevokeLink: (hash, data) => ipcRenderer.invoke('share-revoke-link', hash, data),
   shareRevokeAll: (hash) => ipcRenderer.invoke('share-revoke-all', hash),
   shareOpenCFTokenPage: () => ipcRenderer.invoke('share-open-cf-token-page'),
+
+  // ─── ffmpeg Video Thumbnail ──────────────────────────────────────────────────
+  // Gunakan ffmpeg (system binary) untuk extract frame dari video
+  // Lebih reliable dari canvas karena support semua codec dan tidak butuh moov atom di awal
+  generateVideoThumbnail: (videoB64, ext) =>
+    ipcRenderer.invoke('generate-video-thumbnail', videoB64, ext),
+  checkFfmpeg: () =>
+    ipcRenderer.invoke('check-ffmpeg'),
 });

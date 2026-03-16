@@ -23,6 +23,7 @@ function throwIfAborted(signal) {
 
 // ─── Video Thumbnail Helper ────────────────────────────────────────────────
 // Capture satu frame dari video blob (untuk video single-chunk / faststart)
+// ─── Canvas-based fallback (single-chunk / faststart videos) ─────────────────
 export async function captureVideoThumbnail(videoBlob) {
   return new Promise((resolve) => {
     const video = document.createElement('video');
@@ -56,13 +57,37 @@ export async function captureVideoThumbnail(videoBlob) {
       } catch (e) { settle(null); }
     };
 
-    // Timeout fallback 8 detik
     const timer = setTimeout(() => drawFrame(), 8000);
     video.onloadeddata = () => drawFrame();
     video.oncanplay = () => { if (!settled) drawFrame(); };
     video.onerror = () => settle(null);
     video.src = url;
   });
+}
+
+// ─── ffmpeg-based thumbnail (lewat Electron IPC) ──────────────────────────────
+// Lebih reliable dari canvas karena:
+// - Bisa decode video tanpa moov atom di awal (multi-chunk)
+// - Support semua codec (H.264, H.265, AV1, VP9, dll)
+// - Ambil frame di detik ke-1 (lebih representatif)
+async function captureVideoThumbnailFfmpeg(videoBuffer, ext) {
+  if (!window.electron?.generateVideoThumbnail) return null;
+  try {
+    const b64 = await _bufferToBase64(videoBuffer);
+    const result = await window.electron.generateVideoThumbnail(b64, ext);
+    if (!result.ok) {
+      console.warn('[ffmpeg] Thumbnail gagal:', result.reason);
+      return null;
+    }
+    // Convert base64 webp → Blob
+    const byteStr = atob(result.data);
+    const arr = new Uint8Array(byteStr.length);
+    for (let i = 0; i < byteStr.length; i++) arr[i] = byteStr.charCodeAt(i);
+    return new Blob([arr], { type: 'image/webp' });
+  } catch (e) {
+    console.warn('[ffmpeg] captureVideoThumbnailFfmpeg error:', e.message);
+    return null;
+  }
 }
 
 export class DisboxAPI {
@@ -467,18 +492,31 @@ export class DisboxAPI {
       const videoExts = ['mp4', 'webm', 'ogg', 'mkv', 'mov', 'avi'];
       if (!videoExts.includes(ext)) return null;
 
-      // Buat blob video dari chunk pertama
-      const mimeMap = {
-        mp4: 'video/mp4', webm: 'video/webm', ogg: 'video/ogg',
-        mkv: 'video/x-matroska', mov: 'video/quicktime', avi: 'video/x-msvideo'
-      };
-      const mime = mimeMap[ext] || 'video/mp4';
-      const videoBlob = new Blob([firstChunkBuffer], { type: mime });
+      let thumbBlob = null;
 
-      // Capture frame
-      const thumbBlob = await captureVideoThumbnail(videoBlob);
+      // ─── Path 1: ffmpeg via Electron IPC (lebih reliable, support semua codec) ──
+      if (window.electron?.generateVideoThumbnail) {
+        console.log('[thumb] Mencoba ffmpeg untuk', fileName);
+        thumbBlob = await captureVideoThumbnailFfmpeg(firstChunkBuffer, ext);
+        if (thumbBlob) {
+          console.log(`[thumb] ffmpeg berhasil: ${(thumbBlob.size / 1024).toFixed(1)}KB`);
+        }
+      }
+
+      // ─── Path 2: Canvas fallback ───────────────────────────────────────────────
       if (!thumbBlob) {
-        console.log('[thumb] Frame capture gagal untuk', fileName);
+        console.log('[thumb] ffmpeg tidak tersedia/gagal, fallback canvas untuk', fileName);
+        const mimeMap = {
+          mp4: 'video/mp4', webm: 'video/webm', ogg: 'video/ogg',
+          mkv: 'video/x-matroska', mov: 'video/quicktime', avi: 'video/x-msvideo'
+        };
+        const mime = mimeMap[ext] || 'video/mp4';
+        const videoBlob = new Blob([firstChunkBuffer], { type: mime });
+        thumbBlob = await captureVideoThumbnail(videoBlob);
+      }
+
+      if (!thumbBlob) {
+        console.log('[thumb] Semua metode capture gagal untuk', fileName);
         return null;
       }
 

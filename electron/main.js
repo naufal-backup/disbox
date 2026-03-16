@@ -1991,3 +1991,107 @@ ipcMain.handle('upload-file-from-path', async (event, webhookUrl, nativePath, de
     return { ok: false, error: e.message };
   }
 });
+
+// ─── ffmpeg Video Thumbnail ───────────────────────────────────────────────────
+const { execFile, execFileSync } = require('child_process');
+
+function findFfmpeg() {
+  const candidates = ['ffmpeg', '/usr/bin/ffmpeg', '/usr/local/bin/ffmpeg', '/opt/homebrew/bin/ffmpeg'];
+  if (process.platform === 'win32') {
+    candidates.push(
+      'C:\\ffmpeg\\bin\\ffmpeg.exe',
+      path.join(app.getPath('userData'), 'ffmpeg', 'ffmpeg.exe'),
+      path.join(__dirname, '..', 'resources', 'ffmpeg.exe'),
+      path.join(__dirname, 'ffmpeg.exe')
+    );
+  } else {
+    candidates.push(
+      path.join(process.resourcesPath || '', 'ffmpeg'),
+      path.join(__dirname, '..', 'resources', 'ffmpeg'),
+      path.join(__dirname, 'ffmpeg')
+    );
+  }
+  for (const candidate of candidates) {
+    try {
+      execFileSync(candidate, ['-version'], { stdio: 'ignore', timeout: 3000 });
+      console.log('[ffmpeg] Found at:', candidate);
+      return candidate;
+    } catch (_) {}
+  }
+  return null;
+}
+
+let _ffmpegPath = null;
+let _ffmpegChecked = false;
+
+function getFfmpegPath() {
+  if (_ffmpegChecked) return _ffmpegPath;
+  _ffmpegPath = findFfmpeg();
+  _ffmpegChecked = true;
+  if (!_ffmpegPath) {
+    console.warn('[ffmpeg] Not found — video thumbnail akan pakai canvas fallback');
+  }
+  return _ffmpegPath;
+}
+
+ipcMain.handle('check-ffmpeg', async () => {
+  const p = getFfmpegPath();
+  return { available: !!p, path: p };
+});
+
+ipcMain.handle('generate-video-thumbnail', async (_, videoB64, ext) => {
+  const ffmpegPath = getFfmpegPath();
+  if (!ffmpegPath) return { ok: false, reason: 'ffmpeg_not_found' };
+
+  const tmpDir = os.tmpdir();
+  const uniqueId = cryptoNode.randomBytes(8).toString('hex');
+  const inputPath = path.join(tmpDir, `disbox_thumb_in_${uniqueId}.${ext || 'mp4'}`);
+  const outputPath = path.join(tmpDir, `disbox_thumb_out_${uniqueId}.webp`);
+
+  const runFfmpeg = (args) => new Promise((resolve, reject) => {
+    execFile(ffmpegPath, args, { timeout: 20000 }, (err) => {
+      if (err) reject(err); else resolve();
+    });
+  });
+
+  try {
+    const videoBuffer = Buffer.from(videoB64, 'base64');
+    fs.writeFileSync(inputPath, videoBuffer);
+
+    // Coba ambil frame di detik ke-1 (lebih representatif)
+    try {
+      await runFfmpeg([
+        '-ss', '00:00:01',
+        '-i', inputPath,
+        '-vframes', '1',
+        '-vf', 'scale=256:-2',
+        '-q:v', '80',
+        '-y', outputPath,
+      ]);
+    } catch (_) {
+      // Fallback: ambil frame pertama (untuk video < 1 detik)
+      await runFfmpeg([
+        '-i', inputPath,
+        '-vframes', '1',
+        '-vf', 'scale=256:-2',
+        '-q:v', '80',
+        '-y', outputPath,
+      ]);
+    }
+
+    if (!fs.existsSync(outputPath)) {
+      return { ok: false, reason: 'output_not_created' };
+    }
+
+    const webpBuffer = fs.readFileSync(outputPath);
+    console.log(`[ffmpeg] Thumbnail generated: ${(webpBuffer.length / 1024).toFixed(1)}KB`);
+    return { ok: true, data: webpBuffer.toString('base64'), size: webpBuffer.length };
+
+  } catch (e) {
+    console.error('[ffmpeg] generate-video-thumbnail error:', e.message);
+    return { ok: false, reason: e.message };
+  } finally {
+    try { if (fs.existsSync(inputPath)) fs.unlinkSync(inputPath); } catch (_) {}
+    try { if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath); } catch (_) {}
+  }
+});
