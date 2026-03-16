@@ -1218,7 +1218,7 @@ ipcMain.handle('share-create-link', async (_, hash, { filePath, fileId, permissi
     console.log(`[share] > API Key (first 8): ${apiKey?.slice(0, 8)}...`);
     console.log(`[share] > Mode: ${settings?.mode || 'public'}`);
 
-    // Ambil messageIds + attachment URLs dari Discord
+    // Ambil messageIds dari database (fetching attachment URLs dilimpahkan ke CF Worker)
     let messageIds = [];
     try {
       const fileRow = fileId
@@ -1227,54 +1227,12 @@ ipcMain.handle('share-create-link', async (_, hash, { filePath, fileId, permissi
 
       if (fileRow) {
         const rawIds = JSON.parse(fileRow.message_ids || '[]');
-        console.log(`[share] > Chunks to fetch: ${rawIds.length}`);
-        const https = require('https');
+        console.log(`[share] > Total chunks to register: ${rawIds.length}`);
 
         for (let i = 0; i < rawIds.length; i++) {
           const item = rawIds[i];
           const msgId = typeof item === 'string' ? item : item.msgId;
-          const msgUrl = `${activeWebhookUrl}/messages/${msgId}`;
-
-          console.log(`[share] > Fetching chunk ${i+1}/${rawIds.length}: ${msgId}`);
-
-          let retryCount = 0;
-          let success = false;
-          while (retryCount < 3 && !success) {
-            const result = await new Promise((resolve) => {
-              https.get(msgUrl, { headers: { 'User-Agent': 'Mozilla/5.0 Disbox/2.0' } }, (res) => {
-                let data = '';
-                res.on('data', (c) => data += c);
-                res.on('end', () => {
-                  if (res.statusCode === 200) {
-                    try {
-                      const msg = JSON.parse(data);
-                      resolve({ ok: true, attachmentUrl: msg.attachments?.[0]?.url || null });
-                    } catch (e) { resolve({ ok: false, retry: false }); }
-                  } else if (res.statusCode === 429) {
-                    try {
-                      const backoff = (JSON.parse(data).retry_after || 1) * 1000 + 500;
-                      resolve({ ok: false, retry: true, delay: backoff, reason: '429' });
-                    } catch (e) { resolve({ ok: false, retry: true, delay: 2000, reason: '429' }); }
-                  } else {
-                    resolve({ ok: false, retry: false, status: res.statusCode });
-                  }
-                });
-              }).on('error', (err) => resolve({ ok: false, retry: true, delay: 1000, reason: err.message }));
-            });
-
-            if (result.ok) {
-              messageIds.push({ msgId, attachmentUrl: result.attachmentUrl });
-              success = true;
-            } else if (result.retry) {
-              console.warn(`[share] > Retry ${retryCount+1}/3 for ${msgId} due to ${result.reason}. Waiting ${result.delay}ms...`);
-              retryCount++;
-              await new Promise(r => setTimeout(r, result.delay));
-            } else {
-              console.error(`[share] > Failed to fetch ${msgId} (Status: ${result.status})`);
-              messageIds.push({ msgId, attachmentUrl: null });
-              break;
-            }
-          }
+          messageIds.push({ msgId, attachmentUrl: null });
         }
       }
     } catch (e) { console.warn('[share] Could not fetch messageIds:', e.message); }
