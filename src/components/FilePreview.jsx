@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { X, Download, Maximize2, Minimize2, Loader2, AlertCircle } from 'lucide-react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { X, Download, Maximize2, Minimize2, Loader2, AlertCircle, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import vscDarkPlus from 'react-syntax-highlighter/dist/esm/styles/prism/vsc-dark-plus';
 import { useApp } from '../AppContext.jsx';
@@ -7,7 +7,7 @@ import { getMimeType, formatSize } from '../utils/disbox.js';
 import { motion, AnimatePresence } from 'framer-motion';
 import styles from './FilePreview.module.css';
 
-export default function FilePreview({ file, onClose }) {
+export default function FilePreview({ file, allFiles = [], onFileChange, onClose }) {
   const { api, addTransfer, updateTransfer, removeTransfer, animationsEnabled } = useApp();
   const [loading, setLoading] = useState(true);
   const [content, setContent] = useState(null); // { type, url, text }
@@ -15,10 +15,61 @@ export default function FilePreview({ file, onClose }) {
   const [isFull, setIsFull] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
   const viewportRef = useRef(null);
+  const previewCache = useRef(new Map()); // Cache for storing { type, url, text } by file.id
 
   const name = file.path.split('/').pop();
   const ext = name.split('.').pop().toLowerCase();
   const mime = getMimeType(name);
+
+  // List of files that can be navigated (images & videos)
+  const navigatableFiles = useMemo(() => {
+    if (!allFiles.length) return [];
+    return allFiles.filter(f => {
+      const fExt = f.path.split('.').pop().toLowerCase();
+      return ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'mp4', 'webm', 'ogg', 'mov', 'mkv', 'avi'].includes(fExt);
+    });
+  }, [allFiles]);
+
+  const currentIndex = useMemo(() => {
+    return navigatableFiles.findIndex(f => f.id === file.id || f.path === file.path);
+  }, [navigatableFiles, file]);
+
+  const hasNext = currentIndex < navigatableFiles.length - 1;
+  const hasPrev = currentIndex > 0;
+
+  const goToNext = useCallback((e) => {
+    e?.stopPropagation();
+    if (hasNext && onFileChange) {
+      onFileChange(navigatableFiles[currentIndex + 1]);
+    }
+  }, [hasNext, currentIndex, navigatableFiles, onFileChange]);
+
+  const goToPrevious = useCallback((e) => {
+    e?.stopPropagation();
+    if (hasPrev && onFileChange) {
+      onFileChange(navigatableFiles[currentIndex - 1]);
+    }
+  }, [hasPrev, currentIndex, navigatableFiles, onFileChange]);
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'ArrowRight') goToNext();
+      if (e.key === 'ArrowLeft') goToPrevious();
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [goToNext, goToPrevious, onClose]);
+
+  // Cleanup cache and revoke all object URLs when the preview is closed
+  useEffect(() => {
+    return () => {
+      previewCache.current.forEach(item => {
+        if (item.url) URL.revokeObjectURL(item.url);
+      });
+      previewCache.current.clear();
+    };
+  }, []);
 
   const handleDownload = useCallback(async () => {
     const fileName = file.path.split('/').pop();
@@ -55,12 +106,20 @@ export default function FilePreview({ file, onClose }) {
 
   useEffect(() => {
     let isMounted = true;
-    let objectUrl = null;
     const transferId = `preview-${file.id}`;
 
     const loadContent = async () => {
+      // Check cache first
+      if (previewCache.current.has(file.id)) {
+        setContent(previewCache.current.get(file.id));
+        setLoading(false);
+        setError('');
+        return;
+      }
+
       setLoading(true);
       setError('');
+      setContent(null); // Clear content while loading new file
       try {
         const signal = addTransfer({ id: transferId, name: `Preview: ${name}`, progress: 0, type: 'download', status: 'active', hidden: true });
         const buffer = await api.downloadFile(file, (p) => {
@@ -78,16 +137,23 @@ export default function FilePreview({ file, onClose }) {
         const isPdf = ext === 'pdf';
         const isText = ['txt', 'md', 'js', 'jsx', 'ts', 'tsx', 'py', 'rs', 'html', 'css', 'json', 'yml', 'yaml', 'sql', 'sh', 'bash', 'xml', 'cpp', 'c', 'java'].includes(ext);
 
+        let newContent = null;
         if (isImage || isVideo || isAudio || isPdf) {
           const blob = new Blob([buffer], { type: mime });
-          objectUrl = URL.createObjectURL(blob);
-          setContent({ type: isImage ? 'image' : isVideo ? 'video' : isAudio ? 'audio' : 'pdf', url: objectUrl });
+          const objectUrl = URL.createObjectURL(blob);
+          newContent = { type: isImage ? 'image' : isVideo ? 'video' : isAudio ? 'audio' : 'pdf', url: objectUrl };
         } else if (isText) {
           const text = new TextDecoder().decode(buffer);
-          setContent({ type: 'text', text });
+          newContent = { type: 'text', text };
         } else {
-          setContent({ type: 'unsupported' });
+          newContent = { type: 'unsupported' };
         }
+
+        if (newContent) {
+          previewCache.current.set(file.id, newContent);
+          if (isMounted) setContent(newContent);
+        }
+        
         updateTransfer(transferId, { status: 'done', progress: 1 });
         setTimeout(() => removeTransfer(transferId), 500);
       } catch (e) {
@@ -104,11 +170,10 @@ export default function FilePreview({ file, onClose }) {
 
     return () => {
       isMounted = false;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
       window.electron?.cancelUpload?.(transferId);
       removeTransfer(transferId);
     };
-  }, [file.id, api]);
+  }, [file.id, api, name, ext, mime]); 
 
   const backdropVariants = {
     initial: { opacity: 0 },
@@ -170,6 +235,17 @@ export default function FilePreview({ file, onClose }) {
         </div>
 
         <div className={styles.viewport} ref={viewportRef}>
+          {hasPrev && (
+            <button className={`${styles.navBtn} ${styles.prevBtn}`} onClick={goToPrevious} title="Previous">
+              <ChevronLeft size={24} />
+            </button>
+          )}
+          {hasNext && (
+            <button className={`${styles.navBtn} ${styles.nextBtn}`} onClick={goToNext} title="Next">
+              <ChevronRight size={24} />
+            </button>
+          )}
+
           {loading ? (
             <div className={styles.state}>
               <Loader2 size={32} className="spin" style={{ color: 'var(--accent)' }} />
@@ -185,16 +261,16 @@ export default function FilePreview({ file, onClose }) {
             <div className={styles.content}>
               {content?.type === 'image' && (
                 <div className={styles.imageWrapper}>
-                  <img src={content.url} alt={name} draggable={false} />
+                  <img key={content.url} src={content.url} alt={name} draggable={false} />
                 </div>
               )}
               {content?.type === 'video' && (
-                <video src={content.url} controls autoPlay className={styles.video} />
+                <video key={content.url} src={content.url} controls autoPlay className={styles.video} />
               )}
               {content?.type === 'audio' && (
                 <div className={styles.audioWrapper}>
                   <div className={styles.audioIcon}>🎵</div>
-                  <audio src={content.url} controls autoPlay className={styles.audio} />
+                  <audio key={content.url} src={content.url} controls autoPlay className={styles.audio} />
                 </div>
               )}
               {content?.type === 'pdf' && (

@@ -727,6 +727,60 @@ export class DisboxAPI {
     return merged.buffer;
   }
 
+  async downloadFirstChunk(file, signal = null, transferId = null) {
+    const messageIds = file.messageIds || [];
+    if (messageIds.length === 0) return new ArrayBuffer(0);
+
+    throwIfAborted(signal);
+    const item = messageIds[0];
+    const msgId = typeof item === 'string' ? item : item.msgId;
+    const msgUrl = `${this.webhookUrl}/messages/${msgId}`;
+
+    let chunkData = null;
+    let retryCount = 0;
+    const maxRetries = 5;
+
+    while (retryCount <= maxRetries) {
+      throwIfAborted(signal);
+      try {
+        const msgRes = await window.electron.fetch(msgUrl, { transferId });
+        throwIfAborted(signal);
+
+        if (!msgRes.ok) {
+          if (msgRes.error === 'ABORTED') throw new DOMException('Transfer dibatalkan oleh pengguna', 'AbortError');
+          if ((msgRes.status === 503 || msgRes.status === 429) && retryCount < maxRetries) {
+            retryCount++;
+            const delay = Math.pow(2, retryCount) * 1000 + Math.random() * 1000;
+            console.warn(`[disbox] Fetch message ${msgId} failed with ${msgRes.status}, retrying in ${Math.round(delay)}ms... (${retryCount}/${maxRetries})`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            continue;
+          }
+          throw new Error(`Gagal fetch message ${msgId}: ${msgRes.status}`);
+        }
+
+        const msg = JSON.parse(msgRes.body);
+        const attachmentUrl = msg.attachments?.[0]?.url;
+        if (!attachmentUrl) throw new Error('Attachment URL tidak ditemukan');
+
+        chunkData = await window.electron.proxyDownload(attachmentUrl, transferId);
+        break;
+      } catch (e) {
+        if (e.name === 'AbortError') throw e;
+        if (retryCount < maxRetries) {
+          retryCount++;
+          const delay = Math.pow(2, retryCount) * 1000 + Math.random() * 1000;
+          console.warn(`[disbox] Download attempt ${retryCount} for first chunk failed: ${e.message}, retrying...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        } else {
+          throw e;
+        }
+      }
+    }
+
+    throwIfAborted(signal);
+    return await this.decrypt(chunkData);
+  }
+
   _splitBuffer(buffer, chunkSize) {
     const chunks = [];
     for (let offset = 0; offset < buffer.byteLength; offset += chunkSize) {

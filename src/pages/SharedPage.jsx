@@ -143,7 +143,14 @@ function FileThumbnail({ file, size = 32 }) {
         await enqueueThumb(transferId, async () => {
           if (!isMounted) return;
           const signal = addTransfer({ id: transferId, name: `Thumbnail: ${name}`, progress: 0, type: 'download', status: 'active', hidden: true });
-          const buffer = await api.downloadFile(file, (p) => updateTransfer(transferId, { progress: p }), signal, transferId);
+          
+          let buffer;
+          if (isVideo && Number(file.size) > 10 * 1024 * 1024) {
+            buffer = await api.downloadFirstChunk(file, signal, transferId);
+          } else {
+            buffer = await api.downloadFile(file, (p) => updateTransfer(transferId, { progress: p }), signal, transferId);
+          }
+          
           if (isMounted && !signal.aborted) {
             const originalBlob = new Blob([buffer], { type: getMimeType(name) });
             let compressedBlob;
@@ -324,6 +331,12 @@ export default function SharedPage({ onNavigateToSettings }) {
     else toast.error(t('loading'));
   };
 
+  const navigatableFiles = useMemo(() => {
+    return filteredAndSortedLinks.map(link => {
+      return files?.find(f => f.id === link.file_id || f.path === link.file_path);
+    }).filter(Boolean);
+  }, [filteredAndSortedLinks, files]);
+
   return (
     <div className={styles.container} onClick={() => setShowSortMenu(false)}>
       <div className={styles.header}>
@@ -493,7 +506,12 @@ export default function SharedPage({ onNavigateToSettings }) {
         )}
 
         {previewFile && (
-          <FilePreview file={previewFile} onClose={() => setPreviewFile(null)} />
+          <FilePreview 
+            file={previewFile} 
+            allFiles={navigatableFiles} 
+            onFileChange={setPreviewFile} 
+            onClose={() => setPreviewFile(null)} 
+          />
         )}
       </AnimatePresence>
     </div>

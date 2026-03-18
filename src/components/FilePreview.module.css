@@ -184,8 +184,68 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  overflow: hidden; /* Prevent any accidental scrolling */
+  overflow: hidden;
   position: relative;
+}
+
+.navBtn {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 54px;
+  height: 54px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.8);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 10;
+  opacity: 0.6;
+}
+
+.navBtn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: white;
+  opacity: 1;
+  width: 60px;
+  height: 60px;
+  border-color: rgba(255, 255, 255, 0.3);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.navBtn:active {
+  transform: translateY(-50%) scale(0.92);
+  background: var(--accent);
+  border-color: transparent;
+}
+
+.prevBtn {
+  left: 20px;
+}
+
+.nextBtn {
+  right: 20px;
+}
+
+@media (max-width: 600px) {
+  .navBtn {
+    width: 44px;
+    height: 44px;
+    background: rgba(0, 0, 0, 0.6);
+  }
+  
+  .navBtn:hover {
+    width: 44px;
+    height: 44px;
+  }
+
+  .prevBtn { left: 10px; }
+  .nextBtn { right: 10px; }
 }
 
 .content {

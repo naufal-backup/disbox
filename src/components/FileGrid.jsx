@@ -162,7 +162,14 @@ function FileThumbnail({ file, size = 32 }) {
         await enqueueThumb(transferId, async () => {
           if (!isMounted) return;
           const signal = addTransfer({ id: transferId, name: `Thumbnail: ${name}`, progress: 0, type: 'download', status: 'active', hidden: true });
-          const buffer = await api.downloadFile(file, (p) => updateTransfer(transferId, { progress: p }), signal, transferId);
+          
+          let buffer;
+          if (isVideo && Number(file.size) > 10 * 1024 * 1024) {
+            buffer = await api.downloadFirstChunk(file, signal, transferId);
+          } else {
+            buffer = await api.downloadFile(file, (p) => updateTransfer(transferId, { progress: p }), signal, transferId);
+          }
+          
           if (isMounted && !signal.aborted) {
             const originalBlob = new Blob([buffer], { type: getMimeType(name) });
             let compressedBlob;
@@ -1258,7 +1265,7 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
         {showCreateFolder && <CreateFolderModal onClose={() => setShowCreateFolder(false)} />}
         {moveModal && <MoveModal id={moveModal.id} file={moveModal.path} paths={moveModal.paths} mode={moveModal.mode} onClose={() => { setMoveModal(null); clearSelection(); }} onUnlock={moveModal.onUnlock} />}
         {confirmAction && <ConfirmModal title={confirmAction.title} message={confirmAction.message} danger={confirmAction.danger} onConfirm={confirmAction.onConfirm} onClose={() => setConfirmAction(null)} />}
-        {previewFile && <FilePreview file={previewFile} onClose={() => setPreviewFile(null)} />}
+        {previewFile && <FilePreview file={previewFile} allFiles={processedFiles} onFileChange={setPreviewFile} onClose={() => setPreviewFile(null)} />}
         {pinPrompt && <PinPromptModal title={pinPrompt.title} onSuccess={pinPrompt.onSuccess} onClose={() => setPinPrompt(null)} />}
         {shareDialog && <ShareDialog filePath={shareDialog.path} fileId={shareDialog.file?.id} onClose={() => setShareDialog(null)} />}
       </AnimatePresence>
