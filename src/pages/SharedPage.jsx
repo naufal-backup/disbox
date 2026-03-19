@@ -11,7 +11,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import styles from './SharedPage.module.css';
 
 // ─── Thumbnail Concurrency Control (Same as Drive) ──────────────────────────
-const MAX_CONCURRENT_THUMBS = 3;
+const MAX_CONCURRENT_THUMBS = 1;
 let activeThumbDownloads = 0;
 const thumbQueue = [];
 
@@ -137,43 +137,79 @@ function FileThumbnail({ file, size = 32 }) {
       });
     };
 
-    const loadThumb = async () => {
-      setLoading(true);
-      try {
-        await enqueueThumb(transferId, async () => {
-          if (!isMounted) return;
-          const signal = addTransfer({ id: transferId, name: `Thumbnail: ${name}`, progress: 0, type: 'download', status: 'active', hidden: true });
-          
-          let buffer;
-          if (isVideo && Number(file.size) > 10 * 1024 * 1024) {
-            buffer = await api.downloadFirstChunk(file, signal, transferId);
-          } else {
-            buffer = await api.downloadFile(file, (p) => updateTransfer(transferId, { progress: p }), signal, transferId);
-          }
-          
-          if (isMounted && !signal.aborted) {
-            const originalBlob = new Blob([buffer], { type: getMimeType(name) });
-            let compressedBlob;
-            if (isVideo) {
-              compressedBlob = await captureVideoFrame(originalBlob);
-            } else {
-              compressedBlob = await compressImage(originalBlob);
-            }
+const loadThumb = async () => {
+  setLoading(true);
+  try {
+    await enqueueThumb(transferId, async () => {
+      if (!isMounted) return;
+      const signal = addTransfer({ id: transferId, name: `Thumbnail: ${name}`, progress: 0, type: 'download', status: 'active', hidden: true });
 
-            if (compressedBlob && isMounted) {
-              objectUrl = URL.createObjectURL(compressedBlob);
-              setThumbUrl(objectUrl);
-            }
-            updateTransfer(transferId, { status: 'done', progress: 1 });
-            setTimeout(() => removeTransfer(transferId), 500);
-          }
-        });
-      } catch (e) {
-        if (isMounted) console.error('Thumb failed:', e);
-      } finally {
-        if (isMounted) setLoading(false);
+      // Video besar: ambil chunk pertama saja
+      const isLargeVideo = isVideo && Number(file.size) > 5 * 1024 * 1024;
+      
+      let buffer;
+      if (isLargeVideo) {
+        buffer = await api.downloadFirstChunk(file, signal, transferId);
+      } else {
+        buffer = await api.downloadFile(file, (p) => updateTransfer(transferId, { progress: p }), signal, transferId);
       }
-    };
+
+      if (isMounted && !signal.aborted) {
+        const originalBlob = new Blob([buffer], { type: getMimeType(name) });
+        let compressedBlob;
+
+        if (isVideo) {
+          // Canvas fallback — toleran dengan partial video data
+          compressedBlob = await new Promise((resolve) => {
+            const video = document.createElement('video');
+            video.muted = true;
+            video.playsInline = true;
+            const url = URL.createObjectURL(originalBlob);
+            let settled = false;
+
+            const capture = () => {
+              if (settled) return;
+              settled = true;
+              try {
+                const canvas = document.createElement('canvas');
+                const MAX = 256;
+                let w = video.videoWidth || 320, h = video.videoHeight || 180;
+                if (w > h) { if (w > MAX) { h = Math.floor(h * MAX / w); w = MAX; } }
+                else       { if (h > MAX) { w = Math.floor(w * MAX / h); h = MAX; } }
+                canvas.width = Math.max(1, w);
+                canvas.height = Math.max(1, h);
+                canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+                canvas.toBlob(resolve, 'image/webp', 0.7);
+              } catch (e) { resolve(null); }
+              URL.revokeObjectURL(url);
+            };
+
+            const timer = setTimeout(() => capture(), 6000);
+
+            video.onloadeddata  = () => { video.currentTime = 0.5; };
+            video.onseeked      = () => { clearTimeout(timer); capture(); };
+            video.oncanplay     = () => { if (!settled) { clearTimeout(timer); capture(); } };
+            video.onerror       = () => { clearTimeout(timer); settled = true; URL.revokeObjectURL(url); resolve(null); };
+            video.src = url;
+          });
+        } else {
+          compressedBlob = await compressImage(originalBlob);
+        }
+
+        if (compressedBlob && isMounted) {
+          objectUrl = URL.createObjectURL(compressedBlob);
+          setThumbUrl(objectUrl);
+        }
+        updateTransfer(transferId, { status: 'done', progress: 1 });
+        setTimeout(() => removeTransfer(transferId), 500);
+      }
+    });
+  } catch (e) {
+    if (isMounted) console.error('Thumb failed:', e);
+  } finally {
+    if (isMounted) setLoading(false);
+  }
+};
     loadThumb();
     return () => {
       isMounted = false;

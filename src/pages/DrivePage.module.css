@@ -35,11 +35,9 @@
   margin-left: -8px;
   cursor: pointer;
   border-radius: 8px;
+  transition: background 0.15s;
 }
-
-.menuBtn:hover {
-  background: var(--bg-hover);
-}
+.menuBtn:hover { background: var(--bg-hover); }
 
 .mobileTitle {
   font-size: 16px;
@@ -73,6 +71,7 @@
   font-size: 22px;
   font-weight: 700;
   margin-bottom: 24px;
+  color: var(--text-primary);
 }
 
 .settingsGrid {
@@ -121,32 +120,15 @@
   cursor: pointer;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
-
 .langBtn:hover {
   background: var(--bg-hover);
   border-color: var(--border-bright);
 }
-
 .langBtn.active {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff; /* Paksa putih untuk aksen gelap agar terbaca */
-  box-shadow: 0 4px 12px var(--accent-glow);
-}
-
-/* Fix untuk input angka dan range agar terlihat di semua tema */
-input[type="number"], input[type="text"], select {
-  background: var(--bg-deep);
-  border: 1px solid var(--border);
-  color: var(--text-primary);
-  border-radius: 4px;
-  padding: 4px 8px;
-  transition: border-color 0.2s;
-}
-
-input:focus {
-  border-color: var(--accent);
-  outline: none;
+  color: var(--text-on-accent);
+  box-shadow: var(--glow-accent);
 }
 
 .pinManagementRow {
@@ -155,11 +137,12 @@ input:focus {
   justify-content: space-between;
 }
 
-/* Toggle Styles */
+/* ── Toggle ── */
 .toggleWrapper {
   padding: 12px 0;
-  border-bottom: 1px solid rgba(255,255,255,0.05);
+  border-bottom: 1px solid var(--border);
 }
+.toggleWrapper:last-child { border-bottom: none; }
 
 .toggleHeader {
   display: flex;
@@ -191,50 +174,56 @@ input:focus {
   opacity: 0;
   width: 0;
   height: 0;
+  position: absolute;
 }
 
 .toggleSlider {
   position: absolute;
   cursor: pointer;
   inset: 0;
-  background-color: #333;
+  background-color: var(--bg-hover);
+  border: 1px solid var(--border-bright);
   transition: .3s;
   border-radius: 20px;
 }
 
 .toggleInput:checked + .toggleSlider {
   background-color: var(--accent);
+  border-color: var(--accent);
 }
 
 .toggleCircle {
   position: absolute;
   height: 14px;
   width: 14px;
-  left: 3px;
-  bottom: 3px;
-  background-color: white;
+  left: 2px;
+  bottom: 2px;
+  background-color: var(--text-on-accent);
   transition: .3s;
   border-radius: 50%;
 }
 
 .toggleInput:checked + .toggleSlider .toggleCircle {
-  left: 19px;
+  left: 18px;
 }
 
-/* Slider Customization */
+/* ── Slider ── */
 .sliderInput {
   flex: 1;
   accent-color: var(--accent);
   height: 6px;
   border-radius: 3px;
   cursor: pointer;
+  border: none;
+  background: var(--bg-hover);
+  padding: 0;
 }
 
-/* Pin Modal Mobile Safety */
+/* ── PIN Modal ── */
 .pinModalOverlay {
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.8);
+  background: rgba(0,0,0,0.75);
   backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
@@ -250,9 +239,10 @@ input:focus {
   padding: 24px;
   width: 100%;
   max-width: 320px;
-  box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+  box-shadow: var(--shadow-lg);
 }
 
+/* ── Buttons ── */
 .secondaryBtn {
   background: var(--bg-elevated);
   border: 1px solid var(--border);
@@ -262,17 +252,28 @@ input:focus {
   font-weight: 600;
   padding: 6px 12px;
   cursor: pointer;
+  transition: all 0.15s;
+}
+.secondaryBtn:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-bright);
 }
 
 .dangerBtn {
-  background: rgba(237, 66, 69, 0.1);
-  border: 1px solid rgba(237, 66, 69, 0.2);
+  background: var(--red-dim);
+  border: 1px solid rgba(237,66,69,0.3);
   border-radius: 6px;
   color: var(--red);
   font-size: 12px;
   font-weight: 600;
   padding: 6px 12px;
   cursor: pointer;
+  transition: all 0.15s;
+}
+.dangerBtn:hover {
+  background: var(--red);
+  color: var(--text-on-danger);
+  border-color: var(--red);
 }
 
 .resetBtn {
@@ -283,6 +284,11 @@ input:focus {
   font-size: 11px;
   padding: 4px 8px;
   cursor: pointer;
+  transition: all 0.15s;
+}
+.resetBtn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
 }
 
 .chunkInfo {
@@ -302,58 +308,12 @@ input:focus {
   top: 0;
 }
 
+/* ── Responsive ── */
 @media (max-width: 768px) {
-  .mobileHeader {
-    display: flex;
-  }
-
-  .settingsGrid {
-    grid-template-columns: 1fr;
-  }
-
-  .settingsPanel {
-    padding: 20px;
-  }
-
-  .languageGrid {
-    flex-direction: column;
-  }
-
-  .aboutCard {
-    position: static;
-  }
-
-  .pinManagementRow {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 12px;
-  }
-}
-
-@keyframes fadeInScale {
-  from {
-    opacity: 0;
-    transform: translateX(-50%) scale(0.9) translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(-50%) scale(1) translateY(0);
-  }
-}
-
-@keyframes fadeInScaleDown {
-  from {
-    opacity: 0;
-    transform: translateX(-50%) scale(0.9) translateY(-10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(-50%) scale(1) translateY(0);
-  }
-}
-
-@keyframes pulse {
-  0% { opacity: 0.3; }
-  50% { opacity: 0.6; }
-  100% { opacity: 0.3; }
+  .mobileHeader { display: flex; }
+  .settingsGrid { grid-template-columns: 1fr; }
+  .settingsPanel { padding: 20px; }
+  .languageGrid { flex-direction: column; }
+  .aboutCard { position: static; }
+  .pinManagementRow { flex-direction: column; align-items: flex-start; gap: 12px; }
 }

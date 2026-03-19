@@ -1,6 +1,9 @@
 /* ─── Global Reset & Variables ─────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* ═══════════════════════════════════════════════════════
+   DARK THEME (Default)
+   ═══════════════════════════════════════════════════════ */
 :root {
   --bg-deep:        #05050a;
   --bg-base:        #0a0a15;
@@ -8,25 +11,33 @@
   --bg-elevated:    #1c1c32;
   --bg-hover:       #242440;
   --bg-active:      #2d2d50;
+  --bg-input:       #1a1a2e;
 
   --border:         rgba(255,255,255,0.08);
   --border-bright:  rgba(255,255,255,0.15);
+  --border-input:   rgba(255,255,255,0.14);
 
   --accent:         #5865f2;
   --accent-glow:    rgba(88,101,242,0.35);
   --accent-bright:  #7289ff;
   --accent-dim:     rgba(88,101,242,0.15);
+  --accent-hover:   #4752c4;
 
   --teal:           #00d4aa;
   --teal-dim:       rgba(0,212,170,0.12);
   --amber:          #f0a500;
+  --amber-dim:      rgba(240,165,0,0.15);
   --red:            #ed4245;
+  --red-dim:        rgba(237,66,69,0.12);
   --green:          #3ba55d;
+  --orange:         #f59e0b;
 
   --text-primary:   #ffffff;
   --text-secondary: #c0c0e0;
   --text-muted:     #8a8aaa;
   --text-dim:       #5a5a75;
+  --text-on-accent: #ffffff;
+  --text-on-danger: #ffffff;
 
   --font-display:   'Syne', sans-serif;
   --font-body:      'Inter', sans-serif;
@@ -43,82 +54,145 @@
   --glow-accent:    0 0 12px var(--accent-glow);
 }
 
+/* ═══════════════════════════════════════════════════════
+   LIGHT THEME
+   ═══════════════════════════════════════════════════════ */
 [data-theme='light'] {
-  --bg-deep:        #e0e0eb;
-  --bg-base:        #f0f2f5;
-  --bg-surface:     #ffffff;
+  --bg-deep:        #d8dce6;
+  --bg-base:        #eaecf2;
+  --bg-surface:     #f4f5f8;
   --bg-elevated:    #ffffff;
-  --bg-hover:       #e8ebf0;
-  --bg-active:      #dde2eb;
+  --bg-hover:       #e2e5ef;
+  --bg-active:      #d6daea;
+  --bg-input:       #ffffff;
 
-  --border:         rgba(0,0,0,0.12);
-  --border-bright:  rgba(0,0,0,0.2);
+  --border:         rgba(0,0,0,0.10);
+  --border-bright:  rgba(0,0,0,0.20);
+  --border-input:   rgba(0,0,0,0.18);
 
-  --text-primary:   #0a0a1a;
-  --text-secondary: #353550;
-  --text-muted:     #5a5a7a;
-  --text-dim:       #8a8aa0;
+  --accent:         #4a54e1;
+  --accent-glow:    rgba(74,84,225,0.18);
+  --accent-bright:  #5865f2;
+  --accent-dim:     rgba(74,84,225,0.10);
+  --accent-hover:   #3b44c4;
 
-  --shadow-sm:      0 1px 3px rgba(0,0,0,0.05);
-  --shadow:         0 2px 8px rgba(0,0,0,0.06);
-  --shadow-lg:      0 4px 16px rgba(0,0,0,0.08);
+  --teal:           #008f76;
+  --teal-dim:       rgba(0,143,118,0.10);
+  --amber:          #b36b00;
+  --amber-dim:      rgba(179,107,0,0.10);
+  --red:            #c62828;
+  --red-dim:        rgba(198,40,40,0.08);
+  --green:          #1b6b38;
+  --orange:         #c05a00;
 
-  --accent-dim:     rgba(88,101,242,0.1);
-  --accent-glow:    rgba(88,101,242,0.1);
+  --text-primary:   #0f1117;
+  --text-secondary: #2d3748;
+  --text-muted:     #64748b;
+  --text-dim:       #94a3b8;
+  --text-on-accent: #ffffff;
+  --text-on-danger: #ffffff;
+
+  --shadow-sm:      0 1px 3px rgba(0,0,0,0.07);
+  --shadow:         0 2px 8px rgba(0,0,0,0.09);
+  --shadow-lg:      0 4px 16px rgba(0,0,0,0.12);
+  --glow-accent:    0 0 10px var(--accent-glow);
 }
 
+/* ═══════════════════════════════════════════════════════
+   GRAYSCALE THEME
+   ═══════════════════════════════════════════════════════ */
 [data-theme='grayscale'] {
-  --bg-deep:        #121417;
-  --bg-base:        #212529;
-  --bg-surface:     #343a40;
-  --bg-elevated:    #495057;
-  --bg-hover:       #6c757d;
-  --bg-active:      #adb5bd;
+  --bg-deep:        #0a0c0d;
+  --bg-base:        #161819;
+  --bg-surface:     #202224;
+  --bg-elevated:    #2a2c2f;
+  --bg-hover:       #343638;
+  --bg-active:      #3e4042;
+  --bg-input:       #2a2c2f;
 
-  --accent:         #dee2e6;
-  --accent-bright:  #f8f9fa;
-  --accent-glow:    rgba(248, 249, 250, 0.15);
-  --accent-dim:     rgba(222, 226, 230, 0.1);
+  --border:         rgba(255,255,255,0.09);
+  --border-bright:  rgba(255,255,255,0.18);
+  --border-input:   rgba(255,255,255,0.15);
 
-  --text-primary:   #f8f9fa;
-  --text-secondary: #dee2e6;
-  --text-muted:     #adb5bd;
-  --text-dim:       #6c757d;
+  /* Accent abu-abu sedang agar tidak hilang di background gelap */
+  --accent:         #9ea4b0;
+  --accent-glow:    rgba(158,164,176,0.20);
+  --accent-bright:  #c2c8d4;
+  --accent-dim:     rgba(158,164,176,0.12);
+  --accent-hover:   #828898;
 
-  --border:         rgba(255,255,255,0.08);
-  --border-bright:  rgba(255,255,255,0.15);
-  
-  --shadow-sm:      0 1px 3px rgba(0,0,0,0.3);
-  --shadow:         0 2px 8px rgba(0,0,0,0.4);
-  --shadow-lg:      0 4px 16px rgba(0,0,0,0.5);
+  --teal:           #80b4b4;
+  --teal-dim:       rgba(128,180,180,0.12);
+  --amber:          #b09060;
+  --amber-dim:      rgba(176,144,96,0.12);
+  --red:            #c07070;
+  --red-dim:        rgba(192,112,112,0.12);
+  --green:          #70a870;
+  --orange:         #a07850;
+
+  --text-primary:   #e4e6ea;
+  --text-secondary: #b8bcc4;
+  --text-muted:     #808590;
+  --text-dim:       #54585e;
+  /* Accent terang → teks di atasnya harus gelap */
+  --text-on-accent: #0a0c0d;
+  --text-on-danger: #ffffff;
+
+  --shadow-sm:      0 1px 3px rgba(0,0,0,0.4);
+  --shadow:         0 2px 8px rgba(0,0,0,0.5);
+  --shadow-lg:      0 4px 16px rgba(0,0,0,0.6);
+  --glow-accent:    0 0 10px var(--accent-glow);
 }
 
+/* ═══════════════════════════════════════════════════════
+   COLORFUL THEME
+   ═══════════════════════════════════════════════════════ */
 [data-theme='colorful'] {
-  --bg-deep:        #1a3a4d; /* Versi lebih gelap dari 2a536e */
-  --bg-base:        #2a536e;
-  --bg-surface:     #7e3560;
-  --bg-elevated:    #a6447d;
-  --bg-hover:       #bc5a93;
-  --bg-active:      #d471aa;
+  --bg-deep:        #0d1f2d;
+  --bg-base:        #172638;
+  --bg-surface:     #1e3248;
+  --bg-elevated:    #264058;
+  --bg-hover:       #2e4e68;
+  --bg-active:      #365c78;
+  --bg-input:       #1e3248;
 
+  --border:         rgba(255,255,255,0.12);
+  --border-bright:  rgba(255,255,255,0.22);
+  --border-input:   rgba(255,255,255,0.18);
+
+  /* Kuning cerah sebagai aksen */
   --accent:         #f9f871;
-  --accent-bright:  #fffeb0;
-  --accent-glow:    rgba(249, 248, 113, 0.25);
-  --accent-dim:     rgba(249, 248, 113, 0.1);
+  --accent-glow:    rgba(249,248,113,0.28);
+  --accent-bright:  #ffffa0;
+  --accent-dim:     rgba(249,248,113,0.12);
+  --accent-hover:   #e8e762;
+
+  --teal:           #00e5c0;
+  --teal-dim:       rgba(0,229,192,0.12);
+  --amber:          #ffa040;
+  --amber-dim:      rgba(255,160,64,0.12);
+  --red:            #ff6b6b;
+  --red-dim:        rgba(255,107,107,0.12);
+  --green:          #5dd87a;
+  --orange:         #ff9040;
 
   --text-primary:   #ffffff;
-  --text-secondary: #f1f1e6;
-  --text-muted:     #b0c4de;
-  --text-dim:       #8ba4bc;
+  --text-secondary: #c8dff0;
+  --text-muted:     #7aabcc;
+  --text-dim:       #4a7a96;
+  /* Aksen kuning terang → teks di atasnya harus gelap */
+  --text-on-accent: #0d1f2d;
+  --text-on-danger: #ffffff;
 
-  --border:         rgba(255,255,255,0.1);
-  --border-bright:  rgba(255,255,255,0.2);
-
-  --shadow-sm:      0 1px 3px rgba(0,0,0,0.2);
-  --shadow:         0 2px 8px rgba(0,0,0,0.3);
-  --shadow-lg:      0 4px 16px rgba(0,0,0,0.4);
+  --shadow-sm:      0 1px 3px rgba(0,0,0,0.25);
+  --shadow:         0 2px 8px rgba(0,0,0,0.35);
+  --shadow-lg:      0 4px 16px rgba(0,0,0,0.45);
+  --glow-accent:    0 0 14px var(--accent-glow);
 }
 
+/* ═══════════════════════════════════════════════════════
+   BASE HTML
+   ═══════════════════════════════════════════════════════ */
 html, body, #root {
   height: 100%;
   width: 100%;
@@ -145,6 +219,28 @@ body {
 /* ─── Typography ────────────────────────────────────────────────────────────── */
 h1, h2, h3, h4, h5, h6 { font-family: var(--font-display); letter-spacing: -0.02em; }
 
+/* ─── Global input defaults ─────────────────────────────────────────────────── */
+/* Override global agar tidak ada input yang pakai warna hardcoded */
+input, textarea, select {
+  font-family: var(--font-body);
+  background: var(--bg-input);
+  border: 1px solid var(--border-input);
+  color: var(--text-primary);
+  border-radius: var(--radius-sm);
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+input:focus, textarea:focus, select:focus {
+  border-color: var(--accent);
+  outline: none;
+  box-shadow: 0 0 0 3px var(--accent-dim);
+}
+
+input::placeholder, textarea::placeholder {
+  color: var(--text-muted);
+  opacity: 1;
+}
+
 /* ─── Animations ────────────────────────────────────────────────────────────── */
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(6px); }
@@ -154,6 +250,11 @@ h1, h2, h3, h4, h5, h6 { font-family: var(--font-display); letter-spacing: -0.02
 @keyframes slideIn {
   from { opacity: 0; transform: translateX(-12px); }
   to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-5px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
 @keyframes pulse-glow {
@@ -168,6 +269,11 @@ h1, h2, h3, h4, h5, h6 { font-family: var(--font-display); letter-spacing: -0.02
 @keyframes shimmer {
   0%   { background-position: -200% center; }
   100% { background-position:  200% center; }
+}
+
+@keyframes scaleIn {
+  from { transform: scale(0.9); opacity: 0; }
+  to   { transform: scale(1); opacity: 1; }
 }
 
 .animate-in { animation: fadeIn 0.2s ease forwards; }

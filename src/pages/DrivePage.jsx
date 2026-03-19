@@ -17,15 +17,10 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 export default function DrivePage({ activePage, onNavigate }) {
   const { isVerified, setIsVerified, hasPin, setCurrentPath, t, animationsEnabled, isSidebarOpen, setIsSidebarOpen } = useApp();
-  const [checkingPin, setCheckingPin] = useState(false);
 
   const handleNavigate = (page) => {
-    if (page !== activePage) {
-      setCurrentPath('/');
-    }
-    if (activePage === 'locked' && page !== 'locked') {
-      setIsVerified(false);
-    }
+    if (page !== activePage) setCurrentPath('/');
+    if (activePage === 'locked' && page !== 'locked') setIsVerified(false);
     onNavigate(page);
     setIsSidebarOpen(false);
   };
@@ -35,17 +30,14 @@ export default function DrivePage({ activePage, onNavigate }) {
     animate: { opacity: 1, y: 0 },
     exit: { opacity: 0, y: -5 }
   };
-
   const transition = animationsEnabled ? { duration: 0.2 } : { duration: 0 };
 
   return (
     <div className={styles.layout}>
       <AnimatePresence>
         {isSidebarOpen && (
-          <motion.div 
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             onClick={() => setIsSidebarOpen(false)}
             className={styles.sidebarOverlay}
           />
@@ -53,7 +45,7 @@ export default function DrivePage({ activePage, onNavigate }) {
       </AnimatePresence>
 
       <Sidebar activePage={activePage} onNavigate={handleNavigate} />
-      
+
       <main className={styles.main}>
         <header className={styles.mobileHeader}>
           <button className={styles.menuBtn} onClick={() => setIsSidebarOpen(true)}>
@@ -73,21 +65,16 @@ export default function DrivePage({ activePage, onNavigate }) {
         <AnimatePresence mode="wait">
           <motion.div
             key={activePage}
-            initial="initial"
-            animate="animate"
-            exit="exit"
-            variants={pageVariants}
-            transition={transition}
+            initial="initial" animate="animate" exit="exit"
+            variants={pageVariants} transition={transition}
             style={{ height: '100%', display: 'flex', flexDirection: 'column' }}
           >
             {activePage === 'drive' && <FileGrid onNavigate={onNavigate} />}
             {activePage === 'profile' && <ProfilePage />}
             {activePage === 'locked' && (
-              isVerified ? (
-                <FileGrid isLockedView={true} onNavigate={onNavigate} />
-              ) : (
-                <LockedGateway onVerified={() => setIsVerified(true)} />
-              )
+              isVerified
+                ? <FileGrid isLockedView={true} onNavigate={onNavigate} />
+                : <LockedGateway onVerified={() => setIsVerified(true)} />
             )}
             {activePage === 'recent' && <FileGrid isRecentView={true} onNavigate={onNavigate} />}
             {activePage === 'starred' && <FileGrid isStarredView={true} onNavigate={onNavigate} />}
@@ -106,6 +93,7 @@ export default function DrivePage({ activePage, onNavigate }) {
   );
 }
 
+/* ─── Locked Gateway ──────────────────────────────────────────────────────── */
 function LockedGateway({ onVerified }) {
   const { verifyPin, hasPin, t } = useApp();
   const [pin, setPin] = useState('');
@@ -113,9 +101,7 @@ function LockedGateway({ onVerified }) {
   const [loading, setLoading] = useState(false);
   const [pinExists, setPinExists] = useState(true);
 
-  useEffect(() => {
-    hasPin().then(setPinExists);
-  }, [hasPin]);
+  useEffect(() => { hasPin().then(setPinExists); }, [hasPin]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -134,9 +120,12 @@ function LockedGateway({ onVerified }) {
   if (!pinExists) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 20 }}>
-        <div style={{ background: 'var(--bg-elevated)', padding: 24, borderRadius: 'var(--radius-lg)', border: '1px solid var(--border)', textAlign: 'center', maxWidth: 400 }}>
+        <div style={{
+          background: 'var(--bg-elevated)', padding: 24, borderRadius: 'var(--radius-lg)',
+          border: '1px solid var(--border)', textAlign: 'center', maxWidth: 400
+        }}>
           <Lock size={48} style={{ color: 'var(--text-muted)', marginBottom: 16 }} />
-          <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>{t('pin_not_set')}</h3>
+          <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 8, color: 'var(--text-primary)' }}>{t('pin_not_set')}</h3>
           <p style={{ fontSize: 14, color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: 20 }}>
             {t('pin_not_set_desc')}
           </p>
@@ -147,25 +136,45 @@ function LockedGateway({ onVerified }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 20 }}>
-      <div style={{ background: 'var(--bg-elevated)', padding: 32, borderRadius: 16, border: '1px solid var(--border-bright)', textAlign: 'center', width: '100%', maxWidth: 360, boxShadow: '0 20px 50px rgba(0,0,0,0.3)' }}>
+      <div style={{
+        background: 'var(--bg-elevated)', padding: 32, borderRadius: 16,
+        border: '1px solid var(--border-bright)', textAlign: 'center',
+        width: '100%', maxWidth: 360, boxShadow: 'var(--shadow-lg)'
+      }}>
         <Shield size={48} style={{ color: 'var(--accent)', marginBottom: 16 }} />
-        <h3 style={{ fontSize: 20, fontWeight: 700, marginBottom: 8 }}>{t('locked_area')}</h3>
+        <h3 style={{ fontSize: 20, fontWeight: 700, marginBottom: 8, color: 'var(--text-primary)' }}>{t('locked_area')}</h3>
         <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 24 }}>{t('locked_area_desc')}</p>
-        
+
         <form onSubmit={handleSubmit}>
-          <input 
-            type="password" 
-            placeholder="••••" 
+          <input
+            type="password"
+            placeholder="••••"
             value={pin}
             onChange={e => setPin(e.target.value)}
             autoFocus
-            style={{ width: '100%', background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 12, padding: 16, color: 'white', textAlign: 'center', fontSize: 24, letterSpacing: '0.4em', marginBottom: 12, outline: 'none' }}
+            style={{
+              width: '100%',
+              background: 'var(--bg-input)',
+              border: '1px solid var(--border-input)',
+              borderRadius: 12,
+              padding: 16,
+              color: 'var(--text-primary)',
+              textAlign: 'center',
+              fontSize: 24,
+              letterSpacing: '0.4em',
+              marginBottom: 12,
+              outline: 'none',
+            }}
           />
           {error && <p style={{ color: 'var(--red)', fontSize: 12, marginBottom: 16 }}>{error}</p>}
-          <button 
-            type="submit" 
+          <button
+            type="submit"
             disabled={loading || !pin}
-            style={{ width: '100%', padding: 14, background: 'var(--accent)', border: 'none', borderRadius: 12, color: 'white', fontWeight: 700, fontSize: 14, cursor: 'pointer', transition: 'all 0.2s' }}
+            style={{
+              width: '100%', padding: 14, background: 'var(--accent)', border: 'none',
+              borderRadius: 12, color: 'var(--text-on-accent)', fontWeight: 700, fontSize: 14,
+              cursor: 'pointer', transition: 'all 0.2s',
+            }}
           >
             {loading ? t('verifying') : t('unlock_access')}
           </button>
@@ -175,6 +184,7 @@ function LockedGateway({ onVerified }) {
   );
 }
 
+/* ─── Worker Usage Card ──────────────────────────────────────────────────── */
 function WorkerUsageCard({ t }) {
   const [workerUsage, setWorkerUsage] = useState({});
   const [loading, setLoading] = useState(true);
@@ -191,16 +201,12 @@ function WorkerUsageCard({ t }) {
     const fetchUsage = async () => {
       setLoading(true);
       const results = {};
-      
-      // Fetch stats for all workers in parallel
       await Promise.all(PUBLIC_WORKERS.map(async (worker) => {
         try {
           const res = await window.electron.fetch(`${worker.url}/share/stats`);
           if (res.ok && isMounted) {
             const data = JSON.parse(res.body);
-            results[worker.url] = data; // Store full object { links, requests }
-          } else if (isMounted) {
-            results[worker.url] = { status: 'Online' };
+            results[worker.url] = data;
           }
         } catch (e) {
           if (isMounted) {
@@ -211,13 +217,8 @@ function WorkerUsageCard({ t }) {
           }
         }
       }));
-
-      if (isMounted) {
-        setWorkerUsage(results);
-        setLoading(false);
-      }
+      if (isMounted) { setWorkerUsage(results); setLoading(false); }
     };
-
     fetchUsage();
     return () => { isMounted = false; };
   }, []);
@@ -230,10 +231,15 @@ function WorkerUsageCard({ t }) {
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {PUBLIC_WORKERS.map(worker => (
-          <div key={worker.url} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
+          <div key={worker.url} style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            padding: '8px 0', borderBottom: '1px solid var(--border)'
+          }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
               <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)' }}>{worker.label}</span>
-              <span style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{worker.url.replace('https://', '')}</span>
+              <span style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                {worker.url.replace('https://', '')}
+              </span>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
               {workerUsage[worker.url] ? (
@@ -260,9 +266,10 @@ function WorkerUsageCard({ t }) {
   );
 }
 
+/* ─── Settings Panel ─────────────────────────────────────────────────────── */
 function SettingsPanel({ onNavigate }) {
-  const { 
-    uiScale, setUiScale, chunkSize, setChunkSize, 
+  const {
+    uiScale, setUiScale, chunkSize, setChunkSize,
     showPreviews, setShowPreviews,
     showImagePreviews, setShowImagePreviews,
     showVideoPreviews, setShowVideoPreviews,
@@ -282,12 +289,12 @@ function SettingsPanel({ onNavigate }) {
   const themes = [
     { id: 'dark', label: 'Dark', colors: ['#0a0a15', '#5865f2'] },
     { id: 'light', label: 'Light', colors: ['#f0f2f5', '#5865f2'] },
-    { id: 'grayscale', label: 'Grayscale', colors: ['#212529', '#dee2e6'] },
-    { id: 'colorful', label: 'Colorful', colors: ['#2a536e', '#f9f871'] }
+    { id: 'grayscale', label: 'Grayscale', colors: ['#212529', '#9ea4b0'] },
+    { id: 'colorful', label: 'Colorful', colors: ['#1a3a52', '#f9f871'] }
   ];
 
   const [showPinModal, setShowPinModal] = useState(null);
-  const [showAppLockModal, setShowAppLockModal] = useState(null); // 'set' | 'change'
+  const [showAppLockModal, setShowAppLockModal] = useState(null);
   const [currentVersion, setCurrentVersion] = useState('');
   const [latestVersion, setLatestVersion] = useState('');
   const [isUpdateAvailable, setIsUpdateAvailable] = useState(false);
@@ -307,7 +314,7 @@ function SettingsPanel({ onNavigate }) {
             setLatestVersion(latest);
             if (latest !== ('v' + v)) setIsUpdateAvailable(true);
           }
-        } catch (e) { console.error('Failed to fetch latest version:', e); }
+        } catch (e) {}
       }
     };
     fetchVersions();
@@ -316,12 +323,12 @@ function SettingsPanel({ onNavigate }) {
   const containerVariants = { initial: {}, animate: { transition: { staggerChildren: 0.04 } } };
   const itemVariants = {
     initial: { opacity: 0, y: 15 },
-    animate: { opacity: 1, y: 0, transition: { duration: 0.3, ease: "easeOut" } }
+    animate: { opacity: 1, y: 0, transition: { duration: 0.3, ease: 'easeOut' } }
   };
 
   useEffect(() => {
     if (!api) { setIsPinLoaded(false); return; }
-    hasPin().then(() => { setIsPinLoaded(true); });
+    hasPin().then(() => setIsPinLoaded(true));
   }, [api, hasPin]);
 
   useEffect(() => {
@@ -361,7 +368,7 @@ function SettingsPanel({ onNavigate }) {
         }
         setVerticalPos(newVertical);
         setBubbleStyle({
-          left: newLeft, right: newRight, transform: newTransform, width: width,
+          left: newLeft, right: newRight, transform: newTransform, width,
           top: newVertical === 'bottom' ? 'calc(100% + 12px)' : 'auto',
           bottom: newVertical === 'top' ? 'calc(100% + 12px)' : 'auto'
         });
@@ -371,19 +378,39 @@ function SettingsPanel({ onNavigate }) {
 
     return (
       <div className="help-trigger" style={{ position: 'relative', display: 'inline-flex' }}>
-        <button 
-          ref={triggerRef} onClick={() => setActiveHelp(isOpen ? null : helpKey)}
-          style={{ background: 'transparent', border: 'none', padding: 4, cursor: 'pointer', color: isOpen ? 'var(--accent-bright)' : 'var(--text-muted)', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '50%', transition: 'all 0.2s', marginLeft: 6 }}
+        <button
+          ref={triggerRef}
+          onClick={() => setActiveHelp(isOpen ? null : helpKey)}
+          style={{
+            background: 'transparent', border: 'none', padding: 4, cursor: 'pointer',
+            color: isOpen ? 'var(--accent-bright)' : 'var(--text-muted)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            borderRadius: '50%', transition: 'all 0.2s', marginLeft: 6
+          }}
         >
           <AlertCircle size={14} />
         </button>
         {isOpen && (
-          <div style={{ position: 'absolute', ...bubbleStyle, background: 'var(--bg-elevated)', border: '1px solid var(--border-bright)', borderRadius: 14, padding: '12px 16px', boxShadow: '0 10px 40px rgba(0,0,0,0.6)', zIndex: 1000, fontSize: 12, color: 'var(--text-primary)', lineHeight: 1.6, textAlign: 'left', pointerEvents: 'auto' }}>
+          <div style={{
+            position: 'absolute', ...bubbleStyle,
+            background: 'var(--bg-elevated)', border: '1px solid var(--border-bright)',
+            borderRadius: 14, padding: '12px 16px', boxShadow: 'var(--shadow-lg)',
+            zIndex: 1000, fontSize: 12, color: 'var(--text-primary)', lineHeight: 1.6,
+            textAlign: 'left', pointerEvents: 'auto'
+          }}>
             {t(helpKey + '_help')}
             {verticalPos === 'top' ? (
-              <div style={{ position: 'absolute', top: '100%', ...arrowStyle, marginLeft: -8, borderWidth: 8, borderStyle: 'solid', borderColor: 'var(--border-bright) transparent transparent transparent' }} />
+              <div style={{
+                position: 'absolute', top: '100%', ...arrowStyle, marginLeft: -8,
+                borderWidth: 8, borderStyle: 'solid',
+                borderColor: 'var(--border-bright) transparent transparent transparent'
+              }} />
             ) : (
-              <div style={{ position: 'absolute', bottom: '100%', ...arrowStyle, marginLeft: -8, borderWidth: 8, borderStyle: 'solid', borderColor: 'transparent transparent var(--border-bright) transparent' }} />
+              <div style={{
+                position: 'absolute', bottom: '100%', ...arrowStyle, marginLeft: -8,
+                borderWidth: 8, borderStyle: 'solid',
+                borderColor: 'transparent transparent var(--border-bright) transparent'
+              }} />
             )}
           </div>
         )}
@@ -410,10 +437,16 @@ function SettingsPanel({ onNavigate }) {
   );
 
   return (
-    <motion.div initial="initial" animate="animate" variants={animationsEnabled ? containerVariants : {}} className={styles.settingsPanel}>
+    <motion.div
+      initial="initial" animate="animate"
+      variants={animationsEnabled ? containerVariants : {}}
+      className={styles.settingsPanel}
+    >
       <motion.h2 variants={itemVariants} className={styles.settingsTitle}>{t('settings')}</motion.h2>
       <div className={styles.settingsGrid}>
         <div className={styles.settingsLeft}>
+
+          {/* Theme */}
           <motion.div variants={itemVariants} className={styles.settingsSection}>
             <h3 className={styles.sectionTitle}>{t('theme')}</h3>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' }}>
@@ -423,44 +456,54 @@ function SettingsPanel({ onNavigate }) {
                   onClick={() => setTheme(th.id)}
                   className={styles.langBtn}
                   style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    gap: '8px',
-                    padding: '12px',
+                    display: 'flex', flexDirection: 'column', alignItems: 'center',
+                    gap: '8px', padding: '12px',
                     borderColor: theme === th.id ? 'var(--accent)' : 'var(--border)',
                     background: theme === th.id ? 'var(--accent-dim)' : 'var(--bg-elevated)',
-                    position: 'relative',
-                    overflow: 'hidden'
+                    position: 'relative', overflow: 'hidden'
                   }}
                 >
                   <div style={{ display: 'flex', gap: '4px' }}>
                     {th.colors.map((c, i) => (
-                      <div key={i} style={{ width: '16px', height: '16px', borderRadius: '50%', background: c, border: '1px solid rgba(255,255,255,0.1)' }}></div>
+                      <div key={i} style={{ width: 16, height: 16, borderRadius: '50%', background: c, border: '1px solid rgba(255,255,255,0.1)' }} />
                     ))}
                   </div>
-                  <span style={{ fontSize: '11px', fontWeight: '700' }}>{th.label}</span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: theme === th.id ? 'var(--accent-bright)' : 'var(--text-primary)' }}>
+                    {th.label}
+                  </span>
                   {theme === th.id && (
-                    <div style={{ position: 'absolute', top: 0, right: 0, width: '0', height: '0', borderStyle: 'solid', borderWidth: '0 20px 20px 0', borderColor: `transparent var(--accent) transparent transparent` }}></div>
+                    <div style={{
+                      position: 'absolute', top: 0, right: 0, width: 0, height: 0,
+                      borderStyle: 'solid', borderWidth: '0 20px 20px 0',
+                      borderColor: `transparent var(--accent) transparent transparent`
+                    }} />
                   )}
                 </button>
               ))}
             </div>
           </motion.div>
 
+          {/* Language */}
           <motion.div variants={itemVariants} className={styles.settingsSection}>
             <h3 className={styles.sectionTitle}>{t('language')}</h3>
             <div className={styles.languageGrid}>
               {[{ code: 'id', label: 'Indonesia' }, { code: 'en', label: 'English' }, { code: 'zh', label: '中国 (China)' }].map(lang => (
-                <button key={lang.code} onClick={() => setLanguage(lang.code)} className={`${styles.langBtn} ${language === lang.code ? styles.active : ''}`}>{lang.label}</button>
+                <button
+                  key={lang.code}
+                  onClick={() => setLanguage(lang.code)}
+                  className={`${styles.langBtn} ${language === lang.code ? styles.active : ''}`}
+                >
+                  {lang.label}
+                </button>
               ))}
             </div>
           </motion.div>
+
+          {/* App Behavior */}
           <motion.div variants={itemVariants} className={styles.settingsSection}>
             <h3 className={styles.sectionTitle}>{t('app_behavior')}</h3>
             <Toggle label={t('close_to_tray')} value={closeToTray} onChange={v => updatePrefs({ closeToTray: v })} description={t('close_to_tray_desc')} helpKey="close_to_tray" />
             <Toggle label={t('start_minimized')} value={startMinimized} onChange={v => updatePrefs({ startMinimized: v })} description={t('start_minimized_desc')} helpKey="start_minimized" />
-            
             <Toggle label={t('previews')} value={showPreviews} onChange={v => updatePrefs({ showPreviews: v })} description={t('previews_desc')} helpKey="previews" />
             {showPreviews && (
               <div style={{ marginLeft: 24, borderLeft: '2px solid var(--border)', paddingLeft: 16 }}>
@@ -471,22 +514,19 @@ function SettingsPanel({ onNavigate }) {
             <Toggle label={t('auto_close')} value={autoCloseTransfers} onChange={v => updatePrefs({ autoCloseTransfers: v })} description={t('auto_close_desc')} helpKey="auto_close" />
             <Toggle label={t('animations')} value={animationsEnabled} onChange={v => setAnimationsEnabled(v)} description={t('animations_desc')} helpKey="animations" />
             <Toggle label={t('show_recent')} value={showRecent} onChange={v => updatePrefs({ showRecent: v })} description={t('show_recent_desc')} helpKey="show_recent" />
-            <Toggle 
-              label={t('app_lock')} 
-              value={appLockEnabled} 
+            <Toggle
+              label={t('app_lock')}
+              value={appLockEnabled}
               onChange={v => {
-                if (v && !appLockPin) {
-                  setShowAppLockModal('set');
-                  return;
-                }
+                if (v && !appLockPin) { setShowAppLockModal('set'); return; }
                 setAppLockEnabled(v);
-              }} 
-              description={t('app_lock_desc')} 
-              helpKey="app_lock" 
+              }}
+              description={t('app_lock_desc')}
+              helpKey="app_lock"
             />
             {appLockEnabled && (
               <div style={{ marginLeft: 24, marginBottom: 16 }}>
-                <button 
+                <button
                   onClick={() => setShowAppLockModal('change')}
                   className={styles.secondaryBtn}
                   style={{ fontSize: 11, padding: '4px 10px' }}
@@ -496,14 +536,20 @@ function SettingsPanel({ onNavigate }) {
               </div>
             )}
           </motion.div>
+
+          {/* Cloud Save */}
           <motion.div variants={itemVariants} className={styles.settingsSection}>
             <h3 className={styles.sectionTitle}>{t('cloud_save')}</h3>
             <Toggle label={t('cloud_save')} value={cloudSaveEnabled} onChange={v => setCloudSaveEnabled(v)} description={t('cloud_save_desc')} helpKey="cloud_save" />
           </motion.div>
+
+          {/* Share */}
           <motion.div variants={itemVariants} className={styles.settingsSection}>
             <h3 className={styles.sectionTitle}>Share & Privacy</h3>
             <ShareSettingsSection />
           </motion.div>
+
+          {/* Security / PIN */}
           <motion.div variants={itemVariants} className={styles.settingsSection}>
             <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16 }}>
               <h3 className={styles.sectionTitle} style={{ marginBottom: 0 }}>{t('security')}</h3>
@@ -511,12 +557,25 @@ function SettingsPanel({ onNavigate }) {
             </div>
             <div className={styles.pinManagementRow}>
               <div>
-                <p style={{ fontSize: 13, fontWeight: 600 }}>Master PIN</p>
-                <p style={{ fontSize: 11, color: 'var(--text-muted)' }}>{!isPinLoaded ? t('loading') : (pinExists ? t('pin_active') : t('pin_not_set_security'))}</p>
+                <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>Master PIN</p>
+                <p style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                  {!isPinLoaded ? t('loading') : (pinExists ? t('pin_active') : t('pin_not_set_security'))}
+                </p>
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
-                {!isPinLoaded ? <div className="pulse" style={{ width: 80, height: 28, background: 'var(--bg-elevated)', borderRadius: 6, opacity: 0.5 }} /> : !pinExists ? (
-                  <button onClick={() => setShowPinModal('set')} style={{ background: 'var(--accent)', border: 'none', borderRadius: 6, color: 'white', fontSize: 12, fontWeight: 600, padding: '6px 12px', cursor: 'pointer' }}>{t('set_pin')}</button>
+                {!isPinLoaded ? (
+                  <div className="pulse" style={{ width: 80, height: 28, background: 'var(--bg-elevated)', borderRadius: 6, opacity: 0.5 }} />
+                ) : !pinExists ? (
+                  <button
+                    onClick={() => setShowPinModal('set')}
+                    style={{
+                      background: 'var(--accent)', border: 'none', borderRadius: 6,
+                      color: 'var(--text-on-accent)', fontSize: 12, fontWeight: 600,
+                      padding: '6px 12px', cursor: 'pointer'
+                    }}
+                  >
+                    {t('set_pin')}
+                  </button>
                 ) : (
                   <>
                     <button onClick={() => setShowPinModal('change')} className={styles.secondaryBtn}>{t('change_pin')}</button>
@@ -526,22 +585,37 @@ function SettingsPanel({ onNavigate }) {
               </div>
             </div>
           </motion.div>
+
+          {/* UI Scale */}
           <motion.div variants={itemVariants} className={styles.settingsSection}>
-            <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16 }}><h3 className={styles.sectionTitle} style={{ marginBottom: 0 }}>{t('ui_scale')}</h3><InfoIcon helpKey="ui_scale" /></div>
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16 }}>
+              <h3 className={styles.sectionTitle} style={{ marginBottom: 0 }}>{t('ui_scale')}</h3>
+              <InfoIcon helpKey="ui_scale" />
+            </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-              <input type="range" min="0.8" max="1.3" step="0.05" value={uiScale} onChange={e => setUiScale(parseFloat(e.target.value))} className={styles.sliderInput} />
-              <span style={{ fontSize: 13, fontFamily: 'var(--font-mono)', minWidth: 40, color: 'var(--accent-bright)' }}>{(uiScale * 100).toFixed(0)}%</span>
+              <input
+                type="range" min="0.8" max="1.3" step="0.05" value={uiScale}
+                onChange={e => setUiScale(parseFloat(e.target.value))}
+                className={styles.sliderInput}
+              />
+              <span style={{ fontSize: 13, fontFamily: 'var(--font-mono)', minWidth: 40, color: 'var(--accent-bright)' }}>
+                {(uiScale * 100).toFixed(0)}%
+              </span>
               <button onClick={() => setUiScale(1)} className={styles.resetBtn}>{t('reset')}</button>
             </div>
           </motion.div>
+
+          {/* Chunk Size */}
           <motion.div variants={itemVariants} className={styles.settingsSection}>
-            <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16 }}><h3 className={styles.sectionTitle} style={{ marginBottom: 0 }}>{t('chunk_size')}</h3><InfoIcon helpKey="chunk_size" /></div>
-            
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16 }}>
+              <h3 className={styles.sectionTitle} style={{ marginBottom: 0 }}>{t('chunk_size')}</h3>
+              <InfoIcon helpKey="chunk_size" />
+            </div>
             <div style={{ padding: '0 10px' }}>
-              <input 
-                type="range" min="0" max="2" step="1" 
-                value={CHUNK_OPTIONS.findIndex(opt => opt.value === chunkSize) === -1 ? 1 : CHUNK_OPTIONS.findIndex(opt => opt.value === chunkSize)} 
-                onChange={e => setChunkSize(CHUNK_OPTIONS[parseInt(e.target.value)].value)} 
+              <input
+                type="range" min="0" max="2" step="1"
+                value={CHUNK_OPTIONS.findIndex(opt => opt.value === chunkSize) === -1 ? 1 : CHUNK_OPTIONS.findIndex(opt => opt.value === chunkSize)}
+                onChange={e => setChunkSize(CHUNK_OPTIONS[parseInt(e.target.value)].value)}
                 className={styles.sliderInput}
                 style={{ width: '100%', display: 'block' }}
               />
@@ -549,91 +623,91 @@ function SettingsPanel({ onNavigate }) {
                 {CHUNK_OPTIONS.map((opt, i) => {
                   const isActive = i === CHUNK_OPTIONS.findIndex(o => o.value === chunkSize);
                   return (
-                    <span 
-                      key={i} 
-                      style={{ 
-                        fontSize: 11, 
-                        color: isActive ? 'var(--accent-bright)' : 'var(--text-muted)', 
-                        fontWeight: isActive ? 700 : 400,
-                        position: 'absolute',
-                        left: i === 0 ? '0%' : i === 1 ? '50%' : '100%',
-                        transform: i === 0 ? 'none' : i === 1 ? 'translateX(-50%)' : 'translateX(-100%)',
-                        transition: 'all 0.2s ease',
-                        whiteSpace: 'nowrap'
-                      }}
-                    >
+                    <span key={i} style={{
+                      fontSize: 11,
+                      color: isActive ? 'var(--accent-bright)' : 'var(--text-muted)',
+                      fontWeight: isActive ? 700 : 400,
+                      position: 'absolute',
+                      left: i === 0 ? '0%' : i === 1 ? '50%' : '100%',
+                      transform: i === 0 ? 'none' : i === 1 ? 'translateX(-50%)' : 'translateX(-100%)',
+                      transition: 'all 0.2s ease', whiteSpace: 'nowrap'
+                    }}>
                       {opt.label.split(' ')[0]}
                     </span>
                   );
                 })}
               </div>
             </div>
-
             {CHUNK_OPTIONS.find(opt => opt.value === chunkSize) && (
               <div className={styles.chunkInfo} style={{ marginTop: 24 }}>
-                <p style={{ fontSize: 12, color: 'var(--text-primary)', fontWeight: 600, marginBottom: 4 }}>{CHUNK_OPTIONS.find(opt => opt.value === chunkSize).label}</p>
-                <p style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>{CHUNK_OPTIONS.find(opt => opt.value === chunkSize).desc}</p>
+                <p style={{ fontSize: 12, color: 'var(--text-primary)', fontWeight: 600, marginBottom: 4 }}>
+                  {CHUNK_OPTIONS.find(opt => opt.value === chunkSize).label}
+                </p>
+                <p style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                  {CHUNK_OPTIONS.find(opt => opt.value === chunkSize).desc}
+                </p>
               </div>
             )}
 
-            <div style={{ margin: '24px 0', borderTop: '1px solid var(--border)', opacity: 0.5 }}></div>
+            <div style={{ margin: '24px 0', borderTop: '1px solid var(--border)', opacity: 0.5 }} />
 
             <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16 }}>
               <h3 className={styles.sectionTitle} style={{ marginBottom: 0 }}>{t('chunks_per_message')}</h3>
               <InfoIcon helpKey="chunks_per_message" />
             </div>
-            
             <div style={{ padding: '0 10px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: 12 }}>
-                <input 
-                  type="range" 
-                  min="1" 
-                  max="10" 
-                  step="1"
-                  value={chunksPerMessage} 
+              <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 12 }}>
+                <input
+                  type="range" min="1" max="10" step="1"
+                  value={chunksPerMessage}
                   onChange={e => updatePrefs({ chunksPerMessage: parseInt(e.target.value) || 1 })}
-                  className={styles.sliderInput}
-                  style={{ flex: 1 }}
+                  className={styles.sliderInput} style={{ flex: 1 }}
                 />
-                <span style={{ 
-                  fontSize: '13px', 
-                  fontFamily: 'var(--font-mono)', 
-                  color: 'var(--accent-bright)',
-                  fontWeight: '700',
-                  minWidth: '24px', 
-                  textAlign: 'right' 
-                }}>{chunksPerMessage}</span>
+                <span style={{ fontSize: 13, fontFamily: 'var(--font-mono)', color: 'var(--accent-bright)', fontWeight: 700, minWidth: 24, textAlign: 'right' }}>
+                  {chunksPerMessage}
+                </span>
               </div>
-              
               <div className={styles.chunkInfo}>
                 <p style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                  {t('chunks_per_message_desc') || 'Berapa banyak chunk file yang akan dikirim dalam satu pesan Discord (1-10). Lebih banyak = lebih sedikit pesan di channel.'}
+                  {t('chunks_per_message_desc') || 'Berapa banyak chunk file yang akan dikirim dalam satu pesan Discord (1-10).'}
                 </p>
               </div>
             </div>
           </motion.div>
         </div>
-        <motion.div variants={itemVariants} className={styles.aboutCard}>
-          <h3 className={styles.sectionTitle}>{t('about_disbox')}</h3>
-          <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7 }}>{t('about_desc')}</p>
-          <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--border)', fontSize: 11, color: 'var(--text-dim)', fontFamily: 'var(--font-mono)' }}>
-            <div>Disbox {latestVersion || 'v3.6.0'}</div>
-            <div style={{ marginTop: 4 }}>Created by <b>naufal-backup</b></div>
-          </div>
-        </motion.div>
 
-        <motion.div variants={itemVariants}>
-          <WorkerUsageCard t={t} />
-        </motion.div>
+        {/* Right column */}
+        <div>
+          <motion.div variants={itemVariants} className={styles.aboutCard}>
+            <h3 className={styles.sectionTitle}>{t('about_disbox')}</h3>
+            <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7 }}>{t('about_desc')}</p>
+            <div style={{
+              marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--border)',
+              fontSize: 11, color: 'var(--text-dim)', fontFamily: 'var(--font-mono)'
+            }}>
+              <div>Disbox {latestVersion || 'v3.6.0'}</div>
+              <div style={{ marginTop: 4 }}>Created by <b>naufal-backup</b></div>
+            </div>
+          </motion.div>
+          <motion.div variants={itemVariants}>
+            <WorkerUsageCard t={t} />
+          </motion.div>
+        </div>
       </div>
+
       <AnimatePresence>
-        {showPinModal && <PinSettingsModal mode={showPinModal} onClose={() => { setShowPinModal(null); hasPin().then(setPinExists); }} />}
-        {showAppLockModal && <AppLockSettingsModal mode={showAppLockModal} onClose={() => setShowAppLockModal(null)} />}
+        {showPinModal && (
+          <PinSettingsModal mode={showPinModal} onClose={() => { setShowPinModal(null); hasPin().then(setPinExists); }} />
+        )}
+        {showAppLockModal && (
+          <AppLockSettingsModal mode={showAppLockModal} onClose={() => setShowAppLockModal(null)} />
+        )}
       </AnimatePresence>
     </motion.div>
   );
 }
 
+/* ─── Pin Settings Modal ─────────────────────────────────────────────────── */
 function PinSettingsModal({ mode, onClose }) {
   const { setPin, verifyPin, removePin, t, animationsEnabled } = useApp();
   const [step, setStep] = useState(mode === 'set' ? 'new' : 'verify');
@@ -653,9 +727,16 @@ function PinSettingsModal({ mode, onClose }) {
   const handleVerify = async (e) => {
     e.preventDefault(); setLoading(true);
     if (await verifyPin(currentPin)) {
-      if (mode === 'remove') { await removePin(currentPin); toast.success(t('pin_remove_success')); onClose(); }
-      else { setStep('new'); setCurrentPin(''); setError(''); }
-    } else { setError(t('pin_error_wrong')); }
+      if (mode === 'remove') {
+        await removePin(currentPin);
+        toast.success(t('pin_remove_success'));
+        onClose();
+      } else {
+        setStep('new'); setCurrentPin(''); setError('');
+      }
+    } else {
+      setError(t('pin_error_wrong'));
+    }
     setLoading(false);
   };
 
@@ -664,34 +745,84 @@ function PinSettingsModal({ mode, onClose }) {
     if (newPin.length < 4) { setError(t('pin_error_min_length')); return; }
     if (newPin !== confirmPin) { setError(t('pin_error_mismatch')); return; }
     setLoading(true);
-    if (await setPin(newPin)) { toast.success(mode === 'set' ? t('pin_set_success') : t('pin_change_success')); onClose(); }
-    else { setError(t('pin_error_save')); }
+    if (await setPin(newPin)) {
+      toast.success(mode === 'set' ? t('pin_set_success') : t('pin_change_success'));
+      onClose();
+    } else {
+      setError(t('pin_error_save'));
+    }
     setLoading(false);
   };
 
   const title = mode === 'set' ? t('set_pin') : mode === 'change' ? t('change_pin') : t('remove_pin');
+  const inputStyle = {
+    width: '100%',
+    background: 'var(--bg-input)',
+    border: '1px solid var(--border-input)',
+    borderRadius: 8, padding: 12,
+    color: 'var(--text-primary)',
+    textAlign: 'center', fontSize: 18, letterSpacing: '0.2em',
+    outline: 'none', transition: 'border-color 0.2s',
+  };
 
   return (
-    <motion.div className={styles.pinModalOverlay} onClick={onClose} initial="initial" animate="animate" exit="exit" variants={backdropVariants}>
+    <motion.div
+      className={styles.pinModalOverlay}
+      onClick={onClose}
+      initial="initial" animate="animate" exit="exit"
+      variants={backdropVariants}
+    >
       <motion.div className={styles.pinModalContent} onClick={e => e.stopPropagation()} variants={modalVariants}>
         <div style={{ textAlign: 'center', marginBottom: 20 }}>
           <Shield size={32} style={{ color: 'var(--accent)', marginBottom: 12 }} />
-          <h3 style={{ fontSize: 18, fontWeight: 700 }}>{title}</h3>
-          <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>{step === 'verify' ? t('pin_verify_desc') : t('pin_new_desc')}</p>
+          <h3 style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)' }}>{title}</h3>
+          <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+            {step === 'verify' ? t('pin_verify_desc') : t('pin_new_desc')}
+          </p>
         </div>
         <form onSubmit={step === 'verify' ? handleVerify : handleSetNew}>
           {step === 'verify' ? (
-            <input type="password" placeholder={t('pin_current_placeholder')} value={currentPin} onChange={e => setCurrentPin(e.target.value)} autoFocus style={{ width: '100%', background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 8, padding: 12, color: 'white', textAlign: 'center', fontSize: 18, letterSpacing: '0.2em', marginBottom: 12, outline: 'none' }} />
+            <input
+              type="password" placeholder={t('pin_current_placeholder')}
+              value={currentPin} onChange={e => setCurrentPin(e.target.value)}
+              autoFocus style={{ ...inputStyle, marginBottom: 12 }}
+            />
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 12 }}>
-              <input type="password" placeholder={t('app_lock_placeholder')} value={newPin} onChange={e => setNewPin(e.target.value)} autoFocus style={{ width: '100%', background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 8, padding: 12, color: 'white', textAlign: 'center', fontSize: 18, letterSpacing: '0.2em', outline: 'none' }} />
-              <input type="password" placeholder={t('pin_confirm_placeholder')} value={confirmPin} onChange={e => setConfirmPin(e.target.value)} style={{ width: '100%', background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 8, padding: 12, color: 'white', textAlign: 'center', fontSize: 18, letterSpacing: '0.2em', outline: 'none' }} />
+              <input
+                type="password" placeholder={t('app_lock_placeholder')}
+                value={newPin} onChange={e => setNewPin(e.target.value)}
+                autoFocus style={inputStyle}
+              />
+              <input
+                type="password" placeholder={t('pin_confirm_placeholder')}
+                value={confirmPin} onChange={e => setConfirmPin(e.target.value)}
+                style={inputStyle}
+              />
             </div>
           )}
           {error && <p style={{ color: 'var(--red)', fontSize: 12, textAlign: 'center', marginBottom: 12 }}>{error}</p>}
           <div style={{ display: 'flex', gap: 10 }}>
-            <button type="button" onClick={onClose} style={{ flex: 1, padding: 10, background: 'transparent', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-secondary)', cursor: 'pointer' }}>{t('cancel')}</button>
-            <button type="submit" disabled={loading} style={{ flex: 1, padding: 10, background: 'var(--accent)', border: 'none', borderRadius: 8, color: 'white', fontWeight: 600, cursor: 'pointer' }}>{loading ? t('verifying') : t('next')}</button>
+            <button
+              type="button" onClick={onClose}
+              style={{
+                flex: 1, padding: 10, background: 'transparent',
+                border: '1px solid var(--border)', borderRadius: 8,
+                color: 'var(--text-secondary)', cursor: 'pointer', transition: 'all 0.15s'
+              }}
+            >
+              {t('cancel')}
+            </button>
+            <button
+              type="submit" disabled={loading}
+              style={{
+                flex: 1, padding: 10, background: 'var(--accent)', border: 'none',
+                borderRadius: 8, color: 'var(--text-on-accent)', fontWeight: 600,
+                cursor: 'pointer', transition: 'all 0.15s'
+              }}
+            >
+              {loading ? t('verifying') : t('next')}
+            </button>
           </div>
         </form>
       </motion.div>
@@ -699,8 +830,9 @@ function PinSettingsModal({ mode, onClose }) {
   );
 }
 
+/* ─── App Lock Settings Modal ────────────────────────────────────────────── */
 function AppLockSettingsModal({ mode, onClose }) {
-  const { appLockPin, setAppLockPin, setAppLockEnabled, t, animationsEnabled } = useApp();
+  const { appLockPin, setAppLockPin, setAppLockEnabled, t } = useApp();
   const [step, setStep] = useState(mode === 'set' ? 'new' : 'verify');
   const [currentPin, setCurrentPin] = useState('');
   const [newPin, setNewPin] = useState('');
@@ -718,9 +850,7 @@ function AppLockSettingsModal({ mode, onClose }) {
   const handleVerify = (e) => {
     e.preventDefault();
     if (currentPin === appLockPin) {
-      setStep('new');
-      setCurrentPin('');
-      setError('');
+      setStep('new'); setCurrentPin(''); setError('');
     } else {
       setError(t('pin_error_wrong'));
     }
@@ -730,7 +860,6 @@ function AppLockSettingsModal({ mode, onClose }) {
     e.preventDefault();
     if (newPin.length < 4) { setError(t('pin_error_min_length')); return; }
     if (newPin !== confirmPin) { setError(t('pin_error_mismatch')); return; }
-    
     setLoading(true);
     setAppLockPin(newPin);
     setAppLockEnabled(true);
@@ -740,28 +869,73 @@ function AppLockSettingsModal({ mode, onClose }) {
   };
 
   const title = mode === 'set' ? t('app_lock') : t('change_pin') + ' (Local)';
+  const inputStyle = {
+    width: '100%',
+    background: 'var(--bg-input)',
+    border: '1px solid var(--border-input)',
+    borderRadius: 8, padding: 12,
+    color: 'var(--text-primary)',
+    textAlign: 'center', fontSize: 18, letterSpacing: '0.2em',
+    outline: 'none', transition: 'border-color 0.2s',
+  };
 
   return (
-    <motion.div className={styles.pinModalOverlay} onClick={onClose} initial="initial" animate="animate" exit="exit" variants={backdropVariants}>
+    <motion.div
+      className={styles.pinModalOverlay}
+      onClick={onClose}
+      initial="initial" animate="animate" exit="exit"
+      variants={backdropVariants}
+    >
       <motion.div className={styles.pinModalContent} onClick={e => e.stopPropagation()} variants={modalVariants}>
         <div style={{ textAlign: 'center', marginBottom: 20 }}>
           <Shield size={32} style={{ color: 'var(--accent)', marginBottom: 12 }} />
-          <h3 style={{ fontSize: 18, fontWeight: 700 }}>{title}</h3>
-          <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>{step === 'verify' ? t('pin_verify_desc') : t('pin_new_desc')}</p>
+          <h3 style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)' }}>{title}</h3>
+          <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+            {step === 'verify' ? t('pin_verify_desc') : t('pin_new_desc')}
+          </p>
         </div>
         <form onSubmit={step === 'verify' ? handleVerify : handleSetNew}>
           {step === 'verify' ? (
-            <input type="password" placeholder={t('pin_current_placeholder')} value={currentPin} onChange={e => setCurrentPin(e.target.value)} autoFocus style={{ width: '100%', background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 8, padding: 12, color: 'white', textAlign: 'center', fontSize: 18, letterSpacing: '0.2em', marginBottom: 12, outline: 'none' }} />
+            <input
+              type="password" placeholder={t('pin_current_placeholder')}
+              value={currentPin} onChange={e => setCurrentPin(e.target.value)}
+              autoFocus style={{ ...inputStyle, marginBottom: 12 }}
+            />
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 12 }}>
-              <input type="password" placeholder={t('app_lock_placeholder')} value={newPin} onChange={e => setNewPin(e.target.value)} autoFocus style={{ width: '100%', background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 8, padding: 12, color: 'white', textAlign: 'center', fontSize: 18, letterSpacing: '0.2em', outline: 'none' }} />
-              <input type="password" placeholder={t('pin_confirm_placeholder')} value={confirmPin} onChange={e => setConfirmPin(e.target.value)} style={{ width: '100%', background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 8, padding: 12, color: 'white', textAlign: 'center', fontSize: 18, letterSpacing: '0.2em', outline: 'none' }} />
+              <input
+                type="password" placeholder={t('app_lock_placeholder')}
+                value={newPin} onChange={e => setNewPin(e.target.value)}
+                autoFocus style={inputStyle}
+              />
+              <input
+                type="password" placeholder={t('pin_confirm_placeholder')}
+                value={confirmPin} onChange={e => setConfirmPin(e.target.value)}
+                style={inputStyle}
+              />
             </div>
           )}
           {error && <p style={{ color: 'var(--red)', fontSize: 12, textAlign: 'center', marginBottom: 12 }}>{error}</p>}
           <div style={{ display: 'flex', gap: 10 }}>
-            <button type="button" onClick={onClose} style={{ flex: 1, padding: 10, background: 'transparent', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-secondary)', cursor: 'pointer' }}>{t('cancel')}</button>
-            <button type="submit" disabled={loading} style={{ flex: 1, padding: 10, background: 'var(--accent)', border: 'none', borderRadius: 8, color: 'white', fontWeight: 600, cursor: 'pointer' }}>{loading ? t('verifying') : t('next')}</button>
+            <button
+              type="button" onClick={onClose}
+              style={{
+                flex: 1, padding: 10, background: 'transparent',
+                border: '1px solid var(--border)', borderRadius: 8,
+                color: 'var(--text-secondary)', cursor: 'pointer'
+              }}
+            >
+              {t('cancel')}
+            </button>
+            <button
+              type="submit" disabled={loading}
+              style={{
+                flex: 1, padding: 10, background: 'var(--accent)', border: 'none',
+                borderRadius: 8, color: 'var(--text-on-accent)', fontWeight: 600, cursor: 'pointer'
+              }}
+            >
+              {loading ? t('verifying') : t('next')}
+            </button>
           </div>
         </form>
       </motion.div>
