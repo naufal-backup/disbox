@@ -565,18 +565,13 @@
 .cardPreviewInner {
   width: 100%;
   height: 100%;
-  background-color: #F0F2F5; 
+  background-color: var(--bg-deep); 
   border-radius: 10px; 
   overflow: hidden;
   display: flex;
   justify-content: center;
   align-items: center;
   transition: background-color 0.2s ease;
-}
-/* Tambahkan kode ini di bawahnya untuk mendukung Dark Mode manual */
-:global(.dark) .cardPreviewInner,
-:global([data-theme="dark"]) .cardPreviewInner {
-  background-color: var(--bg-elevated) !important;
 }
 /* ── Card Footer ── */
 .cardFooter {

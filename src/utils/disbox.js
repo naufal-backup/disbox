@@ -99,6 +99,24 @@ export class DisboxAPI {
     this.lastSyncedId = null;
     const savedChunkSize = Number(localStorage.getItem('disbox_chunk_size'));
     this.chunkSize = (savedChunkSize && savedChunkSize < 8 * 1024 * 1024) ? savedChunkSize : 7.5 * 1024 * 1024;
+    
+    // Antrean tugas untuk mencegah race condition
+    this._taskQueue = Promise.resolve();
+    this._syncing = false;
+  }
+
+  // Helper untuk menjalankan tugas secara berurutan
+  async _enqueue(task) {
+    const nextTask = this._taskQueue.then(async () => {
+      try {
+        return await task();
+      } catch (e) {
+        console.error('[queue] Task error:', e);
+        throw e;
+      }
+    });
+    this._taskQueue = nextTask.catch(() => {}); // Pastikan antrean tidak mati jika satu tugas gagal
+    return nextTask;
   }
 
   async hashWebhook(url) {
@@ -226,80 +244,79 @@ export class DisboxAPI {
   }
 
   async syncMetadata(forceId = null) {
-    if (this._syncing) {
-      console.log('[sync] Sync sudah berjalan, skip.');
-      return false;
-    }
-    this._syncing = true;
-    try {
-      const discovery = forceId ? { best: forceId, snapshotHistory: [] } : await this._getMsgIdFromDiscovery();
-      if (!discovery) {
-        console.log('[sync] Tidak ada msgId ditemukan, skip sync.');
-        return false;
-      }
+    return this._enqueue(async () => {
+      if (this._syncing) return false;
+      this._syncing = true;
+      try {
+        const discovery = forceId ? { best: forceId, snapshotHistory: [] } : await this._getMsgIdFromDiscovery();
+        if (!discovery) {
+          console.log('[sync] Tidak ada msgId ditemukan, skip sync.');
+          return false;
+        }
 
-      if (discovery === 'pending') {
-        console.log('[sync] Local has pending changes, skipping sync to avoid data loss.');
-        return true;
-      }
-
-      const { best: msgId, snapshotHistory } = discovery;
-
-      if (!forceId && msgId === this.lastSyncedId) {
-        const local = await window.electron.loadMetadata(this.hashedWebhook);
-        if (Array.isArray(local) && local.length > 0) {
-          console.log('[sync] Local up-to-date, skip download. msgId:', msgId, 'items:', local.length);
+        if (discovery === 'pending') {
+          console.log('[sync] Local has pending changes, skipping sync to avoid data loss.');
           return true;
         }
-        console.log('[sync] ID sama tapi local kosong/hilang → force download dari Discord');
-      }
 
-      console.log('[sync] Downloading metadata dari Discord, msgId:', msgId);
-      let data;
-      let resolvedMsgId = msgId;
-      try {
-        data = await this._downloadMetadataFromMsg(msgId);
-      } catch (e) {
-        console.error('[sync] Download gagal untuk msgId:', msgId, e.message);
+        const { best: msgId, snapshotHistory } = discovery;
 
-        const fallbackCandidates = [...snapshotHistory].reverse().filter(id => id !== msgId);
-        if (this.lastSyncedId && !fallbackCandidates.includes(this.lastSyncedId) && this.lastSyncedId !== msgId) {
-          fallbackCandidates.push(this.lastSyncedId);
+        if (!forceId && msgId === this.lastSyncedId) {
+          const local = await window.electron.loadMetadata(this.hashedWebhook);
+          if (Array.isArray(local) && local.length > 0) {
+            console.log('[sync] Local up-to-date, skip download. msgId:', msgId, 'items:', local.length);
+            return true;
+          }
+          console.log('[sync] ID sama tapi local kosong/hilang → force download dari Discord');
         }
 
-        let success = false;
-        for (const fallbackId of fallbackCandidates) {
-          console.log('[sync] Fallback: mencoba download dari msgId:', fallbackId);
-          try {
-            data = await this._downloadMetadataFromMsg(fallbackId);
-            resolvedMsgId = fallbackId;
-            console.log('[sync] Fallback BERHASIL menggunakan msgId:', fallbackId);
-            success = true;
-            break;
-          } catch (err) {
-            console.error('[sync] Fallback gagal untuk msgId:', fallbackId, err.message);
+        console.log('[sync] Downloading metadata dari Discord, msgId:', msgId);
+        let data;
+        let resolvedMsgId = msgId;
+        try {
+          data = await this._downloadMetadataFromMsg(msgId);
+        } catch (e) {
+          console.error('[sync] Download gagal untuk msgId:', msgId, e.message);
+
+          const fallbackCandidates = [...snapshotHistory].reverse().filter(id => id !== msgId);
+          if (this.lastSyncedId && !fallbackCandidates.includes(this.lastSyncedId) && this.lastSyncedId !== msgId) {
+            fallbackCandidates.push(this.lastSyncedId);
+          }
+
+          let success = false;
+          for (const fallbackId of fallbackCandidates) {
+            console.log('[sync] Fallback: mencoba download dari msgId:', fallbackId);
+            try {
+              data = await this._downloadMetadataFromMsg(fallbackId);
+              resolvedMsgId = fallbackId;
+              console.log('[sync] Fallback BERHASIL menggunakan msgId:', fallbackId);
+              success = true;
+              break;
+            } catch (err) {
+              console.error('[sync] Fallback gagal untuk msgId:', fallbackId, err.message);
+            }
+          }
+
+          if (!success) {
+            console.error('[sync] Semua upaya download (termasuk fallback) gagal.');
+            return false;
           }
         }
 
-        if (!success) {
-          console.error('[sync] Semua upaya download (termasuk fallback) gagal.');
-          return false;
-        }
+        await window.electron.saveMetadata(this.hashedWebhook, data, resolvedMsgId);
+        this.lastSyncedId = resolvedMsgId;
+        localStorage.setItem(`dbx_last_sync_${this.hashedWebhook}`, this.lastSyncedId);
+
+        const itemCount = Array.isArray(data) ? data.length : (data.files?.length || 0);
+        console.log('[sync] ✓ Berhasil sync. msgId:', this.lastSyncedId, '| items:', itemCount);
+        return true;
+      } catch (e) {
+        console.error('[sync] Fatal error:', e.message);
+        return false;
+      } finally {
+        this._syncing = false;
       }
-
-      await window.electron.saveMetadata(this.hashedWebhook, data, resolvedMsgId);
-      this.lastSyncedId = resolvedMsgId;
-      localStorage.setItem(`dbx_last_sync_${this.hashedWebhook}`, this.lastSyncedId);
-
-      const itemCount = Array.isArray(data) ? data.length : (data.files?.length || 0);
-      console.log('[sync] ✓ Berhasil sync. msgId:', this.lastSyncedId, '| items:', itemCount);
-      return true;
-    } catch (e) {
-      console.error('[sync] Fatal error:', e.message);
-      return false;
-    } finally {
-      this._syncing = false;
-    }
+    });
   }
 
   async uploadMetadataToDiscord(_files) {
@@ -360,83 +377,93 @@ export class DisboxAPI {
   }
 
   async createFile(filePath, messageIds, size = 0, id = null, thumbnailMsgId = null) {
-    const files = await this.getFileSystem();
-    const fileId = id || crypto.randomUUID();
-    const entry = {
-      path: filePath,
-      messageIds,
-      size,
-      createdAt: Date.now(),
-      id: fileId,
-      ...(thumbnailMsgId ? { thumbnailMsgId } : {})
-    };
-    const existing = files.findIndex(f => f.id === fileId);
-    if (existing >= 0) files[existing] = entry;
-    else files.push(entry);
-    await this._saveFileSystem(files);
-    return entry;
+    return this._enqueue(async () => {
+      const files = await this.getFileSystem();
+      const fileId = id || crypto.randomUUID();
+      const entry = {
+        path: filePath,
+        messageIds,
+        size,
+        createdAt: Date.now(),
+        id: fileId,
+        ...(thumbnailMsgId ? { thumbnailMsgId } : {})
+      };
+      const existing = files.findIndex(f => f.id === fileId);
+      if (existing >= 0) files[existing] = entry;
+      else files.push(entry);
+      await this._saveFileSystem(files);
+      return entry;
+    });
   }
 
   async deletePath(targetPath, id = null) {
-    const files = await this.getFileSystem();
-    const filtered = files.filter(f => {
-      if (id && f.id === id) return false;
-      if (!id && f.path === targetPath) return false;
-      if (f.path.startsWith(targetPath + '/')) return false;
-      return true;
+    return this._enqueue(async () => {
+      const files = await this.getFileSystem();
+      const filtered = files.filter(f => {
+        if (id && f.id === id) return false;
+        if (!id && f.path === targetPath) return false;
+        if (f.path.startsWith(targetPath + '/')) return false;
+        return true;
+      });
+      await this._saveFileSystem(filtered);
+      return { deleted: true };
     });
-    await this._saveFileSystem(filtered);
-    return { deleted: true };
   }
 
   async bulkDelete(pathsOrIds) {
-    const files = await this.getFileSystem();
-    const filtered = files.filter(f =>
-      !pathsOrIds.some(p => f.id === p || f.path === p || f.path.startsWith(p + '/'))
-    );
-    await this._saveFileSystem(filtered);
-    return { deleted: true };
+    return this._enqueue(async () => {
+      const files = await this.getFileSystem();
+      const filtered = files.filter(f =>
+        !pathsOrIds.some(p => f.id === p || f.path === p || f.path.startsWith(p + '/'))
+      );
+      await this._saveFileSystem(filtered);
+      return { deleted: true };
+    });
   }
 
   async renamePath(oldPath, newPath, id = null) {
-    const files = await this.getFileSystem();
-    let found = false;
-    const updated = files.map(f => {
-      if ((id && f.id === id) || (!id && f.path === oldPath)) {
-        found = true;
-        return { ...f, path: newPath };
-      }
-      if (f.path.startsWith(oldPath + '/')) {
-        found = true;
-        return { ...f, path: f.path.replace(oldPath + '/', newPath + '/') };
-      }
-      return f;
+    return this._enqueue(async () => {
+      const files = await this.getFileSystem();
+      let found = false;
+      const updated = files.map(f => {
+        if ((id && f.id === id) || (!id && f.path === oldPath)) {
+          found = true;
+          return { ...f, path: newPath };
+        }
+        if (f.path.startsWith(oldPath + '/')) {
+          found = true;
+          return { ...f, path: f.path.replace(oldPath + '/', newPath + '/') };
+        }
+        return f;
+      });
+      if (found) await this._saveFileSystem(updated);
+      return { success: found };
     });
-    if (found) await this._saveFileSystem(updated);
-    return { success: found };
   }
 
   async bulkMove(pathsOrIds, destDir) {
-    const files = await this.getFileSystem();
-    const updated = files.map(f => {
-      for (const target of pathsOrIds) {
-        const isId = target.includes('-') && target.length > 30;
-        if (isId && f.id === target) {
-          const name = f.path.split('/').pop();
-          return { ...f, path: destDir ? `${destDir}/${name}` : name };
+    return this._enqueue(async () => {
+      const files = await this.getFileSystem();
+      const updated = files.map(f => {
+        for (const target of pathsOrIds) {
+          const isId = target.includes('-') && target.length > 30;
+          if (isId && f.id === target) {
+            const name = f.path.split('/').pop();
+            return { ...f, path: destDir ? `${destDir}/${name}` : name };
+          }
+          const oldPath = target;
+          const name = oldPath.split('/').pop();
+          const newPath = destDir ? `${destDir}/${name}` : name;
+          if (f.path === oldPath) return { ...f, path: newPath };
+          if (f.path.startsWith(oldPath + '/')) {
+            return { ...f, path: f.path.replace(oldPath + '/', newPath + '/') };
+          }
         }
-        const oldPath = target;
-        const name = oldPath.split('/').pop();
-        const newPath = destDir ? `${destDir}/${name}` : name;
-        if (f.path === oldPath) return { ...f, path: newPath };
-        if (f.path.startsWith(oldPath + '/')) {
-          return { ...f, path: f.path.replace(oldPath + '/', newPath + '/') };
-        }
-      }
-      return f;
+        return f;
+      });
+      await this._saveFileSystem(updated);
+      return { success: true };
     });
-    await this._saveFileSystem(updated);
-    return { success: true };
   }
 
   async copyPath(oldPath, newPath, id = null) {
@@ -662,11 +689,14 @@ export class DisboxAPI {
   async downloadFile(file, onProgress, signal = null, transferId = null) {
     const messageIds = file.messageIds || [];
     const chunks = [];
+    const messageCache = new Map(); // Cache untuk menghindari fetch pesan yang sama berkali-kali
+
     for (let i = 0; i < messageIds.length; i++) {
       throwIfAborted(signal);
 
       const item = messageIds[i];
       const msgId = typeof item === 'string' ? item : item.msgId;
+      const attachmentIndex = typeof item === 'object' ? (item.index || 0) : 0;
       const msgUrl = `${this.webhookUrl}/messages/${msgId}`;
 
       let chunkData = null;
@@ -676,25 +706,29 @@ export class DisboxAPI {
       while (retryCount <= maxRetries) {
         throwIfAborted(signal);
         try {
-          const msgRes = await window.electron.fetch(msgUrl, { transferId });
-          throwIfAborted(signal);
+          let msg;
+          if (messageCache.has(msgId)) {
+            msg = messageCache.get(msgId);
+          } else {
+            const msgRes = await window.electron.fetch(msgUrl, { transferId });
+            throwIfAborted(signal);
 
-          if (!msgRes.ok) {
-            if (msgRes.error === 'ABORTED') throw new DOMException('Transfer dibatalkan oleh pengguna', 'AbortError');
-
-            if ((msgRes.status === 503 || msgRes.status === 429) && retryCount < maxRetries) {
-              retryCount++;
-              const delay = Math.pow(2, retryCount) * 1000 + Math.random() * 1000;
-              console.warn(`[disbox] Fetch message ${msgId} failed with ${msgRes.status}, retrying in ${Math.round(delay)}ms... (${retryCount}/${maxRetries})`);
-              await new Promise(resolve => setTimeout(resolve, delay));
-              continue;
+            if (!msgRes.ok) {
+              if (msgRes.error === 'ABORTED') throw new DOMException('Transfer dibatalkan oleh pengguna', 'AbortError');
+              if ((msgRes.status === 503 || msgRes.status === 429) && retryCount < maxRetries) {
+                retryCount++;
+                const delay = Math.pow(2, retryCount) * 1000 + Math.random() * 1000;
+                await new Promise(resolve => setTimeout(resolve, delay));
+                continue;
+              }
+              throw new Error(`Gagal fetch message ${msgId}: ${msgRes.status}`);
             }
-            throw new Error(`Gagal fetch message ${msgId}: ${msgRes.status}`);
+            msg = JSON.parse(msgRes.body);
+            messageCache.set(msgId, msg);
           }
 
-          const msg = JSON.parse(msgRes.body);
-          const attachmentUrl = msg.attachments?.[0]?.url;
-          if (!attachmentUrl) throw new Error('Attachment URL tidak ditemukan');
+          const attachmentUrl = msg.attachments?.[attachmentIndex]?.url || msg.attachments?.[0]?.url;
+          if (!attachmentUrl) throw new Error(`Attachment index ${attachmentIndex} tidak ditemukan di message ${msgId}`);
 
           chunkData = await window.electron.proxyDownload(attachmentUrl, transferId);
           break;
@@ -703,7 +737,6 @@ export class DisboxAPI {
           if (retryCount < maxRetries) {
             retryCount++;
             const delay = Math.pow(2, retryCount) * 1000 + Math.random() * 1000;
-            console.warn(`[disbox] Download attempt ${retryCount} for chunk ${i} failed: ${e.message}, retrying...`);
             await new Promise(resolve => setTimeout(resolve, delay));
           } else {
             throw e;
@@ -712,7 +745,6 @@ export class DisboxAPI {
       }
 
       throwIfAborted(signal);
-
       const decryptedChunk = await this.decrypt(chunkData);
       chunks.push(decryptedChunk);
       onProgress?.((i + 1) / messageIds.length);
@@ -734,6 +766,7 @@ export class DisboxAPI {
     throwIfAborted(signal);
     const item = messageIds[0];
     const msgId = typeof item === 'string' ? item : item.msgId;
+    const attachmentIndex = typeof item === 'object' ? (item.index || 0) : 0;
     const msgUrl = `${this.webhookUrl}/messages/${msgId}`;
 
     let chunkData = null;
@@ -751,7 +784,6 @@ export class DisboxAPI {
           if ((msgRes.status === 503 || msgRes.status === 429) && retryCount < maxRetries) {
             retryCount++;
             const delay = Math.pow(2, retryCount) * 1000 + Math.random() * 1000;
-            console.warn(`[disbox] Fetch message ${msgId} failed with ${msgRes.status}, retrying in ${Math.round(delay)}ms... (${retryCount}/${maxRetries})`);
             await new Promise(resolve => setTimeout(resolve, delay));
             continue;
           }
@@ -759,7 +791,7 @@ export class DisboxAPI {
         }
 
         const msg = JSON.parse(msgRes.body);
-        const attachmentUrl = msg.attachments?.[0]?.url;
+        const attachmentUrl = msg.attachments?.[attachmentIndex]?.url || msg.attachments?.[0]?.url;
         if (!attachmentUrl) throw new Error('Attachment URL tidak ditemukan');
 
         chunkData = await window.electron.proxyDownload(attachmentUrl, transferId);
@@ -769,7 +801,6 @@ export class DisboxAPI {
         if (retryCount < maxRetries) {
           retryCount++;
           const delay = Math.pow(2, retryCount) * 1000 + Math.random() * 1000;
-          console.warn(`[disbox] Download attempt ${retryCount} for first chunk failed: ${e.message}, retrying...`);
           await new Promise(resolve => setTimeout(resolve, delay));
         } else {
           throw e;

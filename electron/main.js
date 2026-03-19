@@ -283,7 +283,8 @@ migrateJsonToSqlite();
 let prefs = {
   closeToTray: false,
   startMinimized: false,
-  autoCloseTransfers: true
+  autoCloseTransfers: true,
+  chunksPerMessage: 1 // Default 1 chunk per pesan
 };
 
 const PREFS_PATH = path.join(METADATA_DIR, 'preferences.json');
@@ -1885,7 +1886,7 @@ ipcMain.handle('upload-file-from-path', async (event, webhookUrl, nativePath, de
 
     let completedChunks = 0;
     let activeUploads = 0;
-    let nextChunkIndex = 0;
+    let nextChunkStartIndex = 0;
 
     return new Promise((resolve, reject) => {
       const cancelChecker = setInterval(() => {
@@ -1912,37 +1913,45 @@ ipcMain.handle('upload-file-from-path', async (event, webhookUrl, nativePath, de
           return;
         }
 
-        while (activeUploads < 3 && nextChunkIndex < numChunks) {
-          const index = nextChunkIndex++;
+        const chunksPerMsg = Math.min(Math.max(1, prefs.chunksPerMessage || 1), 10);
+        while (activeUploads < 2 && nextChunkStartIndex < numChunks) {
+          const startIndex = nextChunkStartIndex;
+          const count = Math.min(chunksPerMsg, numChunks - startIndex);
+          nextChunkStartIndex += count;
           activeUploads++;
-          uploadChunk(index);
+          uploadGroup(startIndex, count);
         }
       }
 
-      async function uploadChunk(index, retryCount = 0) {
+      async function uploadGroup(startIndex, count, retryCount = 0) {
         if (cancelFlag.cancelled) {
           activeUploads--;
           return;
         }
 
         try {
-          const start = index * CHUNK;
-          const size = Math.min(CHUNK, totalSize - start);
-          const buf = Buffer.allocUnsafe(size);
-          fs.readSync(fd, buf, 0, size, start);
-
-          // [ENCRYPT] Encrypt chunk sebelum upload
+          const boundary = '----DisboxMultiBoundary' + Date.now().toString(36) + startIndex;
+          const bodyParts = [];
           const key = getEncryptionKey(webhookUrl);
-          const encryptedBuf = encrypt(buf, key);
 
-          const boundary = '----DisboxBoundary' + Date.now().toString(36) + index;
-          const header = Buffer.from(
-            '--' + boundary + '\r\n' +
-            'Content-Disposition: form-data; name="file"; filename="' + filename + '.part' + index + '"\r\n' +
-            'Content-Type: application/octet-stream\r\n\r\n'
-          );
-          const footer = Buffer.from('\r\n--' + boundary + '--\r\n');
-          const body = new Uint8Array(Buffer.concat([header, encryptedBuf, footer]));
+          for (let i = 0; i < count; i++) {
+            const index = startIndex + i;
+            const start = index * CHUNK;
+            const size = Math.min(CHUNK, totalSize - start);
+            const buf = Buffer.allocUnsafe(size);
+            fs.readSync(fd, buf, 0, size, start);
+
+            const encryptedBuf = encrypt(buf, key);
+
+            bodyParts.push(Buffer.from('--' + boundary + '\r\n'));
+            bodyParts.push(Buffer.from(`Content-Disposition: form-data; name="file${i}"; filename="${filename}.part${index}"\r\n`));
+            bodyParts.push(Buffer.from('Content-Type: application/octet-stream\r\n\r\n'));
+            bodyParts.push(encryptedBuf);
+            bodyParts.push(Buffer.from('\r\n'));
+          }
+          bodyParts.push(Buffer.from('--' + boundary + '--\r\n'));
+
+          const body = Buffer.concat(bodyParts);
 
           if (cancelFlag.cancelled) {
             activeUploads--;
@@ -1967,12 +1976,10 @@ ipcMain.handle('upload-file-from-path', async (event, webhookUrl, nativePath, de
 
           if (response.status === 429) {
             const retryAfter = (JSON.parse(text).retry_after || 5) + 1;
-            activeUploads--;
+            console.warn(`[upload] Rate limited, retrying after ${retryAfter}s...`);
             setTimeout(() => {
-              if (!cancelFlag.cancelled) {
-                activeUploads++;
-                uploadChunk(index, retryCount);
-              }
+              if (!cancelFlag.cancelled) uploadGroup(startIndex, count, retryCount);
+              else activeUploads--;
             }, (retryAfter * 1000));
             return;
           }
@@ -1982,10 +1989,12 @@ ipcMain.handle('upload-file-from-path', async (event, webhookUrl, nativePath, de
           }
 
           const data = JSON.parse(text);
-          messageIds[index] = data.id;
+          for (let i = 0; i < count; i++) {
+            messageIds[startIndex + i] = { msgId: data.id, index: i };
+          }
 
           activeUploads--;
-          completedChunks++;
+          completedChunks += count;
 
           if (!cancelFlag.cancelled) {
             event.sender.send('upload-progress-' + transferId, completedChunks / numChunks);
@@ -1999,18 +2008,16 @@ ipcMain.handle('upload-file-from-path', async (event, webhookUrl, nativePath, de
           }
 
           if (retryCount < 10) {
-            console.error(`[upload] Error on chunk ${index}, retry ${retryCount + 1}/10:`, e.message);
-            activeUploads--;
+            console.error(`[upload] Error on group starting at ${startIndex}, retry ${retryCount + 1}/10:`, e.message);
             const backoff = (retryCount + 1) * 2000;
             setTimeout(() => {
-              if (!cancelFlag.cancelled) {
-                activeUploads++;
-                uploadChunk(index, retryCount + 1);
-              }
+              if (!cancelFlag.cancelled) uploadGroup(startIndex, count, retryCount + 1);
+              else activeUploads--;
             }, backoff);
           } else {
+            activeUploads--;
             try { fs.closeSync(fd); } catch (_) {}
-            finish(new Error(`Gagal upload chunk ${index} setelah 10 kali coba: ${e.message}`));
+            finish(new Error(`Gagal upload group ${startIndex} setelah 10 kali coba: ${e.message}`));
           }
         }
       }

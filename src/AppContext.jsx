@@ -76,6 +76,7 @@ export function AppProvider({ children }) {
   const [metadataStatus, setMetadataStatus] = useState({ status: 'synced', items: 0 });
   const [closeToTray, setCloseToTray] = useState(true);
   const [startMinimized, setStartMinimized] = useState(false);
+  const [chunksPerMessage, setChunksPerMessage] = useState(1);
   const [isVerified, setIsVerified] = useState(false);
   const [pinExists, setPinExists] = useState(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -113,6 +114,7 @@ export function AppProvider({ children }) {
       window.electron.getPrefs().then(p => {
         if (p.closeToTray !== undefined) setCloseToTray(p.closeToTray);
         if (p.startMinimized !== undefined) setStartMinimized(p.startMinimized);
+        if (p.chunksPerMessage !== undefined) setChunksPerMessage(p.chunksPerMessage);
         if (p.autoCloseTransfers !== undefined) setAutoCloseTransfers(p.autoCloseTransfers);
       });
     }
@@ -121,6 +123,7 @@ export function AppProvider({ children }) {
   const updatePrefs = useCallback((prefs) => {
     if (prefs.closeToTray !== undefined) setCloseToTray(prefs.closeToTray);
     if (prefs.startMinimized !== undefined) setStartMinimized(prefs.startMinimized);
+    if (prefs.chunksPerMessage !== undefined) setChunksPerMessage(prefs.chunksPerMessage);
     if (prefs.showRecent !== undefined) {
       setShowRecent(prefs.showRecent);
       localStorage.setItem('disbox_show_recent', prefs.showRecent.toString());
@@ -694,7 +697,7 @@ export function AppProvider({ children }) {
       currentPath, setCurrentPath,
       loading, transfers, savedWebhooks,
       language, setLanguage, t,
-      theme, toggleTheme,
+      theme, toggleTheme, setTheme,
       uiScale, setUiScale,
       chunkSize, setChunkSize,
       showPreviews, setShowPreviews,
@@ -704,7 +707,7 @@ export function AppProvider({ children }) {
       autoCloseTransfers, setAutoCloseTransfers,
       animationsEnabled, setAnimationsEnabled,
       metadataStatus,
-      closeToTray, startMinimized, updatePrefs,
+      closeToTray, startMinimized, chunksPerMessage, updatePrefs,
       isVerified, setIsVerified,
       appLockEnabled, setAppLockEnabled,
       appLockPin, setAppLockPin,

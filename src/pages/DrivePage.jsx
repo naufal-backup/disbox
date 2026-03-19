@@ -269,14 +269,22 @@ function SettingsPanel({ onNavigate }) {
     showRecent,
     autoCloseTransfers,
     animationsEnabled, setAnimationsEnabled,
-    closeToTray, startMinimized, updatePrefs,
+    closeToTray, startMinimized, chunksPerMessage, updatePrefs,
     cloudSaveEnabled, setCloudSaveEnabled,
     appLockEnabled, setAppLockEnabled,
     appLockPin, setAppLockPin,
     shareEnabled, shareLinks,
     hasPin, pinExists, setPinExists, setPin, removePin, verifyPin,
-    language, setLanguage, t, api
+    language, setLanguage, t, api,
+    theme, setTheme
   } = useApp();
+
+  const themes = [
+    { id: 'dark', label: 'Dark', colors: ['#0a0a15', '#5865f2'] },
+    { id: 'light', label: 'Light', colors: ['#f0f2f5', '#5865f2'] },
+    { id: 'grayscale', label: 'Grayscale', colors: ['#212529', '#dee2e6'] },
+    { id: 'colorful', label: 'Colorful', colors: ['#2a536e', '#f9f871'] }
+  ];
 
   const [showPinModal, setShowPinModal] = useState(null);
   const [showAppLockModal, setShowAppLockModal] = useState(null); // 'set' | 'change'
@@ -407,6 +415,40 @@ function SettingsPanel({ onNavigate }) {
       <div className={styles.settingsGrid}>
         <div className={styles.settingsLeft}>
           <motion.div variants={itemVariants} className={styles.settingsSection}>
+            <h3 className={styles.sectionTitle}>{t('theme')}</h3>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' }}>
+              {themes.map(th => (
+                <button
+                  key={th.id}
+                  onClick={() => setTheme(th.id)}
+                  className={styles.langBtn}
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '12px',
+                    borderColor: theme === th.id ? 'var(--accent)' : 'var(--border)',
+                    background: theme === th.id ? 'var(--accent-dim)' : 'var(--bg-elevated)',
+                    position: 'relative',
+                    overflow: 'hidden'
+                  }}
+                >
+                  <div style={{ display: 'flex', gap: '4px' }}>
+                    {th.colors.map((c, i) => (
+                      <div key={i} style={{ width: '16px', height: '16px', borderRadius: '50%', background: c, border: '1px solid rgba(255,255,255,0.1)' }}></div>
+                    ))}
+                  </div>
+                  <span style={{ fontSize: '11px', fontWeight: '700' }}>{th.label}</span>
+                  {theme === th.id && (
+                    <div style={{ position: 'absolute', top: 0, right: 0, width: '0', height: '0', borderStyle: 'solid', borderWidth: '0 20px 20px 0', borderColor: `transparent var(--accent) transparent transparent` }}></div>
+                  )}
+                </button>
+              ))}
+            </div>
+          </motion.div>
+
+          <motion.div variants={itemVariants} className={styles.settingsSection}>
             <h3 className={styles.sectionTitle}>{t('language')}</h3>
             <div className={styles.languageGrid}>
               {[{ code: 'id', label: 'Indonesia' }, { code: 'en', label: 'English' }, { code: 'zh', label: '中国 (China)' }].map(lang => (
@@ -418,6 +460,7 @@ function SettingsPanel({ onNavigate }) {
             <h3 className={styles.sectionTitle}>{t('app_behavior')}</h3>
             <Toggle label={t('close_to_tray')} value={closeToTray} onChange={v => updatePrefs({ closeToTray: v })} description={t('close_to_tray_desc')} helpKey="close_to_tray" />
             <Toggle label={t('start_minimized')} value={startMinimized} onChange={v => updatePrefs({ startMinimized: v })} description={t('start_minimized_desc')} helpKey="start_minimized" />
+            
             <Toggle label={t('previews')} value={showPreviews} onChange={v => updatePrefs({ showPreviews: v })} description={t('previews_desc')} helpKey="previews" />
             {showPreviews && (
               <div style={{ marginLeft: 24, borderLeft: '2px solid var(--border)', paddingLeft: 16 }}>
@@ -532,6 +575,42 @@ function SettingsPanel({ onNavigate }) {
                 <p style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>{CHUNK_OPTIONS.find(opt => opt.value === chunkSize).desc}</p>
               </div>
             )}
+
+            <div style={{ margin: '24px 0', borderTop: '1px solid var(--border)', opacity: 0.5 }}></div>
+
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16 }}>
+              <h3 className={styles.sectionTitle} style={{ marginBottom: 0 }}>{t('chunks_per_message')}</h3>
+              <InfoIcon helpKey="chunks_per_message" />
+            </div>
+            
+            <div style={{ padding: '0 10px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: 12 }}>
+                <input 
+                  type="range" 
+                  min="1" 
+                  max="10" 
+                  step="1"
+                  value={chunksPerMessage} 
+                  onChange={e => updatePrefs({ chunksPerMessage: parseInt(e.target.value) || 1 })}
+                  className={styles.sliderInput}
+                  style={{ flex: 1 }}
+                />
+                <span style={{ 
+                  fontSize: '13px', 
+                  fontFamily: 'var(--font-mono)', 
+                  color: 'var(--accent-bright)',
+                  fontWeight: '700',
+                  minWidth: '24px', 
+                  textAlign: 'right' 
+                }}>{chunksPerMessage}</span>
+              </div>
+              
+              <div className={styles.chunkInfo}>
+                <p style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                  {t('chunks_per_message_desc') || 'Berapa banyak chunk file yang akan dikirim dalam satu pesan Discord (1-10). Lebih banyak = lebih sedikit pesan di channel.'}
+                </p>
+              </div>
+            </div>
           </motion.div>
         </div>
         <motion.div variants={itemVariants} className={styles.aboutCard}>

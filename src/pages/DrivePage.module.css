@@ -119,13 +119,34 @@
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.langBtn:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-bright);
 }
 
 .langBtn.active {
   background: var(--accent);
   border-color: var(--accent);
-  color: white;
+  color: #fff; /* Paksa putih untuk aksen gelap agar terbaca */
+  box-shadow: 0 4px 12px var(--accent-glow);
+}
+
+/* Fix untuk input angka dan range agar terlihat di semua tema */
+input[type="number"], input[type="text"], select {
+  background: var(--bg-deep);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  border-radius: 4px;
+  padding: 4px 8px;
+  transition: border-color 0.2s;
+}
+
+input:focus {
+  border-color: var(--accent);
+  outline: none;
 }
 
 .pinManagementRow {
