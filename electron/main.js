@@ -1,4 +1,9 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, Tray, Menu, nativeImage, session, net, Notification } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, Tray, Menu, nativeImage, session, net, Notification, protocol } = require('electron');
+
+// Register disbox-stream protocol as privileged
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'disbox-stream', privileges: { stream: true, bypassCSP: true, supportFetchAPI: true, corsEnabled: true } }
+]);
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -380,6 +385,132 @@ function createTray() {
 }
 
 app.whenReady().then(() => {
+  // ─── disbox-stream Protocol Handler ─────────────────────────────────────────
+  protocol.handle('disbox-stream', async (request) => {
+    try {
+      const url = new URL(request.url);
+      const fileId = url.host;
+      const webhookUrl = url.searchParams.get('webhook');
+      const mimeType = url.searchParams.get('mime') || 'application/octet-stream';
+      const totalSize = parseInt(url.searchParams.get('size'));
+      const passedChunkSize = parseInt(url.searchParams.get('chunkSize'));
+      const messageIds = JSON.parse(url.searchParams.get('messages') || '[]');
+      const encryptionKey = getEncryptionKey(webhookUrl);
+
+      if (!webhookUrl || !totalSize || !messageIds.length) {
+        return new Response('Invalid stream request', { status: 400 });
+      }
+
+      const rangeHeader = request.headers.get('Range');
+      let start = 0;
+      let end = totalSize - 1;
+
+      if (rangeHeader) {
+        const parts = rangeHeader.replace(/bytes=/, '').split('-');
+        start = parseInt(parts[0], 10);
+        end = parts[1] ? parseInt(parts[1], 10) : totalSize - 1;
+      }
+
+      const contentLength = end - start + 1;
+      // Default to 7.5MB if not passed, but passed value is better
+      const chunkSize = passedChunkSize || Math.ceil(totalSize / messageIds.length) || 7.5 * 1024 * 1024;
+
+      let isClosed = false;
+      const abortController = new AbortController();
+
+      // Create a readable stream for the response
+      const stream = new ReadableStream({
+        async start(controller) {
+          try {
+            let currentOffset = start;
+
+            // Loop through chunks that overlap with the requested range
+            for (let i = 0; i < messageIds.length; i++) {
+              if (isClosed) break;
+
+              const chunkStart = i * chunkSize;
+              const chunkEnd = Math.min(chunkStart + chunkSize, totalSize);
+
+              // Skip chunks before the requested range
+              if (chunkEnd <= start) continue;
+              // Stop if we've reached the end of the requested range
+              if (chunkStart > end) break;
+
+              const item = messageIds[i];
+              const msgId = typeof item === 'string' ? item : item.msgId;
+              const attachmentIndex = typeof item === 'object' ? (item.index || 0) : 0;
+
+              // Download and decrypt chunk
+              const msgRes = await net.fetch(`${webhookUrl}/messages/${msgId}`, { signal: abortController.signal });
+              if (isClosed) break;
+              if (!msgRes.ok) throw new Error(`Failed to fetch message ${msgId}`);
+              
+              const msg = JSON.parse(await msgRes.text());
+              const attachmentUrl = msg.attachments?.[attachmentIndex]?.url || msg.attachments?.[0]?.url;
+              if (!attachmentUrl) throw new Error('No attachment found');
+
+              const chunkRes = await net.fetch(attachmentUrl, { signal: abortController.signal });
+              if (isClosed) break;
+              
+              const encryptedData = Buffer.from(await chunkRes.arrayBuffer());
+              const decryptedChunk = decrypt(encryptedData, encryptionKey);
+
+              // Calculate slice within this chunk
+              const sliceStart = Math.max(0, currentOffset - chunkStart);
+              const sliceEnd = Math.min(decryptedChunk.length, end - chunkStart + 1);
+
+              if (sliceStart < decryptedChunk.length && !isClosed) {
+                const dataToPush = decryptedChunk.slice(sliceStart, sliceEnd);
+                if (dataToPush.length > 0) {
+                  controller.enqueue(dataToPush);
+                  currentOffset += dataToPush.length;
+                }
+              }
+
+              if (currentOffset > end) break;
+            }
+            
+            if (!isClosed) {
+              isClosed = true;
+              controller.close();
+            }
+          } catch (e) {
+            if (!isClosed) {
+              isClosed = true;
+              if (e.name !== 'AbortError') {
+                console.error('[stream] Stream error:', e.message);
+                try { controller.error(e); } catch (_) {}
+              } else {
+                try { controller.close(); } catch (_) {}
+              }
+            }
+          }
+        },
+        cancel() {
+          isClosed = true;
+          abortController.abort();
+        }
+      });
+
+      const status = rangeHeader ? 206 : 200;
+      const headers = {
+        'Content-Type': mimeType,
+        'Content-Length': contentLength.toString(),
+        'Accept-Ranges': 'bytes',
+        'Access-Control-Allow-Origin': '*',
+      };
+
+      if (rangeHeader) {
+        headers['Content-Range'] = `bytes ${start}-${end}/${totalSize}`;
+      }
+
+      return new Response(stream, { status, headers });
+    } catch (e) {
+      console.error('[stream] Fatal error:', e.message);
+      return new Response(e.message, { status: 500 });
+    }
+  });
+
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     callback({
       responseHeaders: {

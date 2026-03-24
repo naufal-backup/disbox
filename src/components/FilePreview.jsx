@@ -121,16 +121,6 @@ export default function FilePreview({ file, allFiles = [], onFileChange, onClose
       setError('');
       setContent(null); // Clear content while loading new file
       try {
-        const signal = addTransfer({ id: transferId, name: `Preview: ${name}`, progress: 0, type: 'download', status: 'active', hidden: true });
-        const buffer = await api.downloadFile(file, (p) => {
-          if (isMounted) {
-            setDownloadProgress(Math.round(p * 100));
-            updateTransfer(transferId, { progress: p });
-          }
-        }, signal, transferId);
-
-        if (!isMounted || signal.aborted) return;
-
         const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(ext);
         const isVideo = ['mp4', 'webm', 'ogg', 'mov', 'mkv', 'avi'].includes(ext);
         const isAudio = ['mp3', 'wav', 'flac', 'ogg'].includes(ext);
@@ -138,13 +128,36 @@ export default function FilePreview({ file, allFiles = [], onFileChange, onClose
         const isText = ['txt', 'md', 'js', 'jsx', 'ts', 'tsx', 'py', 'rs', 'html', 'css', 'json', 'yml', 'yaml', 'sql', 'sh', 'bash', 'xml', 'cpp', 'c', 'java'].includes(ext);
 
         let newContent = null;
-        if (isImage || isVideo || isAudio || isPdf) {
-          const blob = new Blob([buffer], { type: mime });
-          const objectUrl = URL.createObjectURL(blob);
-          newContent = { type: isImage ? 'image' : isVideo ? 'video' : isAudio ? 'audio' : 'pdf', url: objectUrl };
-        } else if (isText) {
-          const text = new TextDecoder().decode(buffer);
-          newContent = { type: 'text', text };
+
+        if (isVideo || isAudio) {
+          // Use disbox-stream protocol for video and audio (streaming)
+          const messagesStr = encodeURIComponent(JSON.stringify(file.messageIds));
+          const streamUrl = `disbox-stream://${file.id}?webhook=${encodeURIComponent(api.webhookUrl)}&mime=${encodeURIComponent(mime)}&size=${file.size}&chunkSize=${api.chunkSize}&messages=${messagesStr}`;
+          newContent = { type: isVideo ? 'video' : 'audio', url: streamUrl, isStream: true };
+          // For streaming, we don't need to show download progress
+          setLoading(false);
+        } else if (isImage || isPdf || isText) {
+          const signal = addTransfer({ id: transferId, name: `Preview: ${name}`, progress: 0, type: 'download', status: 'active', hidden: true });
+          const buffer = await api.downloadFile(file, (p) => {
+            if (isMounted) {
+              setDownloadProgress(Math.round(p * 100));
+              updateTransfer(transferId, { progress: p });
+            }
+          }, signal, transferId);
+
+          if (!isMounted || signal.aborted) return;
+
+          if (isImage || isPdf) {
+            const blob = new Blob([buffer], { type: mime });
+            const objectUrl = URL.createObjectURL(blob);
+            newContent = { type: isImage ? 'image' : 'pdf', url: objectUrl };
+          } else if (isText) {
+            const text = new TextDecoder().decode(buffer);
+            newContent = { type: 'text', text };
+          }
+          
+          updateTransfer(transferId, { status: 'done', progress: 1 });
+          setTimeout(() => removeTransfer(transferId), 500);
         } else {
           newContent = { type: 'unsupported' };
         }
@@ -153,9 +166,6 @@ export default function FilePreview({ file, allFiles = [], onFileChange, onClose
           previewCache.current.set(file.id, newContent);
           if (isMounted) setContent(newContent);
         }
-        
-        updateTransfer(transferId, { status: 'done', progress: 1 });
-        setTimeout(() => removeTransfer(transferId), 500);
       } catch (e) {
         if (isMounted) {
           console.error('Preview failed:', e);
