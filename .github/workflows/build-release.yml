@@ -42,11 +42,14 @@ jobs:
       - name: Rebuild Native Modules (better-sqlite3)
         run: npx electron-rebuild -f -w better-sqlite3
 
+      - name: Build Web Assets (Vite)
+        run: npm run build:web
+
       - name: Build Linux Artifacts (AppImage, deb, pacman)
-        run: npm run build
+        run: npx electron-builder --linux --publish never
 
       - name: Build Windows Artifacts (Setup, Portable, zip)
-        run: npx electron-builder --win
+        run: npx electron-builder --win --publish never
 
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
