@@ -233,7 +233,7 @@ export default function MusicPlayer({ audioUrl, file, allFiles = [], onFileChang
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const name = file?.path?.split('/')?.pop() || 'Unknown';
+  const name = file?.path?.split('/')?.pop() || 'Unknown Track';
   const fileName = name.replace(/\.[^/.]+$/, '');
 
   return (
@@ -363,7 +363,7 @@ export default function MusicPlayer({ audioUrl, file, allFiles = [], onFileChang
 
 // Helper functions
 function formatSize(bytes) {
-  if (bytes == null) return 'Unknown size';
+  if (bytes == null) return 'Unknown Size';
   const units = ['B', 'KB', 'MB', 'GB'];
   let size = bytes;
   let unit = 0;

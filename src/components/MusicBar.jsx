@@ -30,7 +30,7 @@ export default function MusicBar({ track, playlist, onNext, onPrev, onClose }) {
 
     const loadTrack = async () => {
       setLoading(true);
-      setMetadata({ title: track.path.split('/').pop(), artist: 'Disbox Audio' });
+      setMetadata({ title: track.path.split('/').pop(), artist: 'Unknown Artist' });
       
       try {
         const signal = addTransfer({
