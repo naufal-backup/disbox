@@ -132,9 +132,30 @@ function captureFrameFromBlob(blob) {
   });
 }
 
+function captureAudioArtworkFromBlob(blob) {
+  return new Promise((resolve) => {
+    if (!window.jsmediatags) { resolve(null); return; }
+    window.jsmediatags.read(blob, {
+      onSuccess: function(tag) {
+        const { tags } = tag;
+        if (tags.picture) {
+          const { data, format } = tags.picture;
+          let base64String = "";
+          for (let i = 0; i < data.length; i++) base64String += String.fromCharCode(data[i]);
+          const base64 = `data:${format};base64,${window.btoa(base64String)}`;
+          fetch(base64).then(res => res.blob()).then(imgBlob => {
+            compressImageBlob(imgBlob).then(resolve);
+          }).catch(() => resolve(null));
+        } else resolve(null);
+      },
+      onError: () => resolve(null)
+    });
+  });
+}
+
 // ─── FileThumbnail Component ─────────────────────────────────────────────────
 function FileThumbnail({ file, size = 32 }) {
-  const { api, showPreviews, showImagePreviews, showVideoPreviews, addTransfer, updateTransfer, removeTransfer } = useApp();
+  const { api, showPreviews, showImagePreviews, showVideoPreviews, showAudioPreviews, addTransfer, updateTransfer, removeTransfer } = useApp();
   const [thumbUrl, setThumbUrl] = useState(null);
   const [loading, setLoading] = useState(false);
 
@@ -142,12 +163,14 @@ function FileThumbnail({ file, size = 32 }) {
   const ext  = name.split('.').pop().toLowerCase();
   const isImage = ['png', 'jpg', 'jpeg', 'webp', 'svg'].includes(ext);
   const isVideo = ['mp4', 'webm', 'ogg', 'mkv', 'mov', 'avi'].includes(ext);
+  const isAudio = ['mp3', 'wav', 'flac', 'ogg', 'm4a', 'aac'].includes(ext);
 
   useEffect(() => {
     const canShowImage = showPreviews && showImagePreviews && isImage;
     const canShowVideo = showPreviews && showVideoPreviews && isVideo;
+    const canShowAudio = showPreviews && showAudioPreviews && isAudio;
 
-    if (!canShowImage && !canShowVideo) {
+    if (!canShowImage && !canShowVideo && !canShowAudio) {
       if (thumbUrl) { URL.revokeObjectURL(thumbUrl); setThumbUrl(null); }
       return;
     }
@@ -169,8 +192,8 @@ function FileThumbnail({ file, size = 32 }) {
 
           let buffer;
 
-          if (isVideo) {
-            // Selalu pakai first chunk untuk video — lebih cepat
+          if (isVideo || isAudio) {
+            // Selalu pakai first chunk untuk video/audio — lebih cepat
             buffer = await api.downloadFirstChunk(file, signal, transferId);
           } else {
             buffer = await api.downloadFile(
@@ -191,6 +214,8 @@ function FileThumbnail({ file, size = 32 }) {
           if (isVideo) {
             // Coba capture frame dari partial blob
             compressedBlob = await captureFrameFromBlob(blob);
+          } else if (isAudio) {
+            compressedBlob = await captureAudioArtworkFromBlob(blob);
           } else {
             compressedBlob = await compressImageBlob(blob);
           }
@@ -222,12 +247,13 @@ function FileThumbnail({ file, size = 32 }) {
       const idx = thumbQueue.findIndex(q => q.id === transferId);
       if (idx >= 0) thumbQueue.splice(idx, 1);
     };
-  }, [file.id, showPreviews, showImagePreviews, showVideoPreviews, isImage, isVideo]);
+  }, [file.id, showPreviews, showImagePreviews, showVideoPreviews, showAudioPreviews, isImage, isVideo, isAudio]);
 
   const canShowImage = showPreviews && showImagePreviews && isImage;
   const canShowVideo = showPreviews && showVideoPreviews && isVideo;
+  const canShowAudio = showPreviews && showAudioPreviews && isAudio;
 
-  if ((canShowImage || canShowVideo) && thumbUrl) {
+  if ((canShowImage || canShowVideo || canShowAudio) && thumbUrl) {
     return (
       <div style={{ width: '100%', height: '100%', overflow: 'hidden', borderRadius: 0, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', flexShrink: 0, position: 'relative' }}>
         <img src={thumbUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top' }} draggable={false} />
@@ -236,7 +262,7 @@ function FileThumbnail({ file, size = 32 }) {
     );
   }
 
-  if ((canShowImage || canShowVideo) && loading) {
+  if ((canShowImage || canShowVideo || canShowAudio) && loading) {
     return <div className="skeleton" style={{ width: '100%', height: '100%', borderRadius: 0 }} />;
   }
 
@@ -318,7 +344,8 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
     refresh, loading, movePath, copyPath, deletePath, 
     bulkDelete, bulkMove, bulkCopy, uiScale,
     setLocked, setStarred, verifyPin, hasPin, isVerified, t, animationsEnabled,
-    shareEnabled
+    shareEnabled,
+    setCurrentTrack, setPlaylist
   } = useApp();
 
   const renderFileIcon = (filename) => {
@@ -577,6 +604,31 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
   };
 
   const handleFileClick = (file) => {
+    const ext = file.path.split('.').pop().toLowerCase();
+    const isAudio = ['mp3', 'wav', 'flac', 'ogg', 'm4a', 'aac'].includes(ext);
+
+    if (isAudio) {
+      if (file.isLocked && !isVerified) {
+        setPinPrompt({ 
+          title: 'Putar Musik Terkunci', 
+          onSuccess: () => {
+            setCurrentTrack(file);
+            setPlaylist(processedFiles.filter(f => {
+              const fext = f.path.split('.').pop().toLowerCase();
+              return ['mp3', 'wav', 'flac', 'ogg', 'm4a', 'aac'].includes(fext);
+            }));
+          } 
+        });
+      } else {
+        setCurrentTrack(file);
+        setPlaylist(processedFiles.filter(f => {
+          const fext = f.path.split('.').pop().toLowerCase();
+          return ['mp3', 'wav', 'flac', 'ogg', 'm4a', 'aac'].includes(fext);
+        }));
+      }
+      return;
+    }
+
     if (file.isLocked && !isVerified) {
       setPinPrompt({ title: 'Buka File Terkunci', onSuccess: () => setPreviewFile(file) });
     } else {

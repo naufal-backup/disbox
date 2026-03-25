@@ -3,6 +3,7 @@ import { Toaster } from 'react-hot-toast';
 import { AppProvider, useApp } from './AppContext.jsx';
 import LoginPage from './pages/LoginPage.jsx';
 import DrivePage from './pages/DrivePage.jsx';
+import MusicBar from './components/MusicBar.jsx';
 import { Shield, Loader2 } from 'lucide-react';
 import styles from './App.module.css';
 
@@ -115,9 +116,36 @@ function AppLockGateway({ onUnlocked }) {
 }
 
 function AppInner() {
-  const { isConnected, isConnecting, webhookUrl, connect, loading, appLockEnabled, isAppUnlocked, setIsAppUnlocked } = useApp();
+  const { 
+    isConnected, isConnecting, webhookUrl, connect, loading, 
+    appLockEnabled, isAppUnlocked, setIsAppUnlocked,
+    currentTrack, setCurrentTrack, playlist
+  } = useApp();
   const [activePage, setActivePage] = useState('drive');
   const [autoConnecting, setAutoConnecting] = useState(false);
+
+  const handleNext = (shuffle = false) => {
+    if (!playlist.length || !currentTrack) return;
+    const idx = playlist.findIndex(t => t.id === currentTrack.id);
+    
+    let nextIdx;
+    if (shuffle && playlist.length > 1) {
+      nextIdx = idx;
+      while (nextIdx === idx) {
+        nextIdx = Math.floor(Math.random() * playlist.length);
+      }
+    } else {
+      nextIdx = (idx + 1) % playlist.length;
+    }
+    setCurrentTrack(playlist[nextIdx]);
+  };
+
+  const handlePrev = () => {
+    if (!playlist.length || !currentTrack) return;
+    const idx = playlist.findIndex(t => t.id === currentTrack.id);
+    const prevIdx = (idx - 1 + playlist.length) % playlist.length;
+    setCurrentTrack(playlist[prevIdx]);
+  };
 
   // Auto-reconnect if saved webhook exists
   useEffect(() => {
@@ -169,6 +197,16 @@ function AppInner() {
           <LoginPage />
         )}
       </div>
+      
+      {isConnected && currentTrack && (
+        <MusicBar 
+          track={currentTrack} 
+          playlist={playlist}
+          onNext={handleNext}
+          onPrev={handlePrev}
+          onClose={() => setCurrentTrack(null)}
+        />
+      )}
     </div>
   );
 }

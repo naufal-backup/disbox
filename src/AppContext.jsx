@@ -52,6 +52,8 @@ export function AppProvider({ children }) {
   const [currentPath, setCurrentPath] = useState('/');
   const [loading, setLoading] = useState(false);
   const [transfers, setTransfers] = useState([]);
+  const [currentTrack, setCurrentTrack] = useState(null);
+  const [playlist, setPlaylist] = useState([]);
   
   const isTransferring = transfers.some(t => t.status === 'active');
 
@@ -70,6 +72,7 @@ export function AppProvider({ children }) {
   const [showPreviews, setShowPreviews] = useState(() => localStorage.getItem('disbox_show_previews') !== 'false');
   const [showImagePreviews, setShowImagePreviews] = useState(() => localStorage.getItem('disbox_show_image_previews') !== 'false');
   const [showVideoPreviews, setShowVideoPreviews] = useState(() => localStorage.getItem('disbox_show_video_previews') !== 'false');
+  const [showAudioPreviews, setShowAudioPreviews] = useState(() => localStorage.getItem('disbox_show_audio_previews') !== 'false');
   const [showRecent, setShowRecent] = useState(() => localStorage.getItem('disbox_show_recent') !== 'false');
   const [autoCloseTransfers, setAutoCloseTransfers] = useState(() => localStorage.getItem('disbox_auto_close_transfers') !== 'false');
   const [animationsEnabled, setAnimationsEnabled] = useState(() => localStorage.getItem('disbox_animations_enabled') !== 'false');
@@ -143,6 +146,10 @@ export function AppProvider({ children }) {
     if (prefs.showVideoPreviews !== undefined) {
       setShowVideoPreviews(prefs.showVideoPreviews);
       localStorage.setItem('disbox_show_video_previews', prefs.showVideoPreviews.toString());
+    }
+    if (prefs.showAudioPreviews !== undefined) {
+      setShowAudioPreviews(prefs.showAudioPreviews);
+      localStorage.setItem('disbox_show_audio_previews', prefs.showAudioPreviews.toString());
     }
     if (window.electron?.setPrefs) window.electron.setPrefs(prefs);
   }, []);
@@ -703,6 +710,7 @@ export function AppProvider({ children }) {
       showPreviews, setShowPreviews,
       showImagePreviews, setShowImagePreviews,
       showVideoPreviews, setShowVideoPreviews,
+      showAudioPreviews, setShowAudioPreviews,
       showRecent, setShowRecent,
       autoCloseTransfers, setAutoCloseTransfers,
       animationsEnabled, setAnimationsEnabled,
@@ -722,6 +730,8 @@ export function AppProvider({ children }) {
       shareEnabled, setShareEnabled,
       shareMode, setShareMode,
       shareLinks, cfWorkerUrl, setCfWorkerUrl,
+      currentTrack, setCurrentTrack,
+      playlist, setPlaylist,
       loadShareLinks, saveShareSettings, deployWorker,
       createShareLink, revokeShareLink, revokeAllLinks,
       connect, disconnect, refresh,

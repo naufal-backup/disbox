@@ -6,6 +6,7 @@ import { useApp } from '../AppContext.jsx';
 import { getMimeType, formatSize } from '../utils/disbox.js';
 import { motion, AnimatePresence } from 'framer-motion';
 import styles from './FilePreview.module.css';
+import MusicPlayer from './MusicPlayer.jsx';
 
 export default function FilePreview({ file, allFiles = [], onFileChange, onClose }) {
   const { api, addTransfer, updateTransfer, removeTransfer, animationsEnabled } = useApp();
@@ -278,9 +279,14 @@ export default function FilePreview({ file, allFiles = [], onFileChange, onClose
                 <video key={content.url} src={content.url} controls autoPlay className={styles.video} />
               )}
               {content?.type === 'audio' && (
-                <div className={styles.audioWrapper}>
-                  <div className={styles.audioIcon}>🎵</div>
-                  <audio key={content.url} src={content.url} controls autoPlay className={styles.audio} />
+                <div className={styles.audioWrapper} style={{ width: '100%', height: '100%' }}>
+                  <MusicPlayer
+                    audioUrl={content.url}
+                    file={file}
+                    allFiles={navigatableFiles}
+                    onFileChange={onFileChange}
+                    onClose={onClose}
+                  />
                 </div>
               )}
               {content?.type === 'pdf' && (
