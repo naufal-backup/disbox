@@ -255,8 +255,21 @@ function FileThumbnail({ file, size = 32 }) {
 
   if ((canShowImage || canShowVideo || canShowAudio) && thumbUrl) {
     return (
-      <div style={{ width: '100%', height: '100%', overflow: 'hidden', borderRadius: 0, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', flexShrink: 0, position: 'relative' }}>
-        <img src={thumbUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top' }} draggable={false} />
+      <div style={{ width: '100%', height: '100%', overflow: 'hidden', borderRadius: 0, display: 'flex', alignItems: canShowAudio ? 'center' : 'flex-start', justifyContent: 'center', flexShrink: 0, position: 'relative' }}>
+        <img 
+          src={thumbUrl} 
+          alt="" 
+          style={{ 
+            width: canShowAudio ? 'auto' : '100%', 
+            height: '100%', 
+            aspectRatio: canShowAudio ? '1 / 1' : 'auto',
+            objectFit: 'cover', 
+            objectPosition: canShowAudio ? 'center' : 'top',
+            boxShadow: canShowAudio ? '0 4px 12px rgba(0,0,0,0.15)' : 'none',
+            borderRadius: canShowAudio ? '4px' : '0'
+          }} 
+          draggable={false} 
+        />
         {/* {isVideo && <div style={{ position: 'absolute', bottom: 4, right: 4, background: 'rgba(0,0,0,0.6)', borderRadius: 4, padding: '2px 4px', fontSize: 10, color: 'white', display: 'flex', alignItems: 'center' }}>▶</div>} */}
       </div>
     );
