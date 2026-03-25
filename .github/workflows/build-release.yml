@@ -34,7 +34,8 @@ jobs:
         run: |
           sudo dpkg --add-architecture i386
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends wine64 wine32 libarchive-tools fakeroot
+          sudo apt-get install -y --no-install-recommends wine wine64 wine32 libarchive-tools fakeroot
+          wine --version
           
       - name: Install NPM Dependencies
         run: npm ci || npm install
