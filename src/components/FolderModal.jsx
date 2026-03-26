@@ -1,6 +1,58 @@
 import { useState } from 'react';
 import { FolderPlus, Move, Copy, X, ChevronRight, Home, Check, AlertCircle, Youtube, Music, Video, Download } from 'lucide-react';
-...
+import { useApp } from '../AppContext.jsx';
+import { motion, AnimatePresence } from 'framer-motion';
+import styles from './FolderModal.module.css';
+
+// ─── Shared components ────────────────────────────────────────────────────────
+function Backdrop({ children, onClose }) {
+  const { animationsEnabled } = useApp();
+  
+  const backdropVariants = {
+    initial: { opacity: 0 },
+    animate: { opacity: 1 },
+    exit: { opacity: 0 }
+  };
+
+  const modalVariants = {
+    initial: { opacity: 0, scale: 0.95, y: 10 },
+    animate: { 
+      opacity: 1, 
+      scale: 1, 
+      y: 0,
+      transition: { type: 'spring', damping: 25, stiffness: 300 }
+    },
+    exit: { 
+      opacity: 0, 
+      scale: 0.95, 
+      y: 10,
+      transition: { duration: 0.15 }
+    }
+  };
+
+  const transition = animationsEnabled ? {} : { duration: 0 };
+
+  return (
+    <motion.div 
+      className={styles.backdrop} 
+      onClick={onClose}
+      initial="initial"
+      animate="animate"
+      exit="exit"
+      variants={backdropVariants}
+      transition={transition}
+    >
+      <motion.div 
+        onClick={e => e.stopPropagation()}
+        variants={modalVariants}
+        transition={transition}
+      >
+        {children}
+      </motion.div>
+    </motion.div>
+  );
+}
+
 // ─── YT-DLP Modal ─────────────────────────────────────────────────────────────
 export function YtDlpModal({ onClose, onConfirm }) {
   const { t } = useApp();
@@ -64,58 +116,6 @@ export function YtDlpModal({ onClose, onConfirm }) {
         </div>
       </div>
     </Backdrop>
-  );
-}
-import { useApp } from '../AppContext.jsx';
-import { motion, AnimatePresence } from 'framer-motion';
-import styles from './FolderModal.module.css';
-
-// ─── Shared components ────────────────────────────────────────────────────────
-function Backdrop({ children, onClose }) {
-  const { animationsEnabled } = useApp();
-  
-  const backdropVariants = {
-    initial: { opacity: 0 },
-    animate: { opacity: 1 },
-    exit: { opacity: 0 }
-  };
-
-  const modalVariants = {
-    initial: { opacity: 0, scale: 0.95, y: 10 },
-    animate: { 
-      opacity: 1, 
-      scale: 1, 
-      y: 0,
-      transition: { type: 'spring', damping: 25, stiffness: 300 }
-    },
-    exit: { 
-      opacity: 0, 
-      scale: 0.95, 
-      y: 10,
-      transition: { duration: 0.15 }
-    }
-  };
-
-  const transition = animationsEnabled ? {} : { duration: 0 };
-
-  return (
-    <motion.div 
-      className={styles.backdrop} 
-      onClick={onClose}
-      initial="initial"
-      animate="animate"
-      exit="exit"
-      variants={backdropVariants}
-      transition={transition}
-    >
-      <motion.div 
-        onClick={e => e.stopPropagation()}
-        variants={modalVariants}
-        transition={transition}
-      >
-        {children}
-      </motion.div>
-    </motion.div>
   );
 }
 
@@ -402,4 +402,3 @@ function DirIcon() {
     </svg>
   );
 }
-
