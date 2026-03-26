@@ -5,12 +5,13 @@ import {
   Download, Trash2, Edit3, Folder, Lock, Unlock, Star,
   ChevronRight, Home, Move, Copy, Check, AlertCircle, ZoomIn, Link2,
   CheckCircle, RefreshCw, Clock, ArrowUpDown, ChevronDown, MoreVertical,
-  FileText, Image as ImageIcon, FileVideo, FileAudio, FileArchive, File as FileGeneric, FileCode, FileSpreadsheet
+  FileText, Image as ImageIcon, FileVideo, FileAudio, FileArchive, File as FileGeneric, FileCode, FileSpreadsheet,
+  Youtube, Music, Video, X as CloseIcon
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useApp } from '../AppContext.jsx';
 import { formatSize, getFileIcon, getMimeType } from '../utils/disbox.js';
-import { CreateFolderModal, MoveModal, ConfirmModal } from './FolderModal.jsx';
+import { CreateFolderModal, MoveModal, ConfirmModal, YtDlpModal } from './FolderModal.jsx';
 import ShareDialog from './ShareDialog.jsx';
 import FilePreview from './FilePreview.jsx';
 import styles from './FileGrid.module.css';
@@ -407,6 +408,32 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
   const [renameValue, setRenameValue] = useState('');
   const [uploading, setUploading] = useState(false);
   const [showCreateFolder, setShowCreateFolder] = useState(false);
+  const [showYtdlpModal, setShowYtdlpModal] = useState(false);
+
+  const handleYtdlpUpload = async (url, type) => {
+    setUploading(true);
+    setShowYtdlpModal(false);
+    const transferId = Math.random().toString(36).substring(7);
+    const toastId = toast.loading(`Starting YT-DLP for ${type}...`);
+    
+    try {
+      const resultFile = await api.ytdlpDownloadUpload(url, type, dirPath, (progress) => {
+        updateTransfer(transferId, { progress });
+      }, transferId);
+
+      addFile(resultFile);
+      toast.success(`${type === 'music' ? 'Music' : 'Video'} uploaded!`, { id: toastId });
+    } catch (e) {
+      if (e.name !== 'AbortError') {
+        toast.error(`YT-DLP Error: ${e.message}`, { id: toastId });
+      } else {
+        toast.dismiss(toastId);
+      }
+    } finally {
+      setUploading(false);
+      refresh();
+    }
+  };
   const [moveModal, setMoveModal] = useState(null);
   const [dragSource, setDragSource] = useState(null);
   const [isSelectionMode, setIsSelectionMode] = useState(false);
@@ -1115,6 +1142,7 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
           <div className={styles.viewToggle}><button className={`${styles.viewBtn} ${viewMode === 'grid' ? styles.viewActive : ''}`} onClick={() => setViewMode('grid')}><Grid3x3 size={13} /></button><button className={`${styles.viewBtn} ${viewMode === 'list' ? styles.viewActive : ''}`} onClick={() => setViewMode('list')}><List size={13} /></button></div>
           <div className={styles.zoomBox}><ZoomIn size={13} /><input type="range" min="0.6" max="1.8" step="0.1" value={zoom} onChange={e => setZoom(parseFloat(e.target.value))} className={styles.zoomSlider} /></div>
           <button className={styles.folderBtn} onClick={() => setShowCreateFolder(true)} title={t('new_folder')}><FolderPlus size={14} /></button>
+          <button className={styles.ytdlpBtn} onClick={() => setShowYtdlpModal(true)} title="YT-DLP Auto Upload" disabled={uploading}><Youtube size={14} /></button>
           <button className={styles.uploadBtn} onClick={handlePickFiles} disabled={uploading}><Upload size={14} /><span>{uploading ? 'Uploading…' : t('upload')}</span></button>
         </div>
       </div>
@@ -1346,6 +1374,7 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
       {isDragOver && <div className={styles.dropOverlay}><Upload size={40} /><p>Drop untuk upload</p></div>}
       <AnimatePresence>
         {showCreateFolder && <CreateFolderModal onClose={() => setShowCreateFolder(false)} />}
+        {showYtdlpModal && <YtDlpModal onClose={() => setShowYtdlpModal(false)} onConfirm={handleYtdlpUpload} />}
         {moveModal && <MoveModal id={moveModal.id} file={moveModal.path} paths={moveModal.paths} mode={moveModal.mode} onClose={() => { setMoveModal(null); clearSelection(); }} onUnlock={moveModal.onUnlock} />}
         {confirmAction && <ConfirmModal title={confirmAction.title} message={confirmAction.message} danger={confirmAction.danger} onConfirm={confirmAction.onConfirm} onClose={() => setConfirmAction(null)} />}
         {previewFile && <FilePreview file={previewFile} allFiles={processedFiles} onFileChange={setPreviewFile} onClose={() => setPreviewFile(null)} />}

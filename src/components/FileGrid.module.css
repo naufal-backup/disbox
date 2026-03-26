@@ -156,6 +156,16 @@
 }
 .folderBtn:hover { background: var(--amber-dim); border-color: var(--amber); }
 
+.ytdlpBtn {
+  display: flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; background: var(--bg-elevated);
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  color: #ff0000; cursor: pointer; transition: all 0.15s;
+  flex-shrink: 0; box-sizing: border-box;
+}
+.ytdlpBtn:hover { background: rgba(255, 0, 0, 0.1); border-color: #ff0000; }
+.ytdlpBtn:disabled { opacity: 0.5; cursor: not-allowed; }
+
 .zoomBox {
   display: flex; align-items: center; gap: 8px;
   background: var(--bg-elevated); border: 1px solid var(--border);

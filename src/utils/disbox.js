@@ -572,8 +572,35 @@ export class DisboxAPI {
 
   // ─── Upload ───────────────────────────────────────────────────────────────
 
+  async ytdlpDownloadUpload(url, type, filePathPrefix, onProgress, transferId = null) {
+    const tid = transferId || Math.random().toString(36).substring(7);
+    if (!window.electron?.ytdlpDownloadUpload) {
+      throw new Error('Fitur YT-DLP hanya tersedia di aplikasi desktop.');
+    }
+
+    const res = await window.electron.ytdlpDownloadUpload(url, type, this.webhookUrl, tid, this.chunkSize, onProgress);
+
+    if (!res.ok) {
+      if (res.error === 'UPLOAD_CANCELLED') throw new DOMException('Transfer dibatalkan', 'AbortError');
+      throw new Error(res.error || 'Download/Upload gagal');
+    }
+
+    const fileId = Math.random().toString(36).substring(7);
+    const fileName = res.name || 'ytdlp_download';
+    const finalPath = filePathPrefix ? `${filePathPrefix}/${fileName}` : fileName;
+
+    return {
+      id: fileId,
+      path: finalPath,
+      size: res.size,
+      createdAt: Date.now(),
+      messageIds: res.messageIds
+    };
+  }
+
   async uploadFile(file, filePath, onProgress, signal = null, transferId = null) {
     const fileId = crypto.randomUUID();
+    const throwIfAborted = (s) => { if (s?.aborted) throw new DOMException('Operasi dibatalkan', 'AbortError'); };
     throwIfAborted(signal);
 
     const fileName = filePath.split('/').pop();
@@ -604,14 +631,14 @@ export class DisboxAPI {
         if (isVideo && res.messageIds?.length > 1) {
           try {
             // Download dan decrypt chunk pertama untuk capture frame
-            const firstMsgId = res.messageIds[0];
-            const msgRes = await window.electron.fetch(`${this.webhookUrl}/messages/${firstMsgId}`);
-            if (msgRes.ok) {
-              const msg = JSON.parse(msgRes.body);
+            const firstMsgId = res.messageIds[0].msgId;
+            const resData = await window.electron.netFetch(`${this.webhookUrl}/messages/${firstMsgId}`);
+            if (resData.ok) {
+              const msg = JSON.parse(resData.body);
               const attachmentUrl = msg.attachments?.[0]?.url;
               if (attachmentUrl) {
-                const chunkData = await window.electron.proxyDownload(attachmentUrl);
-                const decrypted = await this.decrypt(chunkData);
+                const encrypted = await window.electron.proxyDownload(attachmentUrl);
+                const decrypted = this.decrypt(encrypted);
                 thumbnailMsgId = await this._uploadVideoThumbnail(fileId, decrypted, fileName);
               }
             }
@@ -620,10 +647,14 @@ export class DisboxAPI {
           }
         }
 
-        return await this.createFile(filePath, res.messageIds, res.size, fileId, thumbnailMsgId);
-      } catch (e) {
-        if (e.message === 'UPLOAD_CANCELLED') throw new DOMException('Transfer dibatalkan', 'AbortError');
-        throw e;
+        return {
+          id: fileId,
+          path: filePath,
+          size: res.size,
+          createdAt: Date.now(),
+          messageIds: res.messageIds,
+          thumbnailMsgId
+        };
       } finally {
         signal?.removeEventListener('abort', abortListener);
       }

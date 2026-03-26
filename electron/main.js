@@ -1,4 +1,7 @@
 const { app, BrowserWindow, ipcMain, dialog, shell, Tray, Menu, nativeImage, session, net, Notification, protocol } = require('electron');
+const { spawn } = require('child_process');
+const util = require('util');
+const exec = util.promisify(require('child_process').exec);
 
 // Register disbox-stream protocol as privileged
 protocol.registerSchemesAsPrivileged([
@@ -2002,7 +2005,8 @@ ipcMain.on('cancel-upload', (_, transferId) => {
   }
 });
 
-ipcMain.handle('upload-file-from-path', async (event, webhookUrl, nativePath, destName, transferId, chunkSize) => {
+// ─── Reusable Upload Logic ───────────────────────────────────────────────
+async function doUploadFileFromPath(webhookUrl, nativePath, destName, transferId, chunkSize, sender = null) {
   const cancelFlag = { cancelled: false };
   uploadCancelFlags.set(transferId, cancelFlag);
 
@@ -2040,7 +2044,7 @@ ipcMain.handle('upload-file-from-path', async (event, webhookUrl, nativePath, de
 
         if (completedChunks === numChunks) {
           try { fs.closeSync(fd); } catch (_) {}
-          finish({ ok: true, messageIds, size: totalSize });
+          finish({ ok: true, messageIds, size: totalSize, name: filename });
           return;
         }
 
@@ -2127,8 +2131,8 @@ ipcMain.handle('upload-file-from-path', async (event, webhookUrl, nativePath, de
           activeUploads--;
           completedChunks += count;
 
-          if (!cancelFlag.cancelled) {
-            event.sender.send('upload-progress-' + transferId, completedChunks / numChunks);
+          if (!cancelFlag.cancelled && sender) {
+            sender.send('upload-progress-' + transferId, completedChunks / numChunks);
           }
 
           uploadNext();
@@ -2157,7 +2161,112 @@ ipcMain.handle('upload-file-from-path', async (event, webhookUrl, nativePath, de
     });
   } catch (e) {
     uploadCancelFlags.delete(transferId);
-    console.error('[upload-path] Fatal error:', e.message);
+    console.error('[doUploadFileFromPath] Fatal error:', e.message);
+    throw e;
+  }
+}
+
+ipcMain.handle('upload-file-from-path', async (event, webhookUrl, nativePath, destName, transferId, chunkSize) => {
+  try {
+    return await doUploadFileFromPath(webhookUrl, nativePath, destName, transferId, chunkSize, event.sender);
+  } catch (e) {
     return { ok: false, error: e.message };
+  }
+});
+
+// ─── YT-DLP Integration ──────────────────────────────────────────────────────
+async function checkYtdlp() {
+  try {
+    await exec('yt-dlp --version');
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+ipcMain.handle('ytdlp-download-upload', async (event, { url, type, webhookUrl, transferId, chunkSize }) => {
+  const isAvailable = await checkYtdlp();
+  if (!isAvailable) {
+    return { ok: false, error: 'YT-DLP tidak ditemukan di sistem. Silakan install yt-dlp terlebih dahulu.' };
+  }
+
+  const cancelFlag = { cancelled: false };
+  uploadCancelFlags.set(transferId, cancelFlag);
+
+  const tempDir = path.join(app.getPath('temp'), 'disbox_ytdlp_' + Date.now());
+  if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+
+  try {
+    // 1. Dapatkan nama file yang diharapkan
+    const { stdout: filename } = await exec(`yt-dlp --get-filename -o "%(title)s.%(ext)s" "${url}"`);
+    const cleanFilename = filename.trim();
+    
+    // 2. Download
+    const args = [
+      '-o', path.join(tempDir, '%(title)s.%(ext)s'),
+      '--newline',
+      url
+    ];
+
+    if (type === 'music') {
+      args.push('-x', '--audio-format', 'mp3');
+    } else {
+      args.push('-f', 'bestvideo+bestaudio/best');
+    }
+
+    const ytdlp = spawn('yt-dlp', args);
+    
+    await new Promise((resolve, reject) => {
+      ytdlp.stdout.on('data', (data) => {
+        if (cancelFlag.cancelled) {
+          ytdlp.kill();
+          return;
+        }
+        const line = data.toString();
+        // Parsing progress yt-dlp: [download]  10.5% of 100.00MiB at 1.50MiB/s ETA 01:00
+        const match = line.match(/\[download\]\s+(\d+\.\d+)%/);
+        if (match && event.sender) {
+          const pct = parseFloat(match[1]);
+          // Download adalah 50% dari total proses (download + upload)
+          event.sender.send('upload-progress-' + transferId, (pct / 100) * 0.5);
+        }
+      });
+
+      ytdlp.stderr.on('data', (data) => console.warn('[yt-dlp] stderr:', data.toString()));
+      
+      ytdlp.on('close', (code) => {
+        if (cancelFlag.cancelled) reject(new Error('UPLOAD_CANCELLED'));
+        else if (code === 0) resolve();
+        else reject(new Error(`YT-DLP exited with code ${code}`));
+      });
+    });
+
+    if (cancelFlag.cancelled) throw new Error('UPLOAD_CANCELLED');
+
+    // 3. Cari file yang didownload (karena ekstensi bisa berubah, misal mp3)
+    const files = fs.readdirSync(tempDir);
+    if (files.length === 0) throw new Error('Gagal menemukan file hasil download.');
+    const downloadedFile = path.join(tempDir, files[0]);
+
+    // 4. Upload (50% - 100% progress)
+    const uploadSender = {
+      send: (channel, pct) => {
+        if (event.sender) {
+          event.sender.send(channel, 0.5 + (pct * 0.5));
+        }
+      }
+    };
+
+    const result = await doUploadFileFromPath(webhookUrl, downloadedFile, files[0], transferId, chunkSize, uploadSender);
+    
+    return result;
+  } catch (e) {
+    console.error('[ytdlp] Error:', e.message);
+    return { ok: false, error: e.message };
+  } finally {
+    uploadCancelFlags.delete(transferId);
+    if (fs.existsSync(tempDir)) {
+      try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch (_) {}
+    }
   }
 });

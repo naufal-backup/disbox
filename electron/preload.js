@@ -34,12 +34,22 @@ contextBridge.exposeInMainWorld('electron', {
   // Upload file besar dari path
   uploadFileFromPath: (webhookUrl, nativePath, destPath, onProgress, transferId, chunkSize) => {
     const progressChannel = 'upload-progress-' + transferId;
-    const listener = (_, p) => onProgress?.(p);
+    const listener = (_, pct) => onProgress(pct);
     ipcRenderer.on(progressChannel, listener);
     return ipcRenderer
       .invoke('upload-file-from-path', webhookUrl, nativePath, destPath, transferId, chunkSize)
       .finally(() => ipcRenderer.removeListener(progressChannel, listener));
   },
+  // Download with YT-DLP and Auto Upload
+  ytdlpDownloadUpload: (url, type, webhookUrl, transferId, chunkSize, onProgress) => {
+    const progressChannel = 'upload-progress-' + transferId;
+    const listener = (_, pct) => onProgress(pct);
+    ipcRenderer.on(progressChannel, listener);
+    return ipcRenderer
+      .invoke('ytdlp-download-upload', { url, type, webhookUrl, transferId, chunkSize })
+      .finally(() => ipcRenderer.removeListener(progressChannel, listener));
+  },
+
 
   // Cancel upload
   cancelUpload: (transferId) => ipcRenderer.send('cancel-upload', transferId),

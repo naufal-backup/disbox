@@ -9,8 +9,11 @@ on:
 
 jobs:
   release:
-    name: Build & Release Disbox
-    runs-on: ubuntu-latest
+    name: Build & Release Disbox (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
     permissions:
       contents: write
 
@@ -28,43 +31,50 @@ jobs:
         id: package-version
         run: echo "version=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
 
-      - name: Install System Dependencies
-        # Wine is required to build Windows NSIS/exe on Linux
-        # libarchive-tools is needed for pacman packaging
-        run: |
-          sudo dpkg --add-architecture i386
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends wine wine64 wine32 libarchive-tools fakeroot
-          wine --version
-          
       - name: Install NPM Dependencies
-        run: npm ci || npm install
+        run: npm install
 
       - name: Rebuild Native Modules (better-sqlite3)
-        run: npx electron-rebuild -f -w better-sqlite3
+        # Penting agar better-sqlite3 kompatibel dengan versi Electron yang digunakan
+        run: npx @electron/rebuild -f -w better-sqlite3
 
-      - name: Build Web Assets (Vite)
-        run: npm run build:web
-
-      - name: Build Linux Artifacts (AppImage, deb, pacman)
-        run: npx electron-builder --linux --publish never
-
-      - name: Build Windows Artifacts (Setup, Portable, zip)
-        run: npx electron-builder --win --publish never
+      - name: Build and Package
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # Script ini akan menjalankan vite build && electron-builder
+        # Target platform akan otomatis terdeteksi berdasarkan OS runner
+        run: npm run build
 
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
         with:
           tag_name: v${{ steps.package-version.outputs.version }}
           name: Disbox v${{ steps.package-version.outputs.version }}
           draft: false
           prerelease: false
           files: |
-            release/Disbox-Linux-x64.AppImage
-            release/Disbox-Linux-x64.deb
-            release/Disbox-Linux-x64.pacman
-            release/Disbox-Windows-Setup.exe
-            release/Disbox-Windows-Portable.exe
-            release/Disbox-Windows.zip
+            release/*.AppImage
+            release/*.deb
+            release/*.pacman
+            release/*.exe
+            release/*.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Draft Release (on main push)
+        uses: softprops/action-gh-release@v2
+        if: github.ref == 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/')
+        with:
+          tag_name: latest-dev
+          name: Latest Development Build
+          draft: true
+          prerelease: true
+          files: |
+            release/*.AppImage
+            release/*.deb
+            release/*.pacman
+            release/*.exe
+            release/*.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

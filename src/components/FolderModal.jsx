@@ -1,5 +1,71 @@
 import { useState } from 'react';
-import { FolderPlus, Move, Copy, X, ChevronRight, Home, Check, AlertCircle } from 'lucide-react';
+import { FolderPlus, Move, Copy, X, ChevronRight, Home, Check, AlertCircle, Youtube, Music, Video, Download } from 'lucide-react';
+...
+// ─── YT-DLP Modal ─────────────────────────────────────────────────────────────
+export function YtDlpModal({ onClose, onConfirm }) {
+  const { t } = useApp();
+  const [url, setUrl] = useState('');
+  const [error, setError] = useState('');
+
+  const handleConfirm = (type) => {
+    const trimmed = url.trim();
+    if (!trimmed) { setError('URL tidak boleh kosong'); return; }
+    if (!trimmed.startsWith('http')) { setError('URL tidak valid'); return; }
+    onConfirm(trimmed, type);
+  };
+
+  return (
+    <Backdrop onClose={onClose}>
+      <div className={styles.modal} style={{ maxWidth: 400 }}>
+        <div className={styles.header}>
+          <div className={styles.headerIcon} style={{ background: 'rgba(255, 0, 0, 0.1)', color: '#ff0000' }}>
+            <Youtube size={16} />
+          </div>
+          <span>YT-DLP Auto Upload</span>
+          <button className={styles.closeBtn} onClick={onClose}><X size={14} /></button>
+        </div>
+
+        <div className={styles.body}>
+          <label className={styles.label}>Link Video / Music</label>
+          <input
+            className={`${styles.input} ${error ? styles.inputError : ''}`}
+            placeholder="https://www.youtube.com/watch?v=..."
+            value={url}
+            onChange={e => { setUrl(e.target.value); setError(''); }}
+            onKeyDown={e => {
+              if (e.key === 'Enter') handleConfirm('video');
+            }}
+            autoFocus
+          />
+          {error && <p className={styles.error}>{error}</p>}
+          <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 8, lineHeight: 1.4 }}>
+            File akan didownload otomatis ke folder sementara, lalu diupload ke Disbox.
+          </p>
+        </div>
+
+        <div className={styles.footer} style={{ gap: 10 }}>
+          <button className={styles.cancelBtn} onClick={onClose}>{t('cancel')}</button>
+          <div style={{ display: 'flex', gap: 8, flex: 1 }}>
+            <button 
+              className={styles.confirmBtn} 
+              onClick={() => handleConfirm('music')}
+              style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', color: 'var(--text-primary)', flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+            >
+              <Music size={14} /> Music
+            </button>
+            <button 
+              className={styles.confirmBtn} 
+              onClick={() => handleConfirm('video')}
+              style={{ background: 'var(--accent)', flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+            >
+              <Video size={14} /> Video
+            </button>
+          </div>
+        </div>
+      </div>
+    </Backdrop>
+  );
+}
 import { useApp } from '../AppContext.jsx';
 import { motion, AnimatePresence } from 'framer-motion';
 import styles from './FolderModal.module.css';
