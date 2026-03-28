@@ -100,7 +100,6 @@ export class DisboxAPI {
     const savedChunkSize = Number(localStorage.getItem('disbox_chunk_size'));
     this.chunkSize = (savedChunkSize && savedChunkSize < 8 * 1024 * 1024) ? savedChunkSize : 7.5 * 1024 * 1024;
     
-    // Antrean tugas untuk mencegah race condition
     this._taskQueue = Promise.resolve();
     this._syncing = false;
   }
@@ -110,48 +109,33 @@ export class DisboxAPI {
     return url.split('?')[0].trim().replace(/\/+$/, '');
   }
 
-  // Helper untuk menjalankan tugas secara berurutan
   async _enqueue(task) {
     const nextTask = this._taskQueue.then(async () => {
-      try {
-        return await task();
-      } catch (e) {
-        console.error('[queue] Task error:', e);
-        throw e;
-      }
+      try { return await task(); }
+      catch (e) { console.error('[queue] Task error:', e); throw e; }
     });
-    this._taskQueue = nextTask.catch(() => {}); // Pastikan antrean tidak mati jika satu tugas gagal
+    this._taskQueue = nextTask.catch(() => {});
     return nextTask;
   }
 
   async hashWebhook(url) {
     const normalized = this._normalizeUrl(url);
     const encoder = new TextEncoder();
-    const data = encoder.encode(normalized);
-    const hash = await crypto.subtle.digest('SHA-256', data);
-    return Array.from(new Uint8Array(hash))
-      .map(b => b.toString(16).padStart(2, '0'))
-      .join('');
+    const hash = await crypto.subtle.digest('SHA-256', encoder.encode(normalized));
+    return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
   }
 
   async deriveKey(url) {
     const normalized = this._normalizeUrl(url);
-    const encoder = new TextEncoder();
-    const data = encoder.encode(normalized);
-    const hash = await crypto.subtle.digest('SHA-256', data);
-    return await crypto.subtle.importKey(
-      'raw',
-      hash,
-      { name: 'AES-GCM' },
-      false,
-      ['encrypt', 'decrypt']
-    );
+    const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(normalized));
+    return await crypto.subtle.importKey('raw', hash, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
   }
 
   async init(forceSyncId = null) {
     this.hashedWebhook = await this.hashWebhook(this.webhookUrl);
     this.encryptionKey = await this.deriveKey(this.webhookUrl);
-    console.log('[disbox] Init | hash:', this.hashedWebhook);
+    console.log(`[sync-lifecycle] init api: ${this.hashedWebhook?.slice(-8)}`);
+    
     await this.syncMetadata(forceSyncId);
     return this.hashedWebhook;
   }
@@ -179,7 +163,7 @@ export class DisboxAPI {
 
     for (let i = 0; i < this.MAGIC_HEADER.length; i++) {
       if (uint8[i] !== this.MAGIC_HEADER[i]) {
-        console.log('[crypto] No magic header, assuming unencrypted data');
+        console.log('[crypto] No magic header');
         return data;
       }
     }
@@ -202,12 +186,8 @@ export class DisboxAPI {
   // ─── Metadata Sync ────────────────────────────────────────────────────────
 
   async _getMsgIdFromDiscovery() {
-    console.log(`[sync] Initiating discovery for ${this.hashedWebhook?.slice(-8)}...`);
     const localRes = await window.electron.getLatestMetadataMsgId?.(this.hashedWebhook, this.webhookUrl);
-    if (localRes === 'pending') {
-      console.log('[sync] Local has PENDING changes. Sync suppressed.');
-      return 'pending';
-    }
+    if (localRes === 'pending') return 'pending';
 
     const localMsgId = typeof localRes === 'object' ? localRes?.lastMsgId : localRes;
     const snapshotHistory = localRes?.snapshotHistory || [];
@@ -217,25 +197,16 @@ export class DisboxAPI {
       const res = await window.electron.fetch(this.webhookUrl);
       if (res.ok) {
         const info = JSON.parse(res.body);
-        const match = info.name?.match(/(?:dbx|disbox|db)[:\s]+(\d+)/i);
-        webhookMsgId = match?.[1] || null;
+        webhookMsgId = info.name?.match(/(?:dbx|disbox|db)[:\s]+(\d+)/i)?.[1] || null;
       }
     } catch (_) {}
 
-    console.log(`[sync] Discovery Results | Local: ${localMsgId || 'None'} | Cloud: ${webhookMsgId || 'None'}`);
-
     const candidates = [localMsgId, webhookMsgId].filter(Boolean);
-    if (candidates.length === 0) {
-      console.log('[sync] No metadata ID found in local or cloud.');
-      return null;
-    }
-    const best = candidates.reduce((a, b) => {
-      try {
-        return BigInt(a) >= BigInt(b) ? a : b;
-      } catch { return a; }
-    });
+    if (candidates.length === 0) return null;
     
-    console.log(`[sync] Selected Best ID: ${best} ${best === localMsgId ? '(Local is latest)' : '(Cloud is newer)'}`);
+    const best = candidates.reduce((a, b) => {
+      try { return BigInt(a) >= BigInt(b) ? a : b; } catch { return a; }
+    });
 
     return { best, snapshotHistory };
   }
@@ -259,74 +230,43 @@ export class DisboxAPI {
   }
 
   async syncMetadata(forceId = null) {
-    return this._enqueue(async () => {
-      if (this._syncing) return false;
-      this._syncing = true;
-      try {
-        const discovery = forceId ? { best: forceId, snapshotHistory: [] } : await this._getMsgIdFromDiscovery();
-        if (!discovery) {
-          console.log('[sync] Tidak ada msgId ditemukan, skip sync.');
-          return false;
-        }
+    if (this._syncing) return;
+    this._syncing = true;
+    try {
+      const discovery = forceId ? { best: forceId, snapshotHistory: [] } : await this._getMsgIdFromDiscovery();
+      if (!discovery || discovery === 'pending') return;
 
-        if (discovery === 'pending') {
-          console.log('[sync] Local has pending changes, skipping sync to avoid data loss.');
-          return true;
-        }
+      const { best: msgId, snapshotHistory } = discovery;
+      
+      const local = await window.electron.loadMetadata(this.hashedWebhook);
+      const hasLocal = Array.isArray(local) && local.length > 0;
 
-        const { best: msgId, snapshotHistory } = discovery;
-
-        if (!forceId && msgId === this.lastSyncedId) {
-          const local = await window.electron.loadMetadata(this.hashedWebhook);
-          if (Array.isArray(local) && local.length > 0) {
-            console.log('[sync] Local up-to-date, skip download. msgId:', msgId);
-            return true;
-          }
-        }
-
-        console.log('[sync] Downloading SQLite metadata dari Discord, msgId:', msgId);
-        let data;
-        let resolvedMsgId = msgId;
-        try {
-          data = await this._downloadMetadataFromMsg(msgId);
-        } catch (e) {
-          console.error('[sync] Download gagal untuk msgId:', msgId, e.message);
-
-          const fallbackCandidates = [...snapshotHistory].reverse().filter(id => id !== msgId);
-          if (this.lastSyncedId && !fallbackCandidates.includes(this.lastSyncedId) && this.lastSyncedId !== msgId) {
-            fallbackCandidates.push(this.lastSyncedId);
-          }
-
-          let success = false;
-          for (const fallbackId of fallbackCandidates) {
-            console.log('[sync] Fallback: mencoba download dari msgId:', fallbackId);
-            try {
-              data = await this._downloadMetadataFromMsg(fallbackId);
-              resolvedMsgId = fallbackId;
-              console.log('[sync] Fallback BERHASIL menggunakan msgId:', fallbackId);
-              success = true;
-              break;
-            } catch (err) {
-              console.error('[sync] Fallback gagal untuk msgId:', fallbackId, err.message);
-            }
-          }
-
-          if (!success) return false;
-        }
-
-        await window.electron.saveMetadata(this.hashedWebhook, data, resolvedMsgId);
-        this.lastSyncedId = resolvedMsgId;
-        localStorage.setItem(`dbx_last_sync_${this.hashedWebhook}`, this.lastSyncedId);
-
-        console.log('[sync] ✓ Berhasil sync SQLite DB. msgId:', this.lastSyncedId);
-        return true;
-      } catch (e) {
-        console.error('[sync] Fatal error:', e.message);
-        return false;
-      } finally {
-        this._syncing = false;
+      if (!forceId && msgId === this.lastSyncedId && hasLocal) {
+        console.log(`[sync] Local is up-to-date: ${msgId}`);
+        return;
       }
-    });
+
+      console.log(`[sync-lifecycle] download disbox metadata json: ${msgId}`);
+      let data = await this._downloadMetadataFromMsg(msgId).catch(async (e) => {
+        console.warn(`[sync] Download failed for ${msgId}, trying fallbacks...`);
+        for (const fid of snapshotHistory) {
+          try { return await this._downloadMetadataFromMsg(fid); } catch (_) {}
+        }
+        throw e;
+      });
+
+      console.log(`[sync-lifecycle] load file disbox metadata: ${msgId}`);
+      const ok = await window.electron.saveMetadata(this.hashedWebhook, data, msgId);
+      if (ok) {
+        this.lastSyncedId = msgId;
+        localStorage.setItem(`dbx_last_sync_${this.hashedWebhook}`, msgId);
+        console.log(`[sync] ✓ Metadata successfully loaded.`);
+      }
+    } catch (e) {
+      console.error('[sync] error:', e.message);
+    } finally {
+      this._syncing = false;
+    }
   }
 
   async uploadMetadataToDiscord(_files) {

@@ -1,0 +1,25 @@
+
+> disbox-linux@3.9.0 dev
+> concurrently "vite" "wait-on http://localhost:5173 && electron ."
+
+[0] [33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+[0] error when starting dev server:
+[0] Error: Port 5173 is already in use
+[0]     at Server.onError (file:///home/tb/Documents/GitHub/disbox/node_modules/vite/dist/node/chunks/dep-BK3b2jBa.js:45596:18)
+[0]     at Server.emit (node:events:519:28)
+[0]     at emitErrorNT (node:net:1976:8)
+[0]     at process.processTicksAndRejections (node:internal/process/task_queues:89:21)
+[0] vite exited with code 1
+[1] [92801:0328/114730.415710:ERROR:gl_surface_presentation_helper.cc(260)] GetVSyncParametersIfAvailable() failed for 1 times!
+[1] [92801:0328/114732.165697:ERROR:gl_surface_presentation_helper.cc(260)] GetVSyncParametersIfAvailable() failed for 2 times!
+[1] [92801:0328/114732.169816:ERROR:gl_surface_presentation_helper.cc(260)] GetVSyncParametersIfAvailable() failed for 3 times!
+[1] [metadata] Discovery requested | hash: 1a3aa38c
+[1] [metadata] Checking cloud for latest ID (Webhook: swMJETdNl5...)
+[1] [metadata] Found ID in Webhook name: 1486917598271508510
+[1] [92766:0328/114742.241377:ERROR:command_buffer_proxy_impl.cc(323)] GPU state invalid after WaitForGetOffsetInRange.
+[1] [92766:0328/114742.242711:ERROR:zygote_communication_linux.cc(290)] Failed to send GetTerminationStatus message to zygote
+[1] [92766:0328/114742.243719:ERROR:network_service_instance_impl.cc(599)] Network service crashed, restarting service.
+[1] [92766:0328/114742.252141:ERROR:zygote_communication_linux.cc(290)] Failed to send GetTerminationStatus message to zygote
+[1] [92766:0328/114742.257307:ERROR:gpu_process_host.cc(983)] GPU process launch failed: error_code=1002
+[1] [92766:0328/114742.259267:ERROR:gpu_process_host.cc(983)] GPU process launch failed: error_code=1002
+[1] wait-on http://localhost:5173 && electron . exited with code SIGHUP
