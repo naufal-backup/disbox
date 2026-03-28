@@ -90,131 +90,123 @@ if (!fs.existsSync(METADATA_DIR)) fs.mkdirSync(METADATA_DIR, { recursive: true }
 // [REFACTOR] SQLite Setup
 const Database = require('better-sqlite3');
 const DB_PATH = path.join(METADATA_DIR, 'disbox.db');
-const db = new Database(DB_PATH);
+let db;
 
-// [OPTIMIZATION] Enable WAL mode and other performance tweaks
-db.exec(`
-PRAGMA journal_mode = WAL;
-PRAGMA synchronous = NORMAL;
-PRAGMA cache_size = -16000; -- 16MB cache
-PRAGMA journal_size_limit = 67108864; -- 64MB journal limit
-`);
-
-// [FIX] Cek dan migrate tabel files SEBELUM membuat index yang butuh kolom hash
-// Ini harus jalan duluan karena CREATE INDEX IF NOT EXISTS akan error
-// jika tabel sudah ada tapi belum punya kolom hash
-try {
-  // Pastikan tabel files minimal ada dulu (versi lama tanpa hash)
-  db.exec(`
-  CREATE TABLE IF NOT EXISTS files (
-    id TEXT NOT NULL,
-    hash TEXT NOT NULL,
-    path TEXT NOT NULL,
-    parent_path TEXT NOT NULL,
-    name TEXT NOT NULL,
-    size INTEGER DEFAULT 0,
-    created_at INTEGER,
-    message_ids TEXT NOT NULL,
-    is_locked INTEGER DEFAULT 0,
-    is_starred INTEGER DEFAULT 0,
-    PRIMARY KEY (id, hash)
-  );
-  CREATE TABLE IF NOT EXISTS metadata_sync (
-    hash TEXT PRIMARY KEY,
-    last_msg_id TEXT,
-    snapshot_history TEXT DEFAULT '[]',
-    is_dirty INTEGER DEFAULT 0,
-    updated_at INTEGER
-  );
-  CREATE TABLE IF NOT EXISTS settings (
-    hash TEXT NOT NULL,
-    key TEXT NOT NULL,
-    value TEXT,
-    PRIMARY KEY (hash, key)
-  );
-  CREATE TABLE IF NOT EXISTS cloudsave_entries (
-    id TEXT PRIMARY KEY,
-    webhook_hash TEXT NOT NULL,
-    name TEXT NOT NULL,
-    local_path TEXT,
-    discord_path TEXT NOT NULL,
-    last_synced INTEGER DEFAULT 0,
-    last_modified INTEGER DEFAULT 0
-  );
-  CREATE TABLE IF NOT EXISTS share_settings (
-    hash TEXT PRIMARY KEY,
-    mode TEXT DEFAULT 'public',
-    cf_worker_url TEXT,
-    cf_api_token TEXT,
-    webhook_url TEXT,
-    enabled INTEGER DEFAULT 0
-  );
-  CREATE TABLE IF NOT EXISTS share_links (
-    id TEXT PRIMARY KEY,
-    hash TEXT NOT NULL,
-    file_path TEXT NOT NULL,
-    file_id TEXT,
-    token TEXT NOT NULL,
-    permission TEXT NOT NULL,
-    expires_at INTEGER,
-    created_at INTEGER NOT NULL
-  );
-  `);
-
-  // Tambahkan kolom webhook_url ke share_settings jika belum ada (migrasi)
-  try {
-    db.prepare("ALTER TABLE share_settings ADD COLUMN webhook_url TEXT").run();
-  } catch (_) {}
-
-  // Sekarang cek apakah kolom hash sudah ada
-  const cols = db.prepare("PRAGMA table_info(files)").all();
-  const hasHash = cols.some(c => c.name === 'hash');
-  const hasIsLocked = cols.some(c => c.name === 'is_locked');
-  const hasIsStarred = cols.some(c => c.name === 'is_starred');
-
-  if (!hasHash) {
-    console.log('[migration] Kolom hash belum ada, migrasi tabel files...');
-    db.transaction(() => {
-      db.exec(`ALTER TABLE files RENAME TO files_old;`);
-      db.exec(`
-      CREATE TABLE files (
-        id TEXT NOT NULL,
-        hash TEXT NOT NULL,
-        path TEXT NOT NULL,
-        parent_path TEXT NOT NULL,
-        name TEXT NOT NULL,
-        size INTEGER DEFAULT 0,
-        created_at INTEGER,
-        message_ids TEXT NOT NULL,
-        is_locked INTEGER DEFAULT 0,
-        is_starred INTEGER DEFAULT 0,
-        PRIMARY KEY (id, hash)
-      );
-      `);
-      db.exec(`DROP TABLE files_old;`);
-    })();
-  } else {
-    if (!hasIsLocked) {
-      console.log('[migration] Kolom is_locked belum ada, migrasi...');
-      db.exec(`ALTER TABLE files ADD COLUMN is_locked INTEGER DEFAULT 0`);
-    }
-    if (!hasIsStarred) {
-      console.log('[migration] Kolom is_starred belum ada, migrasi...');
-      db.exec(`ALTER TABLE files ADD COLUMN is_starred INTEGER DEFAULT 0`);
-    }
+function initDatabase() {
+  if (db) {
+    try { db.close(); } catch(e) {}
   }
+  db = new Database(DB_PATH);
 
-  // Sekarang aman untuk buat index (kolom hash sudah pasti ada)
+  // [OPTIMIZATION] Enable WAL mode and other performance tweaks
   db.exec(`
-  CREATE INDEX IF NOT EXISTS idx_hash ON files(hash);
-  CREATE INDEX IF NOT EXISTS idx_path ON files(path, hash);
-  CREATE INDEX IF NOT EXISTS idx_parent ON files(parent_path, hash);
+  PRAGMA journal_mode = WAL;
+  PRAGMA synchronous = NORMAL;
+  PRAGMA cache_size = -16000; -- 16MB cache
+  PRAGMA journal_size_limit = 67108864; -- 64MB journal limit
   `);
 
-} catch (e) {
-  console.error('[migration] Setup database gagal:', e.message);
-  throw e; // Fatal — app tidak bisa jalan tanpa DB
+  try {
+    // Pastikan tabel files minimal ada dulu (versi lama tanpa hash)
+    db.exec(`
+    CREATE TABLE IF NOT EXISTS files (
+      id TEXT NOT NULL,
+      hash TEXT NOT NULL,
+      path TEXT NOT NULL,
+      parent_path TEXT NOT NULL,
+      name TEXT NOT NULL,
+      size INTEGER DEFAULT 0,
+      created_at INTEGER,
+      message_ids TEXT NOT NULL,
+      is_locked INTEGER DEFAULT 0,
+      is_starred INTEGER DEFAULT 0,
+      PRIMARY KEY (id, hash)
+    );
+    CREATE TABLE IF NOT EXISTS metadata_sync (
+      hash TEXT PRIMARY KEY,
+      last_msg_id TEXT,
+      snapshot_history TEXT DEFAULT '[]',
+      is_dirty INTEGER DEFAULT 0,
+      updated_at INTEGER
+    );
+    CREATE TABLE IF NOT EXISTS settings (
+      hash TEXT NOT NULL,
+      key TEXT NOT NULL,
+      value TEXT,
+      PRIMARY KEY (hash, key)
+    );
+    CREATE TABLE IF NOT EXISTS cloudsave_entries (
+      id TEXT PRIMARY KEY,
+      webhook_hash TEXT NOT NULL,
+      name TEXT NOT NULL,
+      local_path TEXT,
+      discord_path TEXT NOT NULL,
+      last_synced INTEGER DEFAULT 0,
+      last_modified INTEGER DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS share_settings (
+      hash TEXT PRIMARY KEY,
+      mode TEXT DEFAULT 'public',
+      cf_worker_url TEXT,
+      cf_api_token TEXT,
+      webhook_url TEXT,
+      enabled INTEGER DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS share_links (
+      id TEXT PRIMARY KEY,
+      hash TEXT NOT NULL,
+      file_path TEXT NOT NULL,
+      file_id TEXT,
+      token TEXT NOT NULL,
+      permission TEXT NOT NULL,
+      expires_at INTEGER,
+      created_at INTEGER NOT NULL
+    );
+    `);
+
+    // Migrations
+    try { db.prepare("ALTER TABLE share_settings ADD COLUMN webhook_url TEXT").run(); } catch (_) {}
+    const cols = db.prepare("PRAGMA table_info(files)").all();
+    const hasHash = cols.some(c => c.name === 'hash');
+    const hasIsLocked = cols.some(c => c.name === 'is_locked');
+    const hasIsStarred = cols.some(c => c.name === 'is_starred');
+
+    if (!hasHash) {
+      db.transaction(() => {
+        db.exec(`ALTER TABLE files RENAME TO files_old;`);
+        db.exec(`
+        CREATE TABLE files (
+          id TEXT NOT NULL,
+          hash TEXT NOT NULL,
+          path TEXT NOT NULL,
+          parent_path TEXT NOT NULL,
+          name TEXT NOT NULL,
+          size INTEGER DEFAULT 0,
+          created_at INTEGER,
+          message_ids TEXT NOT NULL,
+          is_locked INTEGER DEFAULT 0,
+          is_starred INTEGER DEFAULT 0,
+          PRIMARY KEY (id, hash)
+        );
+        `);
+        db.exec(`DROP TABLE files_old;`);
+      })();
+    } else {
+      if (!hasIsLocked) db.exec(`ALTER TABLE files ADD COLUMN is_locked INTEGER DEFAULT 0`);
+      if (!hasIsStarred) db.exec(`ALTER TABLE files ADD COLUMN is_starred INTEGER DEFAULT 0`);
+    }
+
+    db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_hash ON files(hash);
+    CREATE INDEX IF NOT EXISTS idx_path ON files(path, hash);
+    CREATE INDEX IF NOT EXISTS idx_parent ON files(parent_path, hash);
+    `);
+  } catch (e) {
+    console.error('[migration] Setup database gagal:', e.message);
+  }
 }
+
+initDatabase();
 
 // [REFACTOR] Automatic Migration from JSON to SQLite
 function migrateJsonToSqlite() {
@@ -1773,40 +1765,8 @@ let metadataUploadTimer = null;
 async function uploadMetadataToDiscord(hash) {
   if (!activeWebhookUrl || activeWebhookHash !== hash) return;
 
-  let files;
-  let pinHash = null;
-  let shareLinks = [];
-  try {
-    const rows = db.prepare(
-      'SELECT id, path, message_ids as messageIds, size, created_at as createdAt, is_locked as isLocked, is_starred as isStarred FROM files WHERE hash = ?'
-    ).all(hash);
-    files = rows.map(f => ({
-      ...f,
-      messageIds: JSON.parse(f.messageIds),
-                           isLocked: !!f.isLocked,
-                           isStarred: !!f.isStarred
-    }));
-
-    const pinRow = db.prepare("SELECT value FROM settings WHERE hash = ? AND key = 'pin_hash'").get(hash);
-    if (pinRow) pinHash = pinRow.value;
-
-    const shareRows = db.prepare('SELECT * FROM share_links WHERE hash = ?').all(hash);
-    shareLinks = shareRows.map(s => ({
-      id: s.id,
-      hash: s.hash,
-      file_path: s.file_path,
-      file_id: s.file_id,
-      token: s.token,
-      permission: s.permission,
-      expires_at: s.expires_at,
-      created_at: s.created_at
-    }));
-
-    if (files.length === 0 && !pinHash && shareLinks.length === 0) return;
-  } catch { return; }
-
-  console.log(`[metadata] UPLOADING …${hash.slice(-8)} (${files.length} items, ${shareLinks.length} links)`);
-  mainWindow?.webContents.send('metadata-status', { hash, status: 'uploading', items: files.length });
+  console.log(`[metadata] UPLOADING SQLite DB …${hash.slice(-8)}`);
+  mainWindow?.webContents.send('metadata-status', { hash, status: 'uploading' });
 
   let retryCount = 0;
   const maxRetries = 5;
@@ -1815,17 +1775,14 @@ async function uploadMetadataToDiscord(hash) {
     try {
       const key = getEncryptionKey(activeWebhookUrl);
 
-      // MetadataContainer format
-      const container = {
-        files,
-        pinHash,
-        shareLinks,
-        updatedAt: Date.now()
-      };
-
-      const jsonBuf = Buffer.from(JSON.stringify(container));
-      const encryptedBuf = encrypt(jsonBuf, key);
+      // Force WAL checkpoint to ensure all data is in the main file
+      try { db.pragma('wal_checkpoint(FULL)'); } catch(_) {}
+      
+      const dbBuffer = fs.readFileSync(DB_PATH);
+      const encryptedBuf = encrypt(dbBuffer, key);
       const bodyBuf = buildMetadataFormData(encryptedBuf, 'disbox_metadata.json');
+
+      console.log(`[sync-debug] Uploading encrypted SQLite DB (${dbBuffer.length} bytes)...`);
 
       const response = await net.fetch(activeWebhookUrl + '?wait=true', {
         method: 'POST',
@@ -1840,7 +1797,6 @@ async function uploadMetadataToDiscord(hash) {
         if ((response.status === 503 || response.status === 429) && retryCount < maxRetries) {
           retryCount++;
           const delay = Math.pow(2, retryCount) * 1000 + Math.random() * 1000;
-          console.warn(`[metadata] Upload failed with ${response.status}, retrying in ${Math.round(delay)}ms...`);
           await new Promise(resolve => setTimeout(resolve, delay));
           continue;
         }
@@ -1870,7 +1826,7 @@ async function uploadMetadataToDiscord(hash) {
       })();
 
       console.log(`[metadata] UPLOAD DONE ✓ ID: ${newMsgId}`);
-      mainWindow?.webContents.send('metadata-status', { hash, status: 'synced', items: files.length });
+      mainWindow?.webContents.send('metadata-status', { hash, status: 'synced' });
 
       await net.fetch(activeWebhookUrl, {
         method: 'PATCH',
@@ -1883,7 +1839,6 @@ async function uploadMetadataToDiscord(hash) {
       if (retryCount < maxRetries) {
         retryCount++;
         const delay = Math.pow(2, retryCount) * 1000 + Math.random() * 1000;
-        console.warn(`[metadata] Upload attempt ${retryCount} failed: ${e.message}, retrying...`);
         await new Promise(resolve => setTimeout(resolve, delay));
       } else {
         console.error('[metadata] UPLOAD error:', e.message);
@@ -1897,124 +1852,40 @@ async function uploadMetadataToDiscord(hash) {
 // [FIX] save-metadata: semua operasi filter/delete by hash
 ipcMain.handle('save-metadata', async (_, hash, data, msgId = null) => {
   try {
-    db.transaction(() => {
-      // Handle both MetadataContainer object and legacy array format
-      const isContainer = !Array.isArray(data) && data !== null && typeof data === 'object';
-      const filesToSave = isContainer ? (data.files || []) : (data || []);
-      const pinHashToSync = isContainer ? data.pinHash : null;
-      const shareLinksToSync = isContainer ? (data.shareLinks || []) : [];
+    if (msgId) {
+      // Sync dari cloud: data adalah biner (Buffer atau ArrayBuffer)
+      const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data);
+      
+      console.log(`[sync-debug] OVERWRITING local DB with cloud data (${buffer.length} bytes)...`);
+      
+      initDatabase(); // Tutup koneksi lama
+      fs.writeFileSync(DB_PATH, buffer);
+      initDatabase(); // Buka koneksi baru dengan file baru
 
-      if (msgId) {
-        // Sync dari cloud: hapus HANYA file milik hash ini
-        db.prepare('DELETE FROM files WHERE hash = ?').run(hash);
-
-        const insertFile = db.prepare(`
-        INSERT INTO files (id, hash, path, parent_path, name, size, created_at, message_ids, is_locked, is_starred)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `);
-
-        for (const f of filesToSave) {
-          const parts = f.path.split('/');
-          const name = parts.pop();
-          const parent_path = parts.join('/') || '/';
-          insertFile.run(
-            f.id || Math.random().toString(36).substring(7),
-                         hash,
-                         f.path,
-                         parent_path,
-                         name,
-                         f.size || 0,
-                         f.createdAt || Date.now(),
-                         JSON.stringify(f.messageIds || []),
-                         f.isLocked ? 1 : 0,
-                         f.isStarred ? 1 : 0
-          );
-        }
-
-        // Sync pinHash jika ada (khusus saat download dari cloud)
-        if (pinHashToSync) {
-          db.prepare(`
-          INSERT INTO settings (hash, key, value) VALUES (?, 'pin_hash', ?)
-          ON CONFLICT(hash, key) DO UPDATE SET value = excluded.value
-          `).run(hash, pinHashToSync);
-        } else if (isContainer) {
-          // Jika container eksplisit tapi pinHash null/kosong, hapus pin lokal agar sync
-          db.prepare("DELETE FROM settings WHERE hash = ? AND key = 'pin_hash'").run(hash);
-        }
-
-        // Sync shareLinks jika ada (khusus saat download dari cloud)
-        if (isContainer && data.shareLinks) {
-          db.prepare('DELETE FROM share_links WHERE hash = ?').run(hash);
-          const insertLink = db.prepare(`
-          INSERT INTO share_links (id, hash, file_path, file_id, token, permission, expires_at, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-          `);
-          for (const s of shareLinksToSync) {
-            insertLink.run(
-              s.id,
-              s.hash,
-              s.file_path,
-              s.file_id || null,
-              s.token,
-              s.permission,
-              s.expires_at || null,
-              s.created_at || Date.now()
-            );
-          }
-        }
-
-        const meta = db.prepare('SELECT snapshot_history FROM metadata_sync WHERE hash = ?').get(hash);
-        let snapshotHistory = JSON.parse(meta?.snapshot_history || '[]');
-        if (!snapshotHistory.includes(msgId)) {
-          snapshotHistory.push(msgId);
-          if (snapshotHistory.length > 3) snapshotHistory.shift();
-        }
-
-        db.prepare(`
-        INSERT INTO metadata_sync (hash, last_msg_id, snapshot_history, is_dirty, updated_at)
-        VALUES (?, ?, ?, 0, ?)
-        ON CONFLICT(hash) DO UPDATE SET
-        last_msg_id=excluded.last_msg_id,
-        snapshot_history=excluded.snapshot_history,
-        is_dirty=0,
-        updated_at=excluded.updated_at
-        `).run(hash, msgId, JSON.stringify(snapshotHistory), Date.now());
-
-        console.log(`[metadata] SYNCED & RESTORED …${hash.slice(-8)} → ${filesToSave.length} items, ${shareLinksToSync.length} links`);
-        mainWindow?.webContents.send('metadata-status', { hash, status: 'synced', items: filesToSave.length });
-      } else {
-        // Perubahan lokal: hapus HANYA file milik hash ini
-        db.prepare('DELETE FROM files WHERE hash = ?').run(hash);
-
-        const insertFile = db.prepare(`
-        INSERT INTO files (id, hash, path, parent_path, name, size, created_at, message_ids, is_locked, is_starred)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `);
-
-        for (const f of filesToSave) {
-          const parts = f.path.split('/');
-          const name = parts.pop();
-          const parent_path = parts.join('/') || '/';
-          insertFile.run(
-            f.id,
-            hash,
-            f.path,
-            parent_path,
-            name,
-            f.size || 0,
-            f.createdAt || Date.now(),
-                         JSON.stringify(f.messageIds || []),
-                         f.isLocked ? 1 : 0,
-                         f.isStarred ? 1 : 0
-          );
-        }
-
-        markMetadataDirty(hash);
-
-        console.log(`[metadata] LOCAL SAVE …${hash.slice(-8)} → ${filesToSave.length} items (dirty)`);
-        mainWindow?.webContents.send('metadata-status', { hash, status: 'dirty', items: filesToSave.length });
+      const meta = db.prepare('SELECT snapshot_history FROM metadata_sync WHERE hash = ?').get(hash);
+      let snapshotHistory = JSON.parse(meta?.snapshot_history || '[]');
+      if (!snapshotHistory.includes(msgId)) {
+        snapshotHistory.push(msgId);
+        if (snapshotHistory.length > 3) snapshotHistory.shift();
       }
-    })();
+
+      db.prepare(`
+      INSERT INTO metadata_sync (hash, last_msg_id, snapshot_history, is_dirty, updated_at)
+      VALUES (?, ?, ?, 0, ?)
+      ON CONFLICT(hash) DO UPDATE SET
+      last_msg_id=excluded.last_msg_id,
+      snapshot_history=excluded.snapshot_history,
+      is_dirty=0,
+      updated_at=excluded.updated_at
+      `).run(hash, msgId, JSON.stringify(snapshotHistory), Date.now());
+
+      console.log(`[metadata] SYNCED & RESTORED SQLite DB …${hash.slice(-8)}`);
+      mainWindow?.webContents.send('metadata-status', { hash, status: 'synced' });
+    } else {
+      // Perubahan lokal (hanya menandai dirty)
+      markMetadataDirty(hash);
+      mainWindow?.webContents.send('metadata-status', { hash, status: 'dirty' });
+    }
     return true;
   } catch (e) {
     console.error('[save-metadata] error:', e.message);

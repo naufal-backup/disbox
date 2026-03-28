@@ -245,13 +245,9 @@ export class DisboxAPI {
 
     const bytes = await window.electron.proxyDownload(attachmentUrl);
     const decryptedBytes = await this.decrypt(bytes);
-    const jsonStr = new TextDecoder().decode(decryptedBytes);
-    const data = JSON.parse(jsonStr);
-
-    const isValid = Array.isArray(data) || (data !== null && typeof data === 'object');
-    if (!isValid) throw new Error('Format metadata tidak valid');
-
-    return data;
+    
+    // [FIX: Sync SQLite Direct] Kembalikan biner utuh, bukan JSON string
+    return decryptedBytes;
   }
 
   async syncMetadata(forceId = null) {
@@ -275,13 +271,12 @@ export class DisboxAPI {
         if (!forceId && msgId === this.lastSyncedId) {
           const local = await window.electron.loadMetadata(this.hashedWebhook);
           if (Array.isArray(local) && local.length > 0) {
-            console.log('[sync] Local up-to-date, skip download. msgId:', msgId, 'items:', local.length);
+            console.log('[sync] Local up-to-date, skip download. msgId:', msgId);
             return true;
           }
-          console.log('[sync] ID sama tapi local kosong/hilang → force download dari Discord');
         }
 
-        console.log('[sync] Downloading metadata dari Discord, msgId:', msgId);
+        console.log('[sync] Downloading SQLite metadata dari Discord, msgId:', msgId);
         let data;
         let resolvedMsgId = msgId;
         try {
@@ -308,18 +303,14 @@ export class DisboxAPI {
             }
           }
 
-          if (!success) {
-            console.error('[sync] Semua upaya download (termasuk fallback) gagal.');
-            return false;
-          }
+          if (!success) return false;
         }
 
         await window.electron.saveMetadata(this.hashedWebhook, data, resolvedMsgId);
         this.lastSyncedId = resolvedMsgId;
         localStorage.setItem(`dbx_last_sync_${this.hashedWebhook}`, this.lastSyncedId);
 
-        const itemCount = Array.isArray(data) ? data.length : (data.files?.length || 0);
-        console.log('[sync] ✓ Berhasil sync. msgId:', this.lastSyncedId, '| items:', itemCount);
+        console.log('[sync] ✓ Berhasil sync SQLite DB. msgId:', this.lastSyncedId);
         return true;
       } catch (e) {
         console.error('[sync] Fatal error:', e.message);
@@ -359,22 +350,7 @@ export class DisboxAPI {
         }
       }
 
-      let files = Array.isArray(data) ? data : [];
-      let changed = false;
-
-      files = files.map(f => {
-        if (!f.id) {
-          changed = true;
-          return { ...f, id: crypto.randomUUID() };
-        }
-        return f;
-      });
-
-      if (changed) {
-        await window.electron.saveMetadata(this.hashedWebhook, files);
-      }
-
-      return files;
+      return Array.isArray(data) ? data : [];
     } catch (e) {
       console.error('[disbox] getFileSystem error:', e.message);
       return [];
