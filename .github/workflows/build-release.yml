@@ -9,8 +9,7 @@ jobs:
   build-linux:
     name: Build Linux
     runs-on: ubuntu-latest
-    outputs:
-      release_exists: ${{ steps.check_release.outputs.exists }}
+    timeout-minutes: 30
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -33,7 +32,7 @@ jobs:
         run: npm run build:web
 
       - name: Package Linux
-        run: npx electron-builder --linux
+        run: npx electron-builder --linux -c.publish=never
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -49,6 +48,7 @@ jobs:
   build-windows:
     name: Build Windows
     runs-on: windows-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -66,7 +66,7 @@ jobs:
         run: npm run build:web
 
       - name: Package Windows
-        run: npx electron-builder --win
+        run: npx electron-builder --win -c.publish=never
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
