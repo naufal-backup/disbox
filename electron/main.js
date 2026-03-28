@@ -1675,16 +1675,8 @@ fs.watch(METADATA_DIR, (eventType, filename) => {
   }
 });
 
-const discoveryLocks = new Set();
-
 ipcMain.handle('get-latest-metadata-msgid', async (_, hash, webhookUrl) => {
-  if (discoveryLocks.has(hash)) {
-    console.log(`[metadata] Discovery already in progress for ${hash?.slice(-8)}, skipping concurrent request.`);
-    return null;
-  }
-  discoveryLocks.add(hash);
-
-  console.log(`[metadata] Discovery started | hash: ${hash?.slice(-8)}`);
+  console.log(`[metadata] Discovery requested | hash: ${hash?.slice(-8)}`);
   try {
     const meta = db.prepare('SELECT last_msg_id, snapshot_history, is_dirty FROM metadata_sync WHERE hash = ?').get(hash);
     
@@ -1700,64 +1692,78 @@ ipcMain.handle('get-latest-metadata-msgid', async (_, hash, webhookUrl) => {
 
     if (webhookUrl) {
       const normalized = normalizeUrl(webhookUrl);
-      console.log(`[metadata] Scanning cloud: ${normalized.slice(-15)}...`);
+      console.log(`[metadata] Checking cloud for latest ID (Webhook: ${normalized.slice(-10)}...)`);
       
       try {
-        // 1. Ambil ID dari Nama Webhook
+        // 1. Ambil ID dari Nama Webhook (Fast Path)
         const res = await net.fetch(normalized);
         if (res.ok) {
           const info = JSON.parse(await res.text());
           const match = info.name?.match(/(?:dbx|disbox|db)[:\s]+(\d+)/i);
           webhookMsgId = match?.[1] || null;
+          if (webhookMsgId) console.log(`[metadata] Found ID in Webhook name: ${webhookMsgId}`);
         }
 
-        // 2. Scanning Proaktif (limit 50 untuk kecepatan)
-        if (!webhookMsgId) {
-          const msgRes = await net.fetch(`${normalized}/messages?limit=50`);
-          if (msgRes.ok) {
-            const messages = JSON.parse(await msgRes.text());
-            const metaMsg = messages.find(m => 
-              m.attachments?.some(a => a.filename.includes('metadata.json'))
-            );
-            if (metaMsg) webhookMsgId = metaMsg.id;
+        // 2. Scanning Proaktif: Ambil 100 pesan terakhir untuk mencari metadata terbaru
+        const msgRes = await net.fetch(`${normalized}/messages?limit=100`);
+        if (msgRes.ok) {
+          const messages = JSON.parse(await msgRes.text());
+          const metaMsg = messages.find(m => 
+            m.attachments?.some(a => a.filename.includes('metadata.json'))
+          );
+          if (metaMsg) {
+            const scannedId = metaMsg.id;
+            console.log(`[metadata] Found ID via scanning: ${scannedId}`);
+            
+            // Bandingkan dengan ID dari nama Webhook
+            if (!webhookMsgId || BigInt(scannedId) > BigInt(webhookMsgId)) {
+              console.log(`[metadata] Scanned ID ${scannedId} is NEWER than name ID ${webhookMsgId || 'None'}`);
+              webhookMsgId = scannedId;
+              
+              // Sync balik ke Nama Webhook agar selanjutnya cepat
+              await net.fetch(normalized, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: `dbx: ${webhookMsgId}` }),
+              }).catch(() => {});
+            }
           }
         }
       } catch (e) {
-        console.error('[metadata] Network error during discovery:', e.message);
+        console.error('[metadata] Discovery error:', e.message);
       }
     }
 
     const candidates = [localMsgId, webhookMsgId].filter(Boolean);
-    let best = null;
-    
-    if (candidates.length > 0) {
-      best = candidates.reduce((a, b) => {
-        try { return BigInt(a) >= BigInt(b) ? a : b; } catch { return a; }
-      });
-    }
+    console.log(`[metadata] Candidates: local=${localMsgId}, cloud=${webhookMsgId}`);
 
-    console.log(`[metadata] Discovery finished | Best ID: ${best || 'NONE'}`);
+    if (candidates.length === 0) return null;
+
+    // Pilih ID yang paling baru (terbesar secara numerik/BigInt)
+    const best = candidates.reduce((a, b) => {
+      try {
+        return BigInt(a) >= BigInt(b) ? a : b;
+      } catch { return a; }
+    });
+
+    console.log(`[metadata] Selected best ID: ${best}`);
+
     return {
       lastMsgId: best,
       snapshotHistory: snapshotHistory
     };
   } catch (e) {
-    console.error('[metadata] Fatal discovery error:', e.message);
-    return null;
-  } finally {
-    discoveryLocks.delete(hash);
+    console.error('[metadata] get-latest-msgid error:', e.message);
   }
+  return null;
 });
 
 // [FIX] load-metadata: filter by hash
 ipcMain.handle('load-metadata', async (_, hash) => {
-  console.log(`[metadata] load-metadata requested for hash: ${hash?.slice(-8)}`);
   try {
     const files = db.prepare(
       'SELECT id, path, message_ids as messageIds, size, created_at as createdAt, is_locked as isLocked, is_starred as isStarred FROM files WHERE hash = ?'
     ).all(hash);
-
-    console.log(`[metadata] load-metadata: found ${files.length} items in local DB`);
 
     return files.map(f => ({
       ...f,
@@ -1767,7 +1773,7 @@ ipcMain.handle('load-metadata', async (_, hash) => {
     }));
   } catch (e) {
     console.error('[load-metadata] error:', e.message);
-    return []; // Return empty array instead of null to prevent frontend errors
+    return null;
   }
 });
 

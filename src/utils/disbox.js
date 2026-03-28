@@ -96,17 +96,31 @@ export class DisboxAPI {
     this.hashedWebhook = null;
     this.encryptionKey = null;
     this.MAGIC_HEADER = new TextEncoder().encode('DBX_ENC:'); // 8 bytes
-    this.lastSyncedId = null;
+    
+    this._normalizedWebhook = this._normalizeUrl(webhookUrl);
+    this.lastSyncedId = localStorage.getItem(`dbx_last_sync_${this._hashWebhookSync(this._normalizedWebhook)}`);
+    
     const savedChunkSize = Number(localStorage.getItem('disbox_chunk_size'));
     this.chunkSize = (savedChunkSize && savedChunkSize < 8 * 1024 * 1024) ? savedChunkSize : 7.5 * 1024 * 1024;
     
+    this._syncPromise = null;
     this._taskQueue = Promise.resolve();
-    this._syncing = false;
   }
 
   _normalizeUrl(url) {
     if (!url) return '';
     return url.split('?')[0].trim().replace(/\/+$/, '');
+  }
+
+  // Helper untuk hashing sinkron (untuk kunci localStorage)
+  _hashWebhookSync(url) {
+    let hash = 0;
+    for (let i = 0; i < url.length; i++) {
+      const char = url.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // Convert to 32bit integer
+    }
+    return Math.abs(hash).toString(16);
   }
 
   async _enqueue(task) {
@@ -134,7 +148,11 @@ export class DisboxAPI {
   async init(forceSyncId = null) {
     this.hashedWebhook = await this.hashWebhook(this.webhookUrl);
     this.encryptionKey = await this.deriveKey(this.webhookUrl);
-    console.log(`[sync-lifecycle] init api: ${this.hashedWebhook?.slice(-8)}`);
+    
+    // Load last synced ID
+    this.lastSyncedId = localStorage.getItem(`dbx_last_sync_${this.hashedWebhook}`);
+    
+    console.log(`[sync-lifecycle] init api: ${this.hashedWebhook?.slice(-8)} | last synced: ${this.lastSyncedId}`);
     
     await this.syncMetadata(forceSyncId);
     return this.hashedWebhook;
@@ -187,6 +205,13 @@ export class DisboxAPI {
 
   async _getMsgIdFromDiscovery() {
     const localRes = await window.electron.getLatestMetadataMsgId?.(this.hashedWebhook, this.webhookUrl);
+    
+    if (localRes === 'already_running') {
+      console.log('[sync] Discovery already running in backend, waiting 2s...');
+      await new Promise(r => setTimeout(r, 2000));
+      return this._getMsgIdFromDiscovery();
+    }
+
     if (localRes === 'pending') return 'pending';
 
     const localMsgId = typeof localRes === 'object' ? localRes?.lastMsgId : localRes;
@@ -230,43 +255,75 @@ export class DisboxAPI {
   }
 
   async syncMetadata(forceId = null) {
-    if (this._syncing) return;
-    this._syncing = true;
-    try {
-      const discovery = forceId ? { best: forceId, snapshotHistory: [] } : await this._getMsgIdFromDiscovery();
-      if (!discovery || discovery === 'pending') return;
-
-      const { best: msgId, snapshotHistory } = discovery;
-      
-      const local = await window.electron.loadMetadata(this.hashedWebhook);
-      const hasLocal = Array.isArray(local) && local.length > 0;
-
-      if (!forceId && msgId === this.lastSyncedId && hasLocal) {
-        console.log(`[sync] Local is up-to-date: ${msgId}`);
-        return;
-      }
-
-      console.log(`[sync-lifecycle] download disbox metadata json: ${msgId}`);
-      let data = await this._downloadMetadataFromMsg(msgId).catch(async (e) => {
-        console.warn(`[sync] Download failed for ${msgId}, trying fallbacks...`);
-        for (const fid of snapshotHistory) {
-          try { return await this._downloadMetadataFromMsg(fid); } catch (_) {}
-        }
-        throw e;
-      });
-
-      console.log(`[sync-lifecycle] load file disbox metadata: ${msgId}`);
-      const ok = await window.electron.saveMetadata(this.hashedWebhook, data, msgId);
-      if (ok) {
-        this.lastSyncedId = msgId;
-        localStorage.setItem(`dbx_last_sync_${this.hashedWebhook}`, msgId);
-        console.log(`[sync] ✓ Metadata successfully loaded.`);
-      }
-    } catch (e) {
-      console.error('[sync] error:', e.message);
-    } finally {
-      this._syncing = false;
+    if (this._syncPromise) {
+      console.log('[sync] Waiting for existing sync to complete...');
+      return this._syncPromise;
     }
+
+    this._syncPromise = (async () => {
+      try {
+        console.log('[sync] Starting metadata sync process...');
+        const discovery = forceId ? { best: forceId, snapshotHistory: [] } : await this._getMsgIdFromDiscovery();
+        
+        if (discovery === 'already_running') {
+          console.log('[sync] Backend already running discovery, waiting 2s...');
+          await new Promise(r => setTimeout(r, 2000));
+          this._syncPromise = null;
+          return this.syncMetadata(forceId);
+        }
+
+        if (!discovery || discovery === 'pending') {
+          console.log('[sync] Discovery pending or no result.');
+          return false;
+        }
+
+        const { best: msgId, snapshotHistory } = discovery;
+        
+        // [CRITICAL FIX] Cek apakah database lokal benar-benar punya data
+        const local = await window.electron.loadMetadata(this.hashedWebhook);
+        const hasLocalData = Array.isArray(local) && local.length > 0;
+
+        // Jangan skip jika local database KOSONG, meskipun ID-nya sama
+        if (!forceId && msgId === this.lastSyncedId && hasLocalData) {
+          console.log(`[sync] Skip: Local is already up-to-date (${local.length} items).`);
+          return true;
+        }
+
+        if (!msgId) {
+          console.log('[sync] Cloud is empty.');
+          return true;
+        }
+
+        console.log(`[sync-lifecycle] download disbox metadata json: ${msgId}`);
+        const data = await this._downloadMetadataFromMsg(msgId).catch(async (e) => {
+          console.warn(`[sync] Primary download failed, trying history...`);
+          for (const fid of snapshotHistory) {
+            try { 
+              const d = await this._downloadMetadataFromMsg(fid); 
+              if (d) return d;
+            } catch (_) {}
+          }
+          throw e;
+        });
+
+        console.log(`[sync-lifecycle] load file disbox metadata: ${msgId}`);
+        const ok = await window.electron.saveMetadata(this.hashedWebhook, data, msgId);
+        if (ok) {
+          this.lastSyncedId = msgId;
+          localStorage.setItem(`dbx_last_sync_${this.hashedWebhook}`, msgId);
+          console.log(`[sync] ✓ Sync complete. Database updated.`);
+          return true;
+        }
+        return false;
+      } catch (e) {
+        console.error('[sync] Error in syncMetadata:', e.message);
+        return false;
+      } finally {
+        this._syncPromise = null;
+      }
+    })();
+
+    return this._syncPromise;
   }
 
   async uploadMetadataToDiscord(_files) {
@@ -288,16 +345,7 @@ export class DisboxAPI {
 
   async getFileSystem() {
     try {
-      let data = await window.electron.loadMetadata(this.hashedWebhook);
-
-      if ((!Array.isArray(data) || data.length === 0) && !this.lastSyncedId) {
-        console.log('[disbox] Local kosong dan belum pernah sync, fetch dari Discord...');
-        const ok = await this.syncMetadata();
-        if (ok) {
-          data = await window.electron.loadMetadata(this.hashedWebhook);
-        }
-      }
-
+      const data = await window.electron.loadMetadata(this.hashedWebhook);
       return Array.isArray(data) ? data : [];
     } catch (e) {
       console.error('[disbox] getFileSystem error:', e.message);
