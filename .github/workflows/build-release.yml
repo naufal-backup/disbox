@@ -6,12 +6,11 @@ on:
       - 'v*'
 
 jobs:
-  build:
-    name: Build & Release Disbox v4
+  build-linux:
+    name: Build Linux
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-
+    outputs:
+      release_exists: ${{ steps.check_release.outputs.exists }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -23,13 +22,9 @@ jobs:
           cache: 'npm'
 
       - name: Install System Dependencies
-        # wine for windows build
-        # libarchive-tools (bsdtar) for pacman
-        # fakeroot, rpm, libarchive-tools for various linux formats
         run: |
-          sudo dpkg --add-architecture i386
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends wine64 wine32 libarchive-tools fakeroot rpm
+          sudo apt-get install -y --no-install-recommends libarchive-tools fakeroot rpm
           
       - name: Install NPM Dependencies
         run: npm ci
@@ -37,19 +32,73 @@ jobs:
       - name: Build Web Assets
         run: npm run build:web
 
-      - name: Build & Publish (Linux)
-        # We run linux first. Artifacts will be in release/
+      - name: Package Linux
         run: npx electron-builder --linux
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build & Publish (Windows)
-        # Then windows. Artifacts will also be in release/
+      - name: Upload Linux Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-artifacts
+          path: |
+            release/Disbox-Linux-x64.AppImage
+            release/Disbox-Linux-x64.deb
+            release/Disbox-Linux-x64.pacman
+
+  build-windows:
+    name: Build Windows
+    runs-on: windows-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install NPM Dependencies
+        run: npm ci
+
+      - name: Build Web Assets
+        run: npm run build:web
+
+      - name: Package Windows
         run: npx electron-builder --win
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload to GitHub Release
+      - name: Upload Windows Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-artifacts
+          path: |
+            release/Disbox-Windows-Setup.exe
+            release/Disbox-Windows-Portable.exe
+            release/Disbox-Windows.zip
+
+  release:
+    name: Create GitHub Release
+    needs: [build-linux, build-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download Linux Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-artifacts
+          path: release
+
+      - name: Download Windows Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-artifacts
+          path: release
+
+      - name: Create Release
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
         with:
