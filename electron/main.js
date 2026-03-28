@@ -274,12 +274,77 @@ function migrateJsonToSqlite() {
       console.log(`[migration] Success for ${hash}. Renaming to .bak`);
       fs.renameSync(filePath, filePath + '.bak');
     } catch (e) {
-      console.error(`[migration] Failed for ${hash}:`, e.message);
-    }
-  }
-}
+      console.log(`[migration] Failed for ${hash}:`, e.message);
+      }
+      }
+      }
 
-migrateJsonToSqlite();
+      function migrateLegacyJsonDataToSqlite(hash, data) {
+      const isContainer = !Array.isArray(data) && data !== null && typeof data === 'object';
+      const filesToSave = isContainer ? (data.files || []) : (data || []);
+      const pinHashToSync = isContainer ? data.pinHash : null;
+      const shareLinksToSync = isContainer ? (data.shareLinks || []) : [];
+
+      console.log(`[migration] Migrating ${filesToSave.length} files from legacy JSON cloud data...`);
+
+      db.transaction(() => {
+      // Hapus data lama untuk hash ini agar sync bersih
+      db.prepare('DELETE FROM files WHERE hash = ?').run(hash);
+      db.prepare("DELETE FROM settings WHERE hash = ? AND key = 'pin_hash'").run(hash);
+      db.prepare('DELETE FROM share_links WHERE hash = ?').run(hash);
+
+      const insertFile = db.prepare(`
+      INSERT INTO files (id, hash, path, parent_path, name, size, created_at, message_ids, is_locked, is_starred)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+
+      for (const f of filesToSave) {
+      const parts = f.path.split('/');
+      const name = parts.pop();
+      const parent_path = parts.join('/') || '/';
+      insertFile.run(
+        f.id || Math.random().toString(36).substring(7),
+        hash,
+        f.path,
+        parent_path,
+        name,
+        f.size || 0,
+        f.createdAt || Date.now(),
+        JSON.stringify(f.messageIds || []),
+        f.isLocked ? 1 : 0,
+        f.isStarred ? 1 : 0
+      );
+      }
+
+      if (pinHashToSync) {
+      db.prepare(`
+      INSERT INTO settings (hash, key, value) VALUES (?, 'pin_hash', ?)
+      ON CONFLICT(hash, key) DO UPDATE SET value = excluded.value
+      `).run(hash, pinHashToSync);
+      }
+
+      if (shareLinksToSync.length > 0) {
+      const insertLink = db.prepare(`
+      INSERT INTO share_links (id, hash, file_path, file_id, token, permission, expires_at, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      for (const s of shareLinksToSync) {
+        insertLink.run(
+          s.id,
+          s.hash,
+          s.file_path,
+          s.file_id || null,
+          s.token,
+          s.permission,
+          s.expires_at || null,
+          s.created_at || Date.now()
+        );
+      }
+      }
+      })();
+      }
+
+      migrateJsonToSqlite();
 
 // Preferensi default
 let prefs = {
@@ -1569,66 +1634,67 @@ fs.watch(METADATA_DIR, (eventType, filename) => {
 });
 
 ipcMain.handle('get-latest-metadata-msgid', async (_, hash, webhookUrl) => {
+  console.log(`[metadata] Discovery requested | hash: ${hash?.slice(-8)}`);
   try {
     const meta = db.prepare('SELECT last_msg_id, snapshot_history, is_dirty FROM metadata_sync WHERE hash = ?').get(hash);
     
     let localMsgId = meta?.last_msg_id || null;
     let snapshotHistory = JSON.parse(meta?.snapshot_history || '[]');
     
-    if (meta?.is_dirty) return 'pending';
+    if (meta?.is_dirty) {
+      console.log('[metadata] Local is dirty, returning pending.');
+      return 'pending';
+    }
 
-    let webhookNameId = null;
-    let scannedId = null;
+    let webhookMsgId = null;
 
     if (webhookUrl) {
       const normalized = normalizeUrl(webhookUrl);
+      console.log(`[metadata] Checking cloud for latest ID (Webhook: ${normalized.slice(-10)}...)`);
+      
       try {
-        // [FIX: Metadata Scanning Fallback]
         // 1. Ambil ID dari Nama Webhook (Fast Path)
         const res = await net.fetch(normalized);
         if (res.ok) {
           const info = JSON.parse(await res.text());
           const match = info.name?.match(/(?:dbx|disbox|db)[:\s]+(\d+)/i);
-          webhookNameId = match?.[1] || null;
+          webhookMsgId = match?.[1] || null;
+          if (webhookMsgId) console.log(`[metadata] Found ID in Webhook name: ${webhookMsgId}`);
         }
 
         // 2. Scanning Proaktif: Ambil 100 pesan terakhir untuk mencari metadata terbaru
-        // Ini memastikan sinkronisasi antar perangkat tetap jalan meskipun Nama Webhook gagal diupdate
-        console.log('[metadata] Scanning 100 pesan terakhir untuk verifikasi update terbaru...');
         const msgRes = await net.fetch(`${normalized}/messages?limit=100`);
         if (msgRes.ok) {
           const messages = JSON.parse(await msgRes.text());
-          // Cari pesan terbaru yang mengandung metadata.json
           const metaMsg = messages.find(m => 
             m.attachments?.some(a => a.filename.includes('metadata.json'))
           );
           if (metaMsg) {
-            scannedId = metaMsg.id;
-            console.log('[metadata] ID terbaru ditemukan lewat scanning:', scannedId);
+            const scannedId = metaMsg.id;
+            console.log(`[metadata] Found ID via scanning: ${scannedId}`);
+            
+            // Bandingkan dengan ID dari nama Webhook
+            if (!webhookMsgId || BigInt(scannedId) > BigInt(webhookMsgId)) {
+              console.log(`[metadata] Scanned ID ${scannedId} is NEWER than name ID ${webhookMsgId || 'None'}`);
+              webhookMsgId = scannedId;
+              
+              // Sync balik ke Nama Webhook agar selanjutnya cepat
+              await net.fetch(normalized, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: `dbx: ${webhookMsgId}` }),
+              }).catch(() => {});
+            }
           }
         }
-
-        // 3. Auto-fix Nama Webhook jika ID hasil scan lebih baru atau Nama Webhook kosong
-        const latestCloudId = (scannedId && webhookNameId) 
-          ? (BigInt(scannedId) > BigInt(webhookNameId) ? scannedId : webhookNameId)
-          : (scannedId || webhookNameId);
-
-        if (latestCloudId && latestCloudId !== webhookNameId) {
-          console.log('[metadata] Memulihkan/Mengupdate Nama Webhook ke ID terbaru:', latestCloudId);
-          await net.fetch(normalized, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name: `dbx: ${latestCloudId}` }),
-          }).catch(err => console.error('[metadata] Gagal update Nama Webhook:', err.message));
-        }
-
-        var webhookMsgId = latestCloudId;
       } catch (e) {
         console.error('[metadata] Discovery error:', e.message);
       }
     }
 
     const candidates = [localMsgId, webhookMsgId].filter(Boolean);
+    console.log(`[metadata] Candidates: local=${localMsgId}, cloud=${webhookMsgId}`);
+
     if (candidates.length === 0) return null;
 
     // Pilih ID yang paling baru (terbesar secara numerik/BigInt)
@@ -1637,6 +1703,8 @@ ipcMain.handle('get-latest-metadata-msgid', async (_, hash, webhookUrl) => {
         return BigInt(a) >= BigInt(b) ? a : b;
       } catch { return a; }
     });
+
+    console.log(`[metadata] Selected best ID: ${best}`);
 
     return {
       lastMsgId: best,
@@ -1851,17 +1919,34 @@ async function uploadMetadataToDiscord(hash) {
 
 // [FIX] save-metadata: semua operasi filter/delete by hash
 ipcMain.handle('save-metadata', async (_, hash, data, msgId = null) => {
+  console.log(`[metadata] save-metadata | hash: ${hash?.slice(-8)}, msgId: ${msgId || 'LOCAL'}`);
   try {
     if (msgId) {
-      // Sync dari cloud: data adalah biner (Buffer atau ArrayBuffer)
       const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data);
+      const isSqlite = buffer.slice(0, 16).toString().startsWith('SQLite format 3');
       
-      console.log(`[sync-debug] OVERWRITING local DB with cloud data (${buffer.length} bytes)...`);
-      
-      initDatabase(); // Tutup koneksi lama
-      fs.writeFileSync(DB_PATH, buffer);
-      initDatabase(); // Buka koneksi baru dengan file baru
+      if (isSqlite) {
+        console.log(`[sync-debug] OVERWRITING local DB with cloud data (${buffer.length} bytes)...`);
+        initDatabase(); // Tutup koneksi lama
+        fs.writeFileSync(DB_PATH, buffer);
+        initDatabase(); // Buka koneksi baru dengan file baru
+      } else {
+        // Legacy JSON Migration
+        try {
+          const jsonStr = buffer.toString('utf8');
+          const jsonData = JSON.parse(jsonStr);
+          console.log('[sync] Legacy JSON metadata detected from cloud, migrating to SQLite...');
+          migrateLegacyJsonDataToSqlite(hash, jsonData);
+          // Tandai sebagai dirty agar selanjutnya terupload sebagai SQLite
+          markMetadataDirty(hash);
+        } catch (e) {
+          console.error('[sync] Failed to handle non-SQLite cloud metadata:', e.message);
+          console.log('[sync] Hint: Data might be encrypted with a different key or corrupted.');
+          return false;
+        }
+      }
 
+      // Update sync table (baik setelah biner overwite maupun JSON migration)
       const meta = db.prepare('SELECT snapshot_history FROM metadata_sync WHERE hash = ?').get(hash);
       let snapshotHistory = JSON.parse(meta?.snapshot_history || '[]');
       if (!snapshotHistory.includes(msgId)) {
@@ -1879,10 +1964,9 @@ ipcMain.handle('save-metadata', async (_, hash, data, msgId = null) => {
       updated_at=excluded.updated_at
       `).run(hash, msgId, JSON.stringify(snapshotHistory), Date.now());
 
-      console.log(`[metadata] SYNCED & RESTORED SQLite DB …${hash.slice(-8)}`);
+      console.log(`[metadata] SYNCED & RESTORED …${hash.slice(-8)}`);
       mainWindow?.webContents.send('metadata-status', { hash, status: 'synced' });
     } else {
-      // Perubahan lokal (hanya menandai dirty)
       markMetadataDirty(hash);
       mainWindow?.webContents.send('metadata-status', { hash, status: 'dirty' });
     }
