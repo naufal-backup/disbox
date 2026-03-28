@@ -6,7 +6,7 @@ on:
       - 'v*'
 
 jobs:
-  release:
+  build:
     name: Build & Release Disbox v4
     runs-on: ubuntu-latest
     permissions:
@@ -23,27 +23,29 @@ jobs:
           cache: 'npm'
 
       - name: Install System Dependencies
-        # Wine is required to build Windows artifacts on Linux
-        # libarchive-tools (bsdtar) is needed for pacman packaging
+        # wine for windows build
+        # libarchive-tools (bsdtar) for pacman
+        # fakeroot, rpm, libarchive-tools for various linux formats
         run: |
           sudo dpkg --add-architecture i386
-          sudo apt update
-          sudo apt install -y --no-install-recommends wine64 wine32 libarchive-tools fakeroot
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends wine64 wine32 libarchive-tools fakeroot rpm
           
       - name: Install NPM Dependencies
         run: npm ci
 
-      - name: Rebuild Native Modules (better-sqlite3)
-        run: npx @electron/rebuild -f -w better-sqlite3
-
       - name: Build Web Assets
         run: npm run build:web
 
-      - name: Package & Build Artifacts (Linux & Windows)
-        # electron-builder will use the configuration from package.json
-        # Running both Linux and Windows builds to ensure all 6 files are generated
-        run: |
-          npx electron-builder --linux --win
+      - name: Build & Publish (Linux)
+        # We run linux first. Artifacts will be in release/
+        run: npx electron-builder --linux
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build & Publish (Windows)
+        # Then windows. Artifacts will also be in release/
+        run: npx electron-builder --win
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
