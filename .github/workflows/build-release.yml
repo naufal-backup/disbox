@@ -1,4 +1,4 @@
-name: Build and Release
+name: Build and Release v4
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
 
 jobs:
   release:
-    name: Build & Release Disbox
+    name: Build & Release Disbox v4
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -23,29 +23,53 @@ jobs:
           cache: 'npm'
 
       - name: Install System Dependencies
-        # Wine is required to build Windows NSIS/exe on Linux
-        # libarchive-tools is needed for pacman packaging
+        # Wine is required to build Windows artifacts on Linux
+        # libarchive-tools (bsdtar) is needed for pacman packaging
         run: |
           sudo dpkg --add-architecture i386
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends wine64 wine32 libarchive-tools fakeroot
+          sudo apt update
+          sudo apt install -y --no-install-recommends wine64 wine32 libarchive-tools fakeroot
           
       - name: Install NPM Dependencies
-        run: npm ci || npm install
+        run: npm ci
 
       - name: Rebuild Native Modules (better-sqlite3)
-        run: npx electron-rebuild -f -w better-sqlite3
+        run: npx @electron/rebuild -f -w better-sqlite3
 
-      - name: Build Linux Artifacts (AppImage, deb, pacman)
-        run: npm run build
+      - name: Build Web Assets
+        run: npm run build:web
 
-      - name: Build Windows Artifacts (Setup, Portable, zip)
-        run: npx electron-builder --win
+      - name: Package & Build Artifacts (Linux & Windows)
+        # electron-builder will use the configuration from package.json
+        # Running both Linux and Windows builds to ensure all 6 files are generated
+        run: |
+          npx electron-builder --linux --win
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
         with:
+          name: Disbox v4.0.0
+          body: |
+            ## 🚀 Disbox v4.0.0 - Major Release
+            
+            Disbox v4 hadir dengan peningkatan performa signifikan dan fitur keamanan baru.
+            
+            ### ✨ Fitur Baru & Perbaikan:
+            - **⚡ Fix Deadlock & Performance:** Perbaikan sistem antrean tugas yang mencegah aplikasi hang saat operasi file besar.
+            - **🔒 Smart Sync:** Penanganan konflik metadata yang lebih cerdas untuk sinkronisasi antar perangkat.
+            - **🛠 Network Reliability:** Penambahan timeout pada request jaringan untuk stabilitas lebih baik.
+            - **📁 Operasi Bulk:** Optimasi pemindahan dan penyalinan file dalam jumlah banyak.
+            
+            ### 📦 Artifacts Terlampir:
+            1. **Disbox-Linux-x64.AppImage** (Portable Linux)
+            2. **Disbox-Linux-x64.deb** (Debian/Ubuntu)
+            3. **Disbox-Linux-x64.pacman** (Arch Linux)
+            4. **Disbox-Windows-Setup.exe** (Windows Installer)
+            5. **Disbox-Windows-Portable.exe** (Windows Portable)
+            6. **Disbox-Windows.zip** (Windows Archive)
           files: |
             release/Disbox-Linux-x64.AppImage
             release/Disbox-Linux-x64.deb
@@ -53,5 +77,7 @@ jobs:
             release/Disbox-Windows-Setup.exe
             release/Disbox-Windows-Portable.exe
             release/Disbox-Windows.zip
+          draft: false
+          prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

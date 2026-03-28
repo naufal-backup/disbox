@@ -606,6 +606,8 @@ ipcMain.handle('net-fetch', async (_, url, options = {}) => {
   const controller = new AbortController();
   if (transferId) abortControllers.set(transferId, controller);
 
+  const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
+
   try {
     const response = await net.fetch(url, {
       method: options.method || 'GET',
@@ -617,10 +619,12 @@ ipcMain.handle('net-fetch', async (_, url, options = {}) => {
       signal: controller.signal,
     });
     const body = await response.text();
+    clearTimeout(timeoutId);
     return { status: response.status, body, ok: response.ok };
   } catch (e) {
-    if (e.name === 'AbortError') {
-      return { status: 0, body: '', ok: false, error: 'ABORTED' };
+    clearTimeout(timeoutId);
+    if (e.name === 'AbortError' || controller.signal.aborted) {
+      return { status: 0, body: '', ok: false, error: 'TIMEOUT_OR_ABORTED' };
     }
     console.error('[net-fetch] error:', url, e.message);
     return { status: 0, body: '', ok: false, error: e.message };
@@ -1576,11 +1580,10 @@ ipcMain.handle('get-latest-metadata-msgid', async (_, hash) => {
     const meta = db.prepare('SELECT last_msg_id, snapshot_history, is_dirty FROM metadata_sync WHERE hash = ?').get(hash);
     if (!meta) return null;
 
-    if (meta.is_dirty) return 'pending';
-
     return {
       lastMsgId: meta.last_msg_id,
-      snapshotHistory: JSON.parse(meta.snapshot_history || '[]')
+      snapshotHistory: JSON.parse(meta.snapshot_history || '[]'),
+      isDirty: !!meta.is_dirty
     };
   } catch (e) {
     console.error('[metadata] get-latest-msgid error:', e.message);

@@ -195,31 +195,36 @@ export class DisboxAPI {
   // ─── Metadata Sync ────────────────────────────────────────────────────────
 
   async _getMsgIdFromDiscovery() {
-    const localRes = await window.electron.getLatestMetadataMsgId?.(this.hashedWebhook);
-    if (localRes === 'pending') return 'pending';
-
-    const localMsgId = typeof localRes === 'object' ? localRes?.lastMsgId : localRes;
-    const snapshotHistory = localRes?.snapshotHistory || [];
-
-    let webhookMsgId = null;
     try {
-      const res = await window.electron.fetch(this.webhookUrl);
-      if (res.ok) {
-        const info = JSON.parse(res.body);
-        const match = info.name?.match(/(?:dbx|disbox|db)[:\s]+(\d+)/i);
-        webhookMsgId = match?.[1] || null;
+      const localRes = await window.electron.getLatestMetadataMsgId?.(this.hashedWebhook);
+      const isDirty = localRes?.isDirty || false;
+
+      const localMsgId = typeof localRes === 'object' ? localRes?.lastMsgId : localRes;
+      const snapshotHistory = localRes?.snapshotHistory || [];
+
+      let webhookMsgId = null;
+      try {
+        const res = await window.electron.fetch(this.webhookUrl);
+        if (res.ok) {
+          const info = JSON.parse(res.body);
+          const match = info.name?.match(/(?:dbx|disbox|db)[:\s]+(\d+)/i);
+          webhookMsgId = match?.[1] || null;
+        }
+      } catch (_) {}
+
+      const candidates = [localMsgId, webhookMsgId].filter(v => v && /^\d+$/.test(v));
+      if (candidates.length === 0) {
+        console.log('[sync] Discovery: tidak ada msgId');
+        return { best: null, snapshotHistory: [], isDirty };
       }
-    } catch (_) {}
+      const best = candidates.reduce((a, b) => BigInt(a) >= BigInt(b) ? a : b);
+      console.log(`[sync] Discovery: local=${localMsgId}, webhook=${webhookMsgId} → pakai: ${best} (dirty: ${isDirty})`);
 
-    const candidates = [localMsgId, webhookMsgId].filter(Boolean);
-    if (candidates.length === 0) {
-      console.log('[sync] Discovery: tidak ada msgId');
-      return null;
+      return { best, snapshotHistory, isDirty };
+    } catch (e) {
+      console.error('[sync] Discovery error:', e);
+      return { best: null, snapshotHistory: [], isDirty: false };
     }
-    const best = candidates.reduce((a, b) => BigInt(a) >= BigInt(b) ? a : b);
-    console.log(`[sync] Discovery: local=${localMsgId}, webhook=${webhookMsgId} → pakai: ${best}`);
-
-    return { best, snapshotHistory };
   }
 
   async _downloadMetadataFromMsg(msgId) {
@@ -249,17 +254,22 @@ export class DisboxAPI {
       this._syncing = true;
       try {
         const discovery = forceId ? { best: forceId, snapshotHistory: [] } : await this._getMsgIdFromDiscovery();
-        if (!discovery) {
+        const { best: msgId, snapshotHistory, isDirty } = discovery;
+
+        if (!msgId) {
           console.log('[sync] Tidak ada msgId ditemukan, skip sync.');
           return false;
         }
 
-        if (discovery === 'pending') {
+        if (isDirty && msgId === this.lastSyncedId && !forceId) {
           console.log('[sync] Local has pending changes, skipping sync to avoid data loss.');
           return true;
         }
 
-        const { best: msgId, snapshotHistory } = discovery;
+        if (isDirty && msgId !== this.lastSyncedId && !forceId) {
+          console.warn('[sync] CONFLICT: Local dirty tapi Discord punya metadata baru:', msgId);
+          // Biarkan lanjut sinkronisasi (Discord menang)
+        }
 
         if (!forceId && msgId === this.lastSyncedId) {
           const local = await window.electron.loadMetadata(this.hashedWebhook);
@@ -339,14 +349,6 @@ export class DisboxAPI {
   async getFileSystem() {
     try {
       let data = await window.electron.loadMetadata(this.hashedWebhook);
-
-      if ((!Array.isArray(data) || data.length === 0) && !this.lastSyncedId) {
-        console.log('[disbox] Local kosong dan belum pernah sync, fetch dari Discord...');
-        const ok = await this.syncMetadata();
-        if (ok) {
-          data = await window.electron.loadMetadata(this.hashedWebhook);
-        }
-      }
 
       let files = Array.isArray(data) ? data : [];
       let changed = false;
@@ -467,44 +469,48 @@ export class DisboxAPI {
   }
 
   async copyPath(oldPath, newPath, id = null) {
-    if (oldPath === newPath) return { success: false, reason: 'same_location' };
-    if (newPath.startsWith(oldPath + '/')) return { success: false, reason: 'into_self' };
-    const files = await this.getFileSystem();
-    const toAdd = [];
-    files.forEach(f => {
-      if ((id && f.id === id) || (!id && f.path === oldPath)) {
-        toAdd.push({ path: newPath, messageIds: [...f.messageIds], size: f.size, createdAt: Date.now(), id: crypto.randomUUID(), ...(f.thumbnailMsgId ? { thumbnailMsgId: f.thumbnailMsgId } : {}) });
-      } else if (f.path.startsWith(oldPath + '/')) {
-        toAdd.push({ path: f.path.replace(oldPath + '/', newPath + '/'), messageIds: [...f.messageIds], size: f.size, createdAt: Date.now(), id: crypto.randomUUID(), ...(f.thumbnailMsgId ? { thumbnailMsgId: f.thumbnailMsgId } : {}) });
-      }
+    return this._enqueue(async () => {
+      if (oldPath === newPath) return { success: false, reason: 'same_location' };
+      if (newPath.startsWith(oldPath + '/')) return { success: false, reason: 'into_self' };
+      const files = await this.getFileSystem();
+      const toAdd = [];
+      files.forEach(f => {
+        if ((id && f.id === id) || (!id && f.path === oldPath)) {
+          toAdd.push({ path: newPath, messageIds: [...f.messageIds], size: f.size, createdAt: Date.now(), id: crypto.randomUUID(), ...(f.thumbnailMsgId ? { thumbnailMsgId: f.thumbnailMsgId } : {}) });
+        } else if (f.path.startsWith(oldPath + '/')) {
+          toAdd.push({ path: f.path.replace(oldPath + '/', newPath + '/'), messageIds: [...f.messageIds], size: f.size, createdAt: Date.now(), id: crypto.randomUUID(), ...(f.thumbnailMsgId ? { thumbnailMsgId: f.thumbnailMsgId } : {}) });
+        }
+      });
+      if (toAdd.length > 0) await this._saveFileSystem([...files, ...toAdd]);
+      return { success: toAdd.length > 0 };
     });
-    if (toAdd.length > 0) await this._saveFileSystem([...files, ...toAdd]);
-    return { success: toAdd.length > 0 };
   }
 
   async bulkCopy(pathsOrIds, destDir) {
-    const files = await this.getFileSystem();
-    const toAdd = [];
-    pathsOrIds.forEach(target => {
-      const isId = target.includes('-') && target.length > 30;
-      let sourcePath = target;
-      if (isId) {
-        const f = files.find(x => x.id === target);
-        if (f) sourcePath = f.path;
-      }
-      const name = sourcePath.split('/').pop();
-      const newPath = destDir ? `${destDir}/${name}` : name;
-      if (sourcePath === newPath || newPath.startsWith(sourcePath + '/')) return;
-      files.forEach(f => {
-        if (f.path === sourcePath) {
-          toAdd.push({ path: newPath, messageIds: [...f.messageIds], size: f.size, createdAt: Date.now(), id: crypto.randomUUID(), ...(f.thumbnailMsgId ? { thumbnailMsgId: f.thumbnailMsgId } : {}) });
-        } else if (f.path.startsWith(sourcePath + '/')) {
-          toAdd.push({ path: f.path.replace(sourcePath + '/', newPath + '/'), messageIds: [...f.messageIds], size: f.size, createdAt: Date.now(), id: crypto.randomUUID(), ...(f.thumbnailMsgId ? { thumbnailMsgId: f.thumbnailMsgId } : {}) });
+    return this._enqueue(async () => {
+      const files = await this.getFileSystem();
+      const toAdd = [];
+      pathsOrIds.forEach(target => {
+        const isId = target.includes('-') && target.length > 30;
+        let sourcePath = target;
+        if (isId) {
+          const f = files.find(x => x.id === target);
+          if (f) sourcePath = f.path;
         }
+        const name = sourcePath.split('/').pop();
+        const newPath = destDir ? `${destDir}/${name}` : name;
+        if (sourcePath === newPath || newPath.startsWith(sourcePath + '/')) return;
+        files.forEach(f => {
+          if (f.path === sourcePath) {
+            toAdd.push({ path: newPath, messageIds: [...f.messageIds], size: f.size, createdAt: Date.now(), id: crypto.randomUUID(), ...(f.thumbnailMsgId ? { thumbnailMsgId: f.thumbnailMsgId } : {}) });
+          } else if (f.path.startsWith(sourcePath + '/')) {
+            toAdd.push({ path: f.path.replace(sourcePath + '/', newPath + '/'), messageIds: [...f.messageIds], size: f.size, createdAt: Date.now(), id: crypto.randomUUID(), ...(f.thumbnailMsgId ? { thumbnailMsgId: f.thumbnailMsgId } : {}) });
+          }
+        });
       });
+      if (toAdd.length > 0) await this._saveFileSystem([...files, ...toAdd]);
+      return { success: toAdd.length > 0 };
     });
-    if (toAdd.length > 0) await this._saveFileSystem([...files, ...toAdd]);
-    return { success: true };
   }
 
   async deleteFile(filePath) { return this.deletePath(filePath); }
