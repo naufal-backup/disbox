@@ -569,13 +569,21 @@ app.on('before-quit', (event) => {
   isQuitting = true;
   console.log(`[metadata] before-quit: menyelesaikan upload yang pending...`);
 
+  // Safety timeout: Jangan tunggu lebih dari 5 detik untuk upload terakhir
+  const quitTimeout = setTimeout(() => {
+    console.log('[metadata] Quit timeout reached, forcing quit.');
+    app.quit();
+  }, 5000);
+
   uploadMetadataToDiscord(activeWebhookHash)
   .then(() => {
     console.log('[metadata] Final upload complete, quitting.');
+    clearTimeout(quitTimeout);
     app.quit();
   })
   .catch(e => {
     console.error('[metadata] Final upload failed:', e.message);
+    clearTimeout(quitTimeout);
     app.quit();
   });
 });
