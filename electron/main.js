@@ -344,7 +344,49 @@ function migrateJsonToSqlite() {
       })();
       }
 
-      migrateJsonToSqlite();
+      function migrateLegacyJsonDataToSqlite(hash, data) {
+  const isContainer = !Array.isArray(data) && data !== null && typeof data === 'object';
+  const filesToSave = isContainer ? (data.files || []) : (data || []);
+  const pinHashToSync = isContainer ? data.pinHash : null;
+  const shareLinksToSync = isContainer ? (data.shareLinks || []) : [];
+
+  console.log(`[migration] Migrating ${filesToSave.length} files from legacy JSON cloud data...`);
+
+  db.transaction(() => {
+    db.prepare('DELETE FROM files WHERE hash = ?').run(hash);
+    const insertFile = db.prepare(`
+    INSERT INTO files (id, hash, path, parent_path, name, size, created_at, message_ids, is_locked, is_starred)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    for (const f of filesToSave) {
+      const parts = f.path.split('/');
+      const name = parts.pop();
+      const parent_path = parts.join('/') || '/';
+      insertFile.run(
+        f.id || Math.random().toString(36).substring(7),
+        hash,
+        f.path,
+        parent_path,
+        name,
+        f.size || 0,
+        f.createdAt || Date.now(),
+        JSON.stringify(f.messageIds || []),
+        f.isLocked ? 1 : 0,
+        f.isStarred ? 1 : 0
+      );
+    }
+
+    if (pinHashToSync) {
+      db.prepare(`
+      INSERT INTO settings (hash, key, value) VALUES (?, 'pin_hash', ?)
+      ON CONFLICT(hash, key) DO UPDATE SET value = excluded.value
+      `).run(hash, pinHashToSync);
+    }
+  })();
+}
+
+migrateJsonToSqlite();
 
 // Preferensi default
 let prefs = {
@@ -612,7 +654,7 @@ let activeWebhookHash = null;
 ipcMain.on('set-active-webhook', (_, webhookUrl, hash) => {
   activeWebhookUrl = webhookUrl;
   activeWebhookHash = hash;
-  console.log('[metadata] Active webhook set:', hash?.slice(-8));
+  console.log(`[sync-lifecycle] load webhook: ${webhookUrl?.slice(0, 40)}... | hash: ${hash?.slice(-8)}`);
 });
 
 // ─── Flush metadata ke Discord sebelum quit ───────────────────────────────────
@@ -1922,15 +1964,17 @@ ipcMain.handle('save-metadata', async (_, hash, data, msgId = null) => {
   console.log(`[metadata] save-metadata | hash: ${hash?.slice(-8)}, msgId: ${msgId || 'LOCAL'}`);
   try {
     if (msgId) {
+      console.log(`[sync-lifecycle] download disbox metadata json: ID ${msgId}`);
       const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data);
       const isSqlite = buffer.slice(0, 16).toString().startsWith('SQLite format 3');
       
       if (isSqlite) {
-        console.log(`[sync-debug] OVERWRITING local DB with cloud data (${buffer.length} bytes)...`);
+        console.log(`[sync-lifecycle] load file disbox metadata (SQLite): ${buffer.length} bytes`);
         initDatabase(); // Tutup koneksi lama
         fs.writeFileSync(DB_PATH, buffer);
         initDatabase(); // Buka koneksi baru dengan file baru
       } else {
+        console.log(`[sync-lifecycle] load file disbox metadata (Legacy JSON): ${buffer.length} bytes`);
         // Legacy JSON Migration
         try {
           const jsonStr = buffer.toString('utf8');

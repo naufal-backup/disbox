@@ -202,8 +202,12 @@ export class DisboxAPI {
   // ─── Metadata Sync ────────────────────────────────────────────────────────
 
   async _getMsgIdFromDiscovery() {
+    console.log(`[sync] Initiating discovery for ${this.hashedWebhook?.slice(-8)}...`);
     const localRes = await window.electron.getLatestMetadataMsgId?.(this.hashedWebhook, this.webhookUrl);
-    if (localRes === 'pending') return 'pending';
+    if (localRes === 'pending') {
+      console.log('[sync] Local has PENDING changes. Sync suppressed.');
+      return 'pending';
+    }
 
     const localMsgId = typeof localRes === 'object' ? localRes?.lastMsgId : localRes;
     const snapshotHistory = localRes?.snapshotHistory || [];
@@ -218,9 +222,11 @@ export class DisboxAPI {
       }
     } catch (_) {}
 
+    console.log(`[sync] Discovery Results | Local: ${localMsgId || 'None'} | Cloud: ${webhookMsgId || 'None'}`);
+
     const candidates = [localMsgId, webhookMsgId].filter(Boolean);
     if (candidates.length === 0) {
-      console.log('[sync] Discovery: tidak ada msgId');
+      console.log('[sync] No metadata ID found in local or cloud.');
       return null;
     }
     const best = candidates.reduce((a, b) => {
@@ -228,12 +234,14 @@ export class DisboxAPI {
         return BigInt(a) >= BigInt(b) ? a : b;
       } catch { return a; }
     });
-    console.log(`[sync] Discovery: local=${localMsgId}, webhook=${webhookMsgId} → pakai: ${best}`);
+    
+    console.log(`[sync] Selected Best ID: ${best} ${best === localMsgId ? '(Local is latest)' : '(Cloud is newer)'}`);
 
     return { best, snapshotHistory };
   }
 
   async _downloadMetadataFromMsg(msgId) {
+    console.log(`[sync-lifecycle] download disbox metadata json: ${msgId}`);
     const msgUrl = `${this.webhookUrl}/messages/${msgId}`;
     const msgRes = await window.electron.fetch(msgUrl);
     if (!msgRes.ok) throw new Error(`Message ${msgId} tidak bisa diakses: ${msgRes.status}`);
