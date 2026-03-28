@@ -42,9 +42,14 @@ const PUBLIC_API_KEYS = {
 const DEFAULT_PUBLIC_API_KEY = 'disbox-shared-link-0001';
 const MAGIC_HEADER = Buffer.from('DBX_ENC:');
 
+function normalizeUrl(url) {
+  if (!url) return '';
+  return url.split('?')[0].trim().replace(/\/+$/, '');
+}
+
 function getEncryptionKey(url) {
   if (!url) return null;
-  const baseUrl = url.split('?')[0];
+  const baseUrl = normalizeUrl(url);
   return cryptoNode.createHash('sha256').update(baseUrl).digest();
 }
 
@@ -1571,16 +1576,79 @@ fs.watch(METADATA_DIR, (eventType, filename) => {
   }
 });
 
-ipcMain.handle('get-latest-metadata-msgid', async (_, hash) => {
+ipcMain.handle('get-latest-metadata-msgid', async (_, hash, webhookUrl) => {
   try {
     const meta = db.prepare('SELECT last_msg_id, snapshot_history, is_dirty FROM metadata_sync WHERE hash = ?').get(hash);
-    if (!meta) return null;
+    
+    let localMsgId = meta?.last_msg_id || null;
+    let snapshotHistory = JSON.parse(meta?.snapshot_history || '[]');
+    
+    if (meta?.is_dirty) return 'pending';
 
-    if (meta.is_dirty) return 'pending';
+    let webhookNameId = null;
+    let scannedId = null;
+
+    if (webhookUrl) {
+      const normalized = normalizeUrl(webhookUrl);
+      try {
+        // [FIX: Metadata Scanning Fallback]
+        // 1. Ambil ID dari Nama Webhook (Fast Path)
+        const res = await net.fetch(normalized);
+        if (res.ok) {
+          const info = JSON.parse(await res.text());
+          const match = info.name?.match(/(?:dbx|disbox|db)[:\s]+(\d+)/i);
+          webhookNameId = match?.[1] || null;
+        }
+
+        // 2. Scanning Proaktif: Ambil 100 pesan terakhir untuk mencari metadata terbaru
+        // Ini memastikan sinkronisasi antar perangkat tetap jalan meskipun Nama Webhook gagal diupdate
+        console.log('[metadata] Scanning 100 pesan terakhir untuk verifikasi update terbaru...');
+        const msgRes = await net.fetch(`${normalized}/messages?limit=100`);
+        if (msgRes.ok) {
+          const messages = JSON.parse(await msgRes.text());
+          // Cari pesan terbaru yang mengandung metadata.json
+          const metaMsg = messages.find(m => 
+            m.attachments?.some(a => a.filename.includes('metadata.json'))
+          );
+          if (metaMsg) {
+            scannedId = metaMsg.id;
+            console.log('[metadata] ID terbaru ditemukan lewat scanning:', scannedId);
+          }
+        }
+
+        // 3. Auto-fix Nama Webhook jika ID hasil scan lebih baru atau Nama Webhook kosong
+        const latestCloudId = (scannedId && webhookNameId) 
+          ? (BigInt(scannedId) > BigInt(webhookNameId) ? scannedId : webhookNameId)
+          : (scannedId || webhookNameId);
+
+        if (latestCloudId && latestCloudId !== webhookNameId) {
+          console.log('[metadata] Memulihkan/Mengupdate Nama Webhook ke ID terbaru:', latestCloudId);
+          await net.fetch(normalized, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: `dbx: ${latestCloudId}` }),
+          }).catch(err => console.error('[metadata] Gagal update Nama Webhook:', err.message));
+        }
+
+        var webhookMsgId = latestCloudId;
+      } catch (e) {
+        console.error('[metadata] Discovery error:', e.message);
+      }
+    }
+
+    const candidates = [localMsgId, webhookMsgId].filter(Boolean);
+    if (candidates.length === 0) return null;
+
+    // Pilih ID yang paling baru (terbesar secara numerik/BigInt)
+    const best = candidates.reduce((a, b) => {
+      try {
+        return BigInt(a) >= BigInt(b) ? a : b;
+      } catch { return a; }
+    });
 
     return {
-      lastMsgId: meta.last_msg_id,
-      snapshotHistory: JSON.parse(meta.snapshot_history || '[]')
+      lastMsgId: best,
+      snapshotHistory: snapshotHistory
     };
   } catch (e) {
     console.error('[metadata] get-latest-msgid error:', e.message);

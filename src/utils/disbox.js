@@ -92,7 +92,7 @@ async function captureVideoThumbnailFfmpeg(videoBuffer, ext) {
 
 export class DisboxAPI {
   constructor(webhookUrl) {
-    this.webhookUrl = webhookUrl.split('?')[0];
+    this.webhookUrl = this._normalizeUrl(webhookUrl);
     this.hashedWebhook = null;
     this.encryptionKey = null;
     this.MAGIC_HEADER = new TextEncoder().encode('DBX_ENC:'); // 8 bytes
@@ -103,6 +103,11 @@ export class DisboxAPI {
     // Antrean tugas untuk mencegah race condition
     this._taskQueue = Promise.resolve();
     this._syncing = false;
+  }
+
+  _normalizeUrl(url) {
+    if (!url) return '';
+    return url.split('?')[0].trim().replace(/\/+$/, '');
   }
 
   // Helper untuk menjalankan tugas secara berurutan
@@ -120,8 +125,9 @@ export class DisboxAPI {
   }
 
   async hashWebhook(url) {
+    const normalized = this._normalizeUrl(url);
     const encoder = new TextEncoder();
-    const data = encoder.encode(url);
+    const data = encoder.encode(normalized);
     const hash = await crypto.subtle.digest('SHA-256', data);
     return Array.from(new Uint8Array(hash))
       .map(b => b.toString(16).padStart(2, '0'))
@@ -129,8 +135,9 @@ export class DisboxAPI {
   }
 
   async deriveKey(url) {
+    const normalized = this._normalizeUrl(url);
     const encoder = new TextEncoder();
-    const data = encoder.encode(url);
+    const data = encoder.encode(normalized);
     const hash = await crypto.subtle.digest('SHA-256', data);
     return await crypto.subtle.importKey(
       'raw',
@@ -195,7 +202,7 @@ export class DisboxAPI {
   // ─── Metadata Sync ────────────────────────────────────────────────────────
 
   async _getMsgIdFromDiscovery() {
-    const localRes = await window.electron.getLatestMetadataMsgId?.(this.hashedWebhook);
+    const localRes = await window.electron.getLatestMetadataMsgId?.(this.hashedWebhook, this.webhookUrl);
     if (localRes === 'pending') return 'pending';
 
     const localMsgId = typeof localRes === 'object' ? localRes?.lastMsgId : localRes;
@@ -216,7 +223,11 @@ export class DisboxAPI {
       console.log('[sync] Discovery: tidak ada msgId');
       return null;
     }
-    const best = candidates.reduce((a, b) => BigInt(a) >= BigInt(b) ? a : b);
+    const best = candidates.reduce((a, b) => {
+      try {
+        return BigInt(a) >= BigInt(b) ? a : b;
+      } catch { return a; }
+    });
     console.log(`[sync] Discovery: local=${localMsgId}, webhook=${webhookMsgId} → pakai: ${best}`);
 
     return { best, snapshotHistory };
