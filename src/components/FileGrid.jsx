@@ -256,19 +256,18 @@ function FileThumbnail({ file, size = 32 }) {
   if ((canShowImage || canShowVideo || canShowAudio) && thumbUrl) {
     return (
       <div style={{ width: '100%', height: '100%', overflow: 'hidden', borderRadius: 0, display: 'flex', alignItems: canShowAudio ? 'center' : 'flex-start', justifyContent: 'center', flexShrink: 0, position: 'relative' }}>
-        <img 
-          src={thumbUrl} 
-          alt="" 
-          style={{ 
-            width: canShowAudio ? 'auto' : '100%', 
-            height: '100%', 
-            aspectRatio: canShowAudio ? '1 / 1' : 'auto',
-            objectFit: 'cover', 
+        <img
+          src={thumbUrl}
+          alt=""
+          style={{
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
             objectPosition: canShowAudio ? 'center' : 'top',
             boxShadow: canShowAudio ? '0 4px 12px rgba(0,0,0,0.15)' : 'none',
             borderRadius: canShowAudio ? '4px' : '0'
-          }} 
-          draggable={false} 
+          }}
+          draggable={false}
         />
         {/* {isVideo && <div style={{ position: 'absolute', bottom: 4, right: 4, background: 'rgba(0,0,0,0.6)', borderRadius: 4, padding: '2px 4px', fontSize: 10, color: 'white', display: 'flex', alignItems: 'center' }}>▶</div>} */}
       </div>
@@ -383,8 +382,20 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
   };
 
   const [viewMode, setViewMode] = useState('grid');
-  const [zoom, setZoom] = useState(() => Number(localStorage.getItem('disbox_zoom')) || 1);
+  const [zoom, setZoom] = useState(1);
   const [sortMode, setSortMode] = useState(() => localStorage.getItem('disbox_sort') || 'name');
+
+  // Load per-folder settings when currentPath changes
+  useEffect(() => {
+    const folderZoomKey = `disbox_zoom_${currentPath}`;
+    const folderViewKey = `disbox_viewMode_${currentPath}`;
+
+    const savedZoom = localStorage.getItem(folderZoomKey);
+    setZoom(savedZoom ? Number(savedZoom) : 1);
+
+    const savedView = localStorage.getItem(folderViewKey);
+    setViewMode(savedView || 'grid');
+  }, [currentPath]);
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
 
@@ -393,9 +404,31 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
+  // Simpan zoom per folder
   useEffect(() => {
-    localStorage.setItem('disbox_zoom', zoom.toString());
-  }, [zoom]);
+    localStorage.setItem(`disbox_zoom_${currentPath}`, zoom.toString());
+  }, [zoom, currentPath]);
+
+  // Simpan viewMode per folder
+  useEffect(() => {
+    localStorage.setItem(`disbox_viewMode_${currentPath}`, viewMode);
+  }, [viewMode, currentPath]);
+
+  // Reset zoom & view mode saat ganti folder (jika belum ada setting untuk folder baru)
+  useEffect(() => {
+    const folderZoomKey = `disbox_zoom_${currentPath}`;
+    const folderViewKey = `disbox_viewMode_${currentPath}`;
+    // Hanya set default jika belum ada
+    if (!localStorage.getItem(folderZoomKey)) {
+      // Gunakan global zoom sebagai default, atau 1
+      const globalZoom = localStorage.getItem('disbox_zoom');
+      setZoom(globalZoom ? Number(globalZoom) : 1);
+    }
+    if (!localStorage.getItem(folderViewKey)) {
+      const globalView = localStorage.getItem('disbox_view_mode');
+      setViewMode(globalView || 'grid');
+    }
+  }, [currentPath]);
 
   useEffect(() => {
     localStorage.setItem('disbox_sort', sortMode);

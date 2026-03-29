@@ -1770,14 +1770,24 @@ async function uploadMetadataToDiscord(hash) {
       const encryptedBuf = encrypt(jsonBuf, key);
       const bodyBuf = buildMetadataFormData(encryptedBuf, 'disbox_metadata.json');
 
-      const response = await net.fetch(activeWebhookUrl + '?wait=true', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'multipart/form-data; boundary=----DisboxFlushBoundary',
-          'User-Agent': 'Mozilla/5.0 Disbox/2.0',
-        },
-        body: new Uint8Array(bodyBuf),
-      });
+      // Add timeout to prevent indefinite hanging
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5s timeout (matches safety timeout)
+
+      let response;
+      try {
+        response = await net.fetch(activeWebhookUrl + '?wait=true', {
+          signal: controller.signal,
+          method: 'POST',
+          headers: {
+            'Content-Type': 'multipart/form-data; boundary=----DisboxFlushBoundary',
+            'User-Agent': 'Mozilla/5.0 Disbox/2.0',
+          },
+          body: new Uint8Array(bodyBuf),
+        });
+      } finally {
+        clearTimeout(timeoutId);
+      }
 
       if (!response.ok) {
         if ((response.status === 503 || response.status === 429) && retryCount < maxRetries) {
@@ -1815,14 +1825,34 @@ async function uploadMetadataToDiscord(hash) {
       console.log(`[metadata] UPLOAD DONE ✓ ID: ${newMsgId}`);
       mainWindow?.webContents.send('metadata-status', { hash, status: 'synced', items: files.length });
 
-      await net.fetch(activeWebhookUrl, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: `dbx: ${newMsgId}` }),
-      }).catch(() => {});
+      // Add timeout to PATCH request as well
+      const patchController = new AbortController();
+      const patchTimeoutId = setTimeout(() => patchController.abort(), 5000); // 5s timeout (matches safety timeout)
+
+      try {
+        await net.fetch(activeWebhookUrl, {
+          signal: patchController.signal,
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: `dbx: ${newMsgId}` }),
+        });
+      } catch (e) {
+        // PATCH is best-effort, ignore errors
+        if (e.name !== 'AbortError') {
+          console.warn('[metadata] PATCH failed:', e.message);
+        }
+      } finally {
+        clearTimeout(patchTimeoutId);
+      }
 
       return; // Success
     } catch (e) {
+      // If aborted (e.g., during quit), don't retry - fail fast
+      if (e.name === 'AbortError' || e.code === 'ABORTED') {
+        console.log('[metadata] Upload aborted, not retrying');
+        throw e; // Re-throw to be caught by caller (before-quit handler)
+      }
+
       if (retryCount < maxRetries) {
         retryCount++;
         const delay = Math.pow(2, retryCount) * 1000 + Math.random() * 1000;

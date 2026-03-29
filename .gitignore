@@ -4,3 +4,4 @@ release/
 .env
 *.log
 disbox.txt
+CONTEXT_SUMMARY.txt
