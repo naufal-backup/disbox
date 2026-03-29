@@ -3,8 +3,8 @@ import {
   Sun, Moon, Lock, Cloud, Link2, User, Repeat, ChevronRight, Plus
 } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
-import { useApp } from '../AppContext.jsx';
-import { ConfirmModal } from './FolderModal.jsx';
+import { useApp } from '@/AppContext.jsx';
+import { ConfirmModal } from '@/components/FolderModal/FolderModal.jsx';
 import styles from './Sidebar.module.css';
 import { motion, AnimatePresence } from 'framer-motion';
 

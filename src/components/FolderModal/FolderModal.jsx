@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { FolderPlus, Move, Copy, X, ChevronRight, Home, Check, AlertCircle } from 'lucide-react';
-import { useApp } from '../AppContext.jsx';
+import { useApp } from '@/AppContext.jsx';
 import { motion, AnimatePresence } from 'framer-motion';
 import styles from './FolderModal.module.css';
 

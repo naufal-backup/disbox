@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link2, Copy, Check, X } from 'lucide-react';
-import { useApp } from '../AppContext.jsx';
+import { useApp } from '@/AppContext.jsx';
 import toast from 'react-hot-toast';
 import { motion } from 'framer-motion';
 import styles from './ShareDialog.module.css';

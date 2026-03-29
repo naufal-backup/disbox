@@ -17,8 +17,10 @@
 
 import { useState, useEffect } from 'react';
 import { Link2, ExternalLink, CheckCircle, AlertCircle, ChevronDown, Check, Activity } from 'lucide-react';
-import { useApp } from '../AppContext.jsx';
+import { useApp } from '@/AppContext.jsx';
 import { motion, AnimatePresence } from 'framer-motion';
+
+import { ipc } from '@/utils/ipc';
 
 export function ShareSettingsSection() {
   const {
@@ -68,7 +70,7 @@ export function ShareSettingsSection() {
       const results = {};
       for (const worker of PUBLIC_WORKERS) {
         try {
-          const res = await window.electron.fetch(`${worker.url}/share/stats`);
+          const res = await ipc.fetch(`${worker.url}/share/stats`);
           if (res.ok) {
             const data = JSON.parse(res.body);
             results[worker.url] = data.count;
@@ -346,7 +348,7 @@ export function ShareSettingsSection() {
                     Jika sudah punya akun, langsung login saja.
                   </p>
                   <button
-                    onClick={() => window.electron?.shareOpenCFTokenPage?.()}
+                    onClick={() => ipc?.shareOpenCFTokenPage?.()}
                     style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', background: 'var(--accent)', border: 'none', borderRadius: 6, color: 'white', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
                   >
                     <ExternalLink size={12} /> Buka Cloudflare

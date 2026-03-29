@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Cloud, ExternalLink, AlertCircle, Loader2, Clock, ChevronDown, X } from 'lucide-react';
-import { useApp } from '../AppContext.jsx';
+import { useApp } from '@/AppContext.jsx';
 import styles from './LoginPage.module.css';
 
 const DISCORD_WEBHOOK_REGEX = /^https:\/\/discord(app)?\.com\/api\/webhooks\/\d+\/.+$/;

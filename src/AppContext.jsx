@@ -1,219 +1,80 @@
-import { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
-import { DisboxAPI, buildTree } from './utils/disbox.js';
-import { translations } from './utils/i18n.js';
+import { createContext, useContext, useCallback, useEffect, useRef } from 'react';
+import { DisboxAPI, buildTree } from '@/utils/disbox.js';
+import { ipc } from '@/utils/ipc';
+
+import { useCore, saveWebhookToList, getSavedWebhooks } from './hooks/useCore.js';
+import { usePreferences } from './hooks/usePreferences.js';
+import { useAuth } from './hooks/useAuth.js';
+import { useFiles } from './hooks/useFiles.js';
+import { useTransfers } from './hooks/useTransfers.js';
+import { useCloudSave } from './hooks/useCloudSave.js';
+import { useShare } from './hooks/useShare.js';
 
 const AppContext = createContext(null);
 
-const SAVED_WEBHOOKS_KEY = 'disbox_saved_webhooks';
-
-function getSavedWebhooks() {
-  try { return JSON.parse(localStorage.getItem(SAVED_WEBHOOKS_KEY) || '[]'); }
-  catch (e) { return []; }
-}
-
-function saveWebhookToList(url, label) {
-  const list = getSavedWebhooks();
-  const index = list.findIndex(i => i.url === url);
-  const entry = { url, label: label || (index >= 0 ? list[index].label : extractWebhookLabel(url)), lastUsed: Date.now() };
-  if (index >= 0) list.splice(index, 1);
-  list.unshift(entry);
-  localStorage.setItem(SAVED_WEBHOOKS_KEY, JSON.stringify(list.slice(0, 50))); // Increased limit to 50
-}
-
-function updateWebhookLabel(url, label) {
-  const list = getSavedWebhooks();
-  const index = list.findIndex(i => i.url === url);
-  if (index >= 0) {
-    list[index].label = label;
-    localStorage.setItem(SAVED_WEBHOOKS_KEY, JSON.stringify(list));
-    return true;
-  }
-  return false;
-}
-
-function removeWebhook(url) {
-  const list = getSavedWebhooks().filter(i => i.url !== url);
-  localStorage.setItem(SAVED_WEBHOOKS_KEY, JSON.stringify(list));
-}
-
-function extractWebhookLabel(url) {
-  const parts = url.split('/');
-  return parts[parts.length - 2] ? `Webhook #${parts[parts.length - 2].slice(-6)}` : 'Unnamed';
-}
-
 export function AppProvider({ children }) {
-  const [api, setApi] = useState(null);
-  const [webhookUrl, setWebhookUrl] = useState(() => localStorage.getItem('disbox_webhook') || '');
-  
-  const [isConnected, setIsConnected] = useState(false);
-  const [isConnecting, setIsConnecting] = useState(false);
-  const [files, setFiles] = useState([]);
-  const [fileTree, setFileTree] = useState(null);
-  const [currentPath, setCurrentPath] = useState('/');
-  const [loading, setLoading] = useState(false);
-  const [transfers, setTransfers] = useState([]);
-  const [currentTrack, setCurrentTrack] = useState(null);
-  const [playlist, setPlaylist] = useState([]);
-  
-  const isTransferring = transfers.some(t => t.status === 'active');
+  const core = useCore();
+  const { api, setApi, webhookUrl, setWebhookUrl, isConnected, setIsConnected, isConnecting, setIsConnecting, loading, setLoading, setMetadataStatus, setSavedWebhooks } = core;
 
-  const [savedWebhooks, setSavedWebhooks] = useState(getSavedWebhooks);
-  const [language, setLanguage] = useState(() => localStorage.getItem('disbox_lang') || 'id');
-  const [theme, setTheme] = useState(() => localStorage.getItem('disbox_theme') || 'dark');
-  const [uiScale, setUiScale] = useState(() => Number(localStorage.getItem('disbox_ui_scale')) || 1);
-  const [chunkSize, setChunkSize] = useState(() => {
-    const saved = localStorage.getItem('disbox_chunk_size');
-    if (!saved) return 7.5 * 1024 * 1024;
-    let val = Number(saved);
-    // [MIGRATION] Jika user masih pakai 8MB (default lama), paksa ke 7.5MB agar tidak 413
-    if (val >= 8 * 1024 * 1024) return 7.5 * 1024 * 1024;
-    return val;
-  });
-  const [showPreviews, setShowPreviews] = useState(() => localStorage.getItem('disbox_show_previews') !== 'false');
-  const [showImagePreviews, setShowImagePreviews] = useState(() => localStorage.getItem('disbox_show_image_previews') !== 'false');
-  const [showVideoPreviews, setShowVideoPreviews] = useState(() => localStorage.getItem('disbox_show_video_previews') !== 'false');
-  const [showAudioPreviews, setShowAudioPreviews] = useState(() => localStorage.getItem('disbox_show_audio_previews') !== 'false');
-  const [showRecent, setShowRecent] = useState(() => localStorage.getItem('disbox_show_recent') !== 'false');
-  const [autoCloseTransfers, setAutoCloseTransfers] = useState(() => localStorage.getItem('disbox_auto_close_transfers') !== 'false');
-  const [animationsEnabled, setAnimationsEnabled] = useState(() => localStorage.getItem('disbox_animations_enabled') !== 'false');
-  const [metadataStatus, setMetadataStatus] = useState({ status: 'synced', items: 0 });
-  const [closeToTray, setCloseToTray] = useState(true);
-  const [startMinimized, setStartMinimized] = useState(false);
-  const [chunksPerMessage, setChunksPerMessage] = useState(1);
-  const [isVerified, setIsVerified] = useState(false);
-  const [pinExists, setPinExists] = useState(null);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [appLockEnabled, setAppLockEnabled] = useState(
-    () => localStorage.getItem('disbox_app_lock_enabled') === 'true'
-  );
-  const [appLockPin, setAppLockPin] = useState(
-    () => localStorage.getItem('disbox_app_lock_pin') || ''
-  );
-  const [isAppUnlocked, setIsAppUnlocked] = useState(false);
+  const prefs = usePreferences(api);
+  const transfers = useTransfers();
+  const { abortControllersRef, setTransfers } = transfers;
 
-  const [cloudSaveEnabled, setCloudSaveEnabled] = useState(
-    () => localStorage.getItem('disbox_cloudsave_enabled') === 'true'
-  );
-  const [cloudSaves, setCloudSaves] = useState([]);
+  const setFilesRef = useRef();
+  const setFileTreeRef = useRef();
 
-  // ── Share & Privacy ────────────────────────────────────────────────────────
-  const [shareEnabled, setShareEnabled] = useState(
-    () => localStorage.getItem('disbox_share_enabled') !== 'false'
-  );
-  const [shareMode, setShareMode] = useState(
-    () => localStorage.getItem('disbox_share_mode') || 'public'
-  );
-  const [shareLinks, setShareLinks] = useState([]);
-  const [cfWorkerUrl, setCfWorkerUrl] = useState('');
+  const refresh = useCallback(async (silent = false) => {
+    if (!api) return;
+    if (!silent) setLoading(true);
+    try {
+      await api.syncMetadata();
+      const fs = await api.getFileSystem();
+      setFilesRef.current?.(fs);
+      setFileTreeRef.current?.(buildTree(fs));
+    } catch (e) {
+      console.error('Refresh failed:', e);
+    } finally {
+      if (!silent) setLoading(false);
+    }
+  }, [api, setLoading]);
 
-  const abortControllersRef = useRef(new Map());
+  const files = useFiles(api, refresh);
+  setFilesRef.current = files.setFiles;
+  setFileTreeRef.current = files.setFileTree;
+
+  const auth = useAuth(api, isConnected);
+  const share = useShare(api, webhookUrl);
+  const cloudSave = useCloudSave(api, isConnected, webhookUrl, prefs.chunkSize);
+
+  const { setFiles, setFileTree, setCurrentPath } = files;
+  const { setPinExists } = auth;
+  const { setShareEnabled, setShareMode, setCfWorkerUrl, setShareLinks } = share;
 
   useEffect(() => {
-    localStorage.setItem('disbox_animations_enabled', animationsEnabled.toString());
-  }, [animationsEnabled]);
-
-  useEffect(() => {
-    if (window.electron?.getPrefs) {
-      window.electron.getPrefs().then(p => {
-        if (p.closeToTray !== undefined) setCloseToTray(p.closeToTray);
-        if (p.startMinimized !== undefined) setStartMinimized(p.startMinimized);
-        if (p.chunksPerMessage !== undefined) setChunksPerMessage(p.chunksPerMessage);
-        if (p.autoCloseTransfers !== undefined) setAutoCloseTransfers(p.autoCloseTransfers);
-      });
-    }
-  }, []);
-
-  const updatePrefs = useCallback((prefs) => {
-    if (prefs.closeToTray !== undefined) setCloseToTray(prefs.closeToTray);
-    if (prefs.startMinimized !== undefined) setStartMinimized(prefs.startMinimized);
-    if (prefs.chunksPerMessage !== undefined) setChunksPerMessage(prefs.chunksPerMessage);
-    if (prefs.showRecent !== undefined) {
-      setShowRecent(prefs.showRecent);
-      localStorage.setItem('disbox_show_recent', prefs.showRecent.toString());
-    }
-    if (prefs.autoCloseTransfers !== undefined) {
-      setAutoCloseTransfers(prefs.autoCloseTransfers);
-      localStorage.setItem('disbox_auto_close_transfers', prefs.autoCloseTransfers.toString());
-    }
-    if (prefs.showPreviews !== undefined) {
-      setShowPreviews(prefs.showPreviews);
-      localStorage.setItem('disbox_show_previews', prefs.showPreviews.toString());
-    }
-    if (prefs.showImagePreviews !== undefined) {
-      setShowImagePreviews(prefs.showImagePreviews);
-      localStorage.setItem('disbox_show_image_previews', prefs.showImagePreviews.toString());
-    }
-    if (prefs.showVideoPreviews !== undefined) {
-      setShowVideoPreviews(prefs.showVideoPreviews);
-      localStorage.setItem('disbox_show_video_previews', prefs.showVideoPreviews.toString());
-    }
-    if (prefs.showAudioPreviews !== undefined) {
-      setShowAudioPreviews(prefs.showAudioPreviews);
-      localStorage.setItem('disbox_show_audio_previews', prefs.showAudioPreviews.toString());
-    }
-    if (window.electron?.setPrefs) window.electron.setPrefs(prefs);
-  }, []);
-
-  useEffect(() => {
-    if (!window.electron?.onMetadataStatus) return;
-    return window.electron.onMetadataStatus((data) => {
+    if (!ipc?.onMetadataStatus) return;
+    return ipc.onMetadataStatus((data) => {
       setMetadataStatus(data);
     });
-  }, []);
+  }, [setMetadataStatus]);
 
   useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme);
-    localStorage.setItem('disbox_theme', theme);
-  }, [theme]);
+    if (!isConnected || !api) return;
+    const interval = setInterval(() => { refresh(true); }, 5000);
+    return () => clearInterval(interval);
+  }, [isConnected, api, refresh]);
 
   useEffect(() => {
-    localStorage.setItem('disbox_lang', language);
-  }, [language]);
-
-  const t = useCallback((key, params = null) => {
-    let text = translations[language]?.[key] || translations['en']?.[key] || key;
-    if (params) {
-      Object.keys(params).forEach(k => {
-        text = text.replace(`{${k}}`, params[k]);
-      });
-    }
-    return text;
-  }, [language]);
+    if (!api || !webhookUrl) return;
+    ipc?.setActiveWebhook(webhookUrl, api.hashedWebhook);
+  }, [api, webhookUrl]);
 
   useEffect(() => {
-    document.body.style.zoom = uiScale;
-    localStorage.setItem('disbox_ui_scale', uiScale.toString());
-  }, [uiScale]);
-
-  useEffect(() => {
-    localStorage.setItem('disbox_chunk_size', chunkSize.toString());
-    if (api) api.chunkSize = chunkSize;
-  }, [chunkSize, api]);
-
-  useEffect(() => {
-    localStorage.setItem('disbox_show_previews', showPreviews.toString());
-  }, [showPreviews]);
-
-  useEffect(() => {
-    localStorage.setItem('disbox_cloudsave_enabled', cloudSaveEnabled.toString());
-  }, [cloudSaveEnabled]);
-
-  useEffect(() => {
-    localStorage.setItem('disbox_share_enabled', shareEnabled.toString());
-    localStorage.setItem('disbox_share_mode', shareMode);
-  }, [shareEnabled, shareMode]);
-
-  useEffect(() => {
-    localStorage.setItem('disbox_app_lock_enabled', appLockEnabled.toString());
-  }, [appLockEnabled]);
-
-  useEffect(() => {
-    localStorage.setItem('disbox_app_lock_pin', appLockPin);
-  }, [appLockPin]);
-
-  const toggleTheme = useCallback(() => {
-    setTheme(prev => prev === 'dark' ? 'light' : 'dark');
-  }, []);
+    if (!ipc?.onMetadataChange || !api) return;
+    const cleanup = ipc.onMetadataChange((hash) => {
+      if (api.hashedWebhook === hash) refresh();
+    });
+    return cleanup;
+  }, [api, refresh]);
 
   const connect = useCallback(async (url, metadataId = null) => {
     setIsConnecting(true);
@@ -238,7 +99,7 @@ export function AppProvider({ children }) {
       saveWebhookToList(url);
       setSavedWebhooks(getSavedWebhooks());
 
-      window.electron?.setActiveWebhook(url, instance.hashedWebhook);
+      ipc?.setActiveWebhook(url, instance.hashedWebhook);
 
       setWebhookUrl(url);
       setApi(instance);
@@ -246,24 +107,21 @@ export function AppProvider({ children }) {
       setFileTree(buildTree(fs));
       setIsConnected(true);
 
-      // Load share settings & links
       try {
-        const shareSettings = await window.electron.shareGetSettings(instance.hashedWebhook);
+        const shareSettings = await ipc.shareGetSettings(instance.hashedWebhook);
         if (shareSettings) {
           setShareEnabled(!!shareSettings.enabled);
           setShareMode(shareSettings.mode || 'public');
           setCfWorkerUrl(shareSettings.cf_worker_url || '');
           
-          // [FIX] Always update/save current webhook URL in share settings to ensure backend can fetch metadata
-          await window.electron.shareSaveSettings(instance.hashedWebhook, {
+          await ipc.shareSaveSettings(instance.hashedWebhook, {
             enabled: shareSettings.enabled,
             mode: shareSettings.mode || 'public',
             cf_worker_url: shareSettings.cf_worker_url || '',
             webhook_url: url
           });
         } else {
-          // Default: public enabled
-          await window.electron.shareSaveSettings(instance.hashedWebhook, {
+          await ipc.shareSaveSettings(instance.hashedWebhook, {
             enabled: 1,
             mode: 'public',
             cf_worker_url: '',
@@ -273,7 +131,7 @@ export function AppProvider({ children }) {
           setShareMode('public');
           setCfWorkerUrl('');
         }
-        const links = await window.electron.shareGetLinks(instance.hashedWebhook);
+        const links = await ipc.shareGetLinks(instance.hashedWebhook);
         setShareLinks(links || []);
       } catch (e) {
         console.warn('[share] Failed to load share settings:', e.message);
@@ -287,7 +145,7 @@ export function AppProvider({ children }) {
       setIsConnecting(false);
       setLoading(false);
     }
-  }, []);
+  }, [setApi, setWebhookUrl, setIsConnected, setIsConnecting, setLoading, setFiles, setFileTree, setCurrentPath, setTransfers, setMetadataStatus, setSavedWebhooks, setPinExists, setShareEnabled, setShareMode, setCfWorkerUrl, setShareLinks, abortControllersRef]);
 
   const disconnect = useCallback(() => {
     abortControllersRef.current.forEach(controller => controller.abort());
@@ -303,447 +161,23 @@ export function AppProvider({ children }) {
     setCurrentPath('/');
     setTransfers([]);
     setShareLinks([]);
-  }, []);
+  }, [setApi, setWebhookUrl, setIsConnected, setPinExists, setFiles, setFileTree, setCurrentPath, setTransfers, setShareLinks, abortControllersRef]);
 
-  const refresh = useCallback(async (silent = false) => {
-    if (!api) return;
-    if (!silent) setLoading(true);
-    try {
-      await api.syncMetadata();
-      const fs = await api.getFileSystem();
-      setFiles(fs);
-      setFileTree(buildTree(fs));
-    } catch (e) {
-      console.error('Refresh failed:', e);
-    } finally {
-      if (!silent) setLoading(false);
-    }
-  }, [api]);
-
-  useEffect(() => {
-    if (!isConnected || !api) return;
-    const interval = setInterval(() => { refresh(true); }, 5000);
-    return () => clearInterval(interval);
-  }, [isConnected, api, refresh]);
-
-  useEffect(() => {
-    if (!api || !webhookUrl) return;
-    window.electron?.setActiveWebhook(webhookUrl, api.hashedWebhook);
-  }, [api, webhookUrl]);
-
-  useEffect(() => {
-    if (!window.electron?.onMetadataChange || !api) return;
-    const cleanup = window.electron.onMetadataChange((hash) => {
-      if (api.hashedWebhook === hash) refresh();
-    });
-    return cleanup;
-  }, [api, refresh]);
-
-  const createFolder = useCallback(async (folderName) => {
-    if (!api || !folderName.trim()) return false;
-    const dirPath = currentPath === '/' ? '' : currentPath.slice(1);
-    const folderPath = dirPath ? `${dirPath}/${folderName.trim()}/.keep` : `${folderName.trim()}/.keep`;
-    try {
-      await api.createFile(folderPath, [], 0);
-      await refresh();
-      return true;
-    } catch (e) {
-      console.error('Create folder failed:', e);
-      return false;
-    }
-  }, [api, currentPath, refresh]);
-
-  const movePath = useCallback(async (oldPath, destDir, id = null) => {
-    if (!api) return false;
-    const name = oldPath.split('/').pop();
-    const newPath = destDir ? `${destDir}/${name}` : name;
-    try { await api.renamePath(oldPath, newPath, id); await refresh(); return true; }
-    catch (e) { console.error('Move failed:', e); return false; }
-  }, [api, refresh]);
-
-  const copyPath = useCallback(async (oldPath, destDir, id = null) => {
-    if (!api) return false;
-    const name = oldPath.split('/').pop();
-    const newPath = destDir ? `${destDir}/${name}` : name;
-    try { await api.copyPath(oldPath, newPath, id); await refresh(); return true; }
-    catch (e) { console.error('Copy failed:', e); return false; }
-  }, [api, refresh]);
-
-  const deletePath = useCallback(async (path, id = null) => {
-    if (!api) return false;
-    try { await api.deletePath(path, id); await refresh(); return true; }
-    catch (e) { console.error('Delete failed:', e); return false; }
-  }, [api, refresh]);
-
-  const bulkDelete = useCallback(async (paths) => {
-    if (!api) return false;
-    try { await api.bulkDelete(paths); await refresh(); return true; }
-    catch (e) { console.error('Bulk delete failed:', e); return false; }
-  }, [api, refresh]);
-
-  const bulkMove = useCallback(async (paths, destDir) => {
-    if (!api) return false;
-    try { await api.bulkMove(paths, destDir); await refresh(); return true; }
-    catch (e) { console.error('Bulk move failed:', e); return false; }
-  }, [api, refresh]);
-
-  const bulkCopy = useCallback(async (paths, destDir) => {
-    if (!api) return false;
-    try { await api.bulkCopy(paths, destDir); await refresh(); return true; }
-    catch (e) { console.error('Bulk copy failed:', e); return false; }
-  }, [api, refresh]);
-
-  const setLocked = useCallback(async (id, isLocked) => {
-    if (!api) return false;
-    try {
-      const hash = api.hashedWebhook;
-      const target = files.find(f => f.id === id);
-      if (target) {
-        await window.electron.setLocked(id, hash, isLocked);
-      } else {
-        const folderPath = id;
-        const affectedFiles = files.filter(f => f.path === folderPath || f.path.startsWith(folderPath + '/'));
-        for (const f of affectedFiles) {
-          await window.electron.setLocked(f.id, hash, isLocked);
-        }
-      }
-      await refresh();
-      return true;
-    } catch (e) { console.error('Set locked failed:', e); return false; }
-  }, [api, files, refresh]);
-
-  const verifyPin = useCallback(async (pin) => {
-    if (!api) return false;
-    const ok = await window.electron.verifyPin(api.hashedWebhook, pin);
-    if (ok) setIsVerified(true);
-    return ok;
-  }, [api]);
-
-  const setPin = useCallback(async (pin) => {
-    if (!api) return false;
-    return await window.electron.setPin(api.hashedWebhook, pin);
-  }, [api]);
-
-  const hasPin = useCallback(async () => {
-    if (!api) return false;
-    const exists = await window.electron.hasPin(api.hashedWebhook);
-    setPinExists(exists);
-    return exists;
-  }, [api]);
-
-  useEffect(() => {
-    if (isConnected) hasPin();
-  }, [isConnected, hasPin]);
-
-  useEffect(() => {
-    if (!isConnected || !api) return;
-    const interval = setInterval(() => { hasPin(); }, 10000);
-    return () => clearInterval(interval);
-  }, [isConnected, api, hasPin]);
-
-  const removePin = useCallback(async (pin) => {
-    if (!api) return false;
-    const ok = await window.electron.verifyPin(api.hashedWebhook, pin);
-    if (ok) {
-      await window.electron.removePin(api.hashedWebhook);
-      setIsVerified(false);
-      return true;
-    }
-    return false;
-  }, [api]);
-
-  const setStarred = useCallback(async (id, isStarred) => {
-    if (!api) return false;
-    try {
-      const hash = api.hashedWebhook;
-      const target = files.find(f => f.id === id);
-      if (target) {
-        await window.electron.setStarred(id, hash, isStarred);
-      } else {
-        const keepFile = files.find(f => f.path === (id ? `${id}/.keep` : '.keep'));
-        if (keepFile) await window.electron.setStarred(keepFile.id, hash, isStarred);
-      }
-      await refresh();
-      return true;
-    } catch (e) { console.error('Set starred failed:', e); return false; }
-  }, [api, files, refresh]);
-
-  const getAllDirs = useCallback(() => {
-    const dirs = new Set(['/']);
-    files.forEach(f => {
-      const parts = f.path.split('/').filter(Boolean);
-      for (let i = 1; i <= parts.length - 1; i++) {
-        dirs.add('/' + parts.slice(0, i).join('/'));
-      }
-    });
-    return [...dirs].sort();
-  }, [files]);
-
-  const addTransfer = useCallback((t) => {
-    const controller = new AbortController();
-    abortControllersRef.current.set(t.id, controller);
-    setTransfers(p => [...p, { ...t, signal: controller.signal }]);
-    return controller.signal;
-  }, []);
-
-  const updateTransfer = useCallback((id, u) => {
-    setTransfers(p => p.map(t => t.id === id ? { ...t, ...u } : t));
-  }, []);
-
-  const removeTransfer = useCallback((id) => {
-    abortControllersRef.current.delete(id);
-    setTransfers(p => p.filter(t => t.id !== id));
-  }, []);
-
-  const cancelTransfer = useCallback((id) => {
-    const controller = abortControllersRef.current.get(id);
-    if (controller) controller.abort();
-    if (window.electron?.cancelUpload) window.electron.cancelUpload(id);
-    setTransfers(p => p.map(t => t.id === id ? { ...t, status: 'cancelled' } : t));
-    setTimeout(() => {
-      abortControllersRef.current.delete(id);
-      setTransfers(p => p.filter(t => t.id !== id));
-    }, 2000);
-  }, []);
-
-  // ── Cloud Save methods ─────────────────────────────────────────────────────
-  const loadCloudSaves = useCallback(async () => {
-    if (!api) return;
-    const entries = await window.electron.cloudsaveGetAll(api.hashedWebhook);
-    setCloudSaves(entries);
-  }, [api]);
-
-  useEffect(() => {
-    if (isConnected) loadCloudSaves();
-  }, [isConnected, loadCloudSaves]);
-
-  const addCloudSave = useCallback(async (name, localPath) => {
-    if (!api) return;
-    const discordPath = `cloudsave/${name}/`;
-    const id = await window.electron.cloudsaveAdd(api.hashedWebhook, { name, local_path: localPath, discord_path: discordPath });
-    await loadCloudSaves();
-    return id;
-  }, [api, loadCloudSaves]);
-
-  const removeCloudSave = useCallback(async (id) => {
-    await window.electron.cloudsaveRemove(id);
-    await loadCloudSaves();
-  }, [loadCloudSaves]);
-
-  const syncCloudSave = useCallback(async (id) => {
-    return await window.electron.cloudsaveSyncEntry(id);
-  }, []);
-
-  const setLocalPath = useCallback(async (id, localPath) => {
-    await window.electron.cloudsaveUpdate(id, { local_path: localPath });
-    await loadCloudSaves();
-  }, [loadCloudSaves]);
-
-  useEffect(() => {
-    if (!window.electron?.onCloudSaveDoUpload || !api) return;
-    const cleanup = window.electron.onCloudSaveDoUpload(async (entry) => {
-      try {
-        const uploadRecursive = async (localDir, remoteDir) => {
-          const contents = await window.electron.listDirectory(localDir);
-          for (const item of contents) {
-            const remotePath = `${remoteDir}${item.name}`;
-            if (item.isDirectory) {
-              await uploadRecursive(item.path, `${remotePath}/`);
-            } else {
-              const transferId = `cloudsave-${entry.id}-${Date.now()}`;
-              await api.uploadFile({ nativePath: item.path }, remotePath, (p) => {}, null, transferId);
-            }
-          }
-        };
-        await uploadRecursive(entry.local_path, entry.discord_path);
-        if (window.electron?.flushMetadata) await window.electron.flushMetadata(webhookUrl, api.hashedWebhook);
-        await api.syncMetadata();
-        window.electron.cloudsaveUploadResult(entry.id, true);
-        await loadCloudSaves();
-      } catch (e) {
-        console.error('[cloudsave] Upload failed:', e);
-        window.electron.cloudsaveUploadResult(entry.id, false);
-      }
-    });
-    return cleanup;
-  }, [api, webhookUrl, chunkSize, loadCloudSaves]);
-
-  useEffect(() => {
-    if (!window.electron?.onCloudSaveDoUploadFile || !api) return;
-    const cleanup = window.electron.onCloudSaveDoUploadFile(async ({ id, filePath, discordPath }) => {
-      try {
-        const transferId = `cloudsave-file-${id}-${Date.now()}`;
-        const result = await window.electron.uploadFileFromPath(webhookUrl, filePath, discordPath, () => {}, transferId, chunkSize);
-        if (result.ok) {
-          await api.createFile(discordPath, result.messageIds, result.size);
-          await api.syncMetadata();
-          window.electron.cloudsaveUploadFileResult(id, discordPath, true);
-          await loadCloudSaves();
-        } else {
-          window.electron.cloudsaveUploadFileResult(id, discordPath, false);
-        }
-      } catch (e) {
-        console.error('[cloudsave] Single file upload failed:', e);
-        window.electron.cloudsaveUploadFileResult(id, discordPath, false);
-      }
-    });
-    return cleanup;
-  }, [api, webhookUrl, chunkSize, loadCloudSaves]);
-
-  useEffect(() => {
-    if (!window.electron?.onCloudsaveLocalMissing) return;
-    const cleanup = window.electron.onCloudsaveLocalMissing(({ id }) => {
-      setCloudSaves(prev => prev.map(s => s.id === id ? { ...s, local_path: null, status: 'local_missing' } : s));
-    });
-    return cleanup;
-  }, []);
-
-  useEffect(() => {
-    if (!window.electron?.onCloudSaveSyncStatus) return;
-    const cleanup = window.electron.onCloudSaveSyncStatus((data) => {
-      setCloudSaves(prev => prev.map(s => s.id === data.id ? { ...s, ...data } : s));
-    });
-    return cleanup;
-  }, []);
-
-  const restoreCloudSave = useCallback(async (id, force = false) => {
-    if (!api) return { ok: false, reason: 'api_not_initialized' };
-    setLoading(true);
-    try {
-      await api.syncMetadata();
-      const res = await window.electron.cloudsaveRestore(id, force);
-      if (res.ok) await loadCloudSaves();
-      return res;
-    } catch (e) {
-      return { ok: false, reason: e.message };
-    } finally {
-      setLoading(false);
-    }
-  }, [api, loadCloudSaves]);
-
-  const exportCloudSave = useCallback(async (id) => {
-    if (!api) return { ok: false, reason: 'api_not_initialized' };
-    setLoading(true);
-    try {
-      await api.syncMetadata();
-      return await window.electron.cloudsaveExportZip(id);
-    } catch (e) {
-      return { ok: false, reason: e.message };
-    } finally {
-      setLoading(false);
-    }
-  }, [api]);
-
-  const getCloudSaveStatus = useCallback(async (id) => {
-    return await window.electron.cloudsaveGetStatus(id);
-  }, []);
-
-  // ── Share & Privacy methods ────────────────────────────────────────────────
-  const loadShareLinks = useCallback(async () => {
-    if (!api) return;
-    try {
-      const links = await window.electron.shareGetLinks(api.hashedWebhook);
-      setShareLinks(links || []);
-    } catch (e) { console.error('[share] loadShareLinks error:', e.message); }
-  }, [api]);
-
-  const saveShareSettings = useCallback(async (settings) => {
-    if (!api) return false;
-    const ok = await window.electron.shareSaveSettings(api.hashedWebhook, { ...settings, webhook_url: webhookUrl });
-    if (ok) {
-      if (settings.enabled !== undefined) setShareEnabled(!!settings.enabled);
-      if (settings.mode) setShareMode(settings.mode);
-      if (settings.cf_worker_url !== undefined) setCfWorkerUrl(settings.cf_worker_url || '');
-    }
-    return ok;
-  }, [api]);
-
-  const deployWorker = useCallback(async (apiToken) => {
-    return await window.electron.shareDeployWorker({ apiToken });
-  }, []);
-
-  const createShareLink = useCallback(async (filePath, fileId, permission, expiresAt) => {
-    if (!api) return { ok: false, reason: 'no_api' };
-    const result = await window.electron.shareCreateLink(api.hashedWebhook, { filePath, fileId, permission, expiresAt });
-    if (result.ok) await loadShareLinks();
-    return result;
-  }, [api, loadShareLinks]);
-
-  const revokeShareLink = useCallback(async (id, token) => {
-    if (!api) return false;
-    const ok = await window.electron.shareRevokeLink(api.hashedWebhook, { id, token });
-    if (ok) await loadShareLinks();
-    return ok;
-  }, [api, loadShareLinks]);
-
-  const revokeAllLinks = useCallback(async () => {
-    if (!api) return false;
-    const ok = await window.electron.shareRevokeAll(api.hashedWebhook);
-    if (ok) setShareLinks([]);
-    return ok;
-  }, [api]);
-
-  const getTransferSignal = useCallback((id) => {
-    return abortControllersRef.current.get(id)?.signal ?? null;
-  }, []);
-
-  const handleUpdateLabel = useCallback((url, label) => {
-    if (updateWebhookLabel(url, label)) {
-      setSavedWebhooks(getSavedWebhooks());
-    }
-  }, []);
-
-  const handleRemoveWebhook = useCallback((url) => {
-    removeWebhook(url);
-    setSavedWebhooks(getSavedWebhooks());
-  }, []);
+  const combinedContext = {
+    ...core,
+    ...prefs,
+    ...auth,
+    ...files,
+    ...transfers,
+    ...cloudSave,
+    ...share,
+    connect,
+    disconnect,
+    refresh
+  };
 
   return (
-    <AppContext.Provider value={{
-      api, webhookUrl, isConnected, isConnecting, files, fileTree,
-      currentPath, setCurrentPath,
-      loading, transfers, savedWebhooks,
-      language, setLanguage, t,
-      theme, toggleTheme, setTheme,
-      uiScale, setUiScale,
-      chunkSize, setChunkSize,
-      showPreviews, setShowPreviews,
-      showImagePreviews, setShowImagePreviews,
-      showVideoPreviews, setShowVideoPreviews,
-      showAudioPreviews, setShowAudioPreviews,
-      showRecent, setShowRecent,
-      autoCloseTransfers, setAutoCloseTransfers,
-      animationsEnabled, setAnimationsEnabled,
-      metadataStatus,
-      closeToTray, startMinimized, chunksPerMessage, updatePrefs,
-      isVerified, setIsVerified,
-      appLockEnabled, setAppLockEnabled,
-      appLockPin, setAppLockPin,
-      isAppUnlocked, setIsAppUnlocked,
-      pinExists, setPinExists,
-      isSidebarOpen, setIsSidebarOpen,
-      isTransferring,
-      cloudSaveEnabled, setCloudSaveEnabled,
-      cloudSaves, loadCloudSaves, addCloudSave, removeCloudSave,
-      exportCloudSave, syncCloudSave, setLocalPath,
-      restoreCloudSave, getCloudSaveStatus,
-      shareEnabled, setShareEnabled,
-      shareMode, setShareMode,
-      shareLinks, cfWorkerUrl, setCfWorkerUrl,
-      currentTrack, setCurrentTrack,
-      playlist, setPlaylist,
-      loadShareLinks, saveShareSettings, deployWorker,
-      createShareLink, revokeShareLink, revokeAllLinks,
-      connect, disconnect, refresh,
-      createFolder, movePath, copyPath, deletePath,
-      bulkDelete, bulkMove, bulkCopy,
-      setLocked, setStarred, verifyPin, setPin, hasPin, removePin,
-      getAllDirs,
-      addTransfer, updateTransfer, removeTransfer,
-      cancelTransfer, getTransferSignal,
-      updateWebhookLabel: handleUpdateLabel,
-      removeWebhook: handleRemoveWebhook,
-    }}>
+    <AppContext.Provider value={combinedContext}>
       {children}
     </AppContext.Provider>
   );

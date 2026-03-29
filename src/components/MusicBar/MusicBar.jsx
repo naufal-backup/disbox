@@ -3,8 +3,8 @@ import {
   Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, 
   X, Repeat, Shuffle, ListMusic
 } from 'lucide-react';
-import { useApp } from '../AppContext.jsx';
-import { formatSize, getMimeType } from '../utils/disbox.js';
+import { useApp } from '@/AppContext.jsx';
+import { formatSize, getMimeType } from '@/utils/disbox.js';
 import styles from './MusicBar.module.css';
 
 export default function MusicBar({ track, playlist, onNext, onPrev, onClose }) {

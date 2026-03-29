@@ -1,10 +1,12 @@
 import { useState, useMemo } from 'react';
-import { useApp } from '../AppContext.jsx';
+import { useApp } from '@/AppContext.jsx';
 import { User, Edit2, Trash2, Key, AlertCircle, Eye, EyeOff, HardDrive, FileText, Plus, Loader2, CheckCircle } from 'lucide-react';
-import { ConfirmModal } from '../components/FolderModal.jsx';
+import { ConfirmModal } from '@/components/FolderModal/FolderModal.jsx';
 import styles from './ProfilePage.module.css';
 import toast from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
+
+import { ipc } from '@/utils/ipc';
 
 const DISCORD_WEBHOOK_REGEX = /^https:\/\/discord(app)?\.com\/api\/webhooks\/\d+\/.+$/;
 
@@ -75,7 +77,7 @@ export default function ProfilePage() {
     
     try {
       // Pengecekan real ke Discord
-      const res = await window.electron.fetch(url);
+      const res = await ipc.fetch(url);
       if (res.ok) {
         setVerifyStatus('valid');
         // Simpan ke list via localStorage (AppContext akan refresh saat dipanggil fungsi connect atau sejenisnya)

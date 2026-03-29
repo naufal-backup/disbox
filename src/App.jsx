@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
 import { Toaster } from 'react-hot-toast';
-import { AppProvider, useApp } from './AppContext.jsx';
-import LoginPage from './pages/LoginPage.jsx';
-import DrivePage from './pages/DrivePage.jsx';
-import MusicBar from './components/MusicBar.jsx';
+import { AppProvider, useApp } from '@/AppContext.jsx';
+import LoginPage from '@/pages/LoginPage/LoginPage.jsx';
+import DrivePage from '@/pages/DrivePage/DrivePage.jsx';
+import MusicBar from '@/components/MusicBar/MusicBar.jsx';
 import { Shield, Loader2 } from 'lucide-react';
-import styles from './App.module.css';
+import styles from '@/App.module.css';
 
 import { motion, AnimatePresence } from 'framer-motion';
 

@@ -2,11 +2,13 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { X, Download, Maximize2, Minimize2, Loader2, AlertCircle, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import vscDarkPlus from 'react-syntax-highlighter/dist/esm/styles/prism/vsc-dark-plus';
-import { useApp } from '../AppContext.jsx';
-import { getMimeType, formatSize } from '../utils/disbox.js';
+import { useApp } from '@/AppContext.jsx';
+import { getMimeType, formatSize } from '@/utils/disbox.js';
 import { motion, AnimatePresence } from 'framer-motion';
 import styles from './FilePreview.module.css';
-import MusicPlayer from './MusicPlayer.jsx';
+import MusicPlayer from '@/components/MusicPlayer/MusicPlayer.jsx';
+
+import { ipc } from '@/utils/ipc';
 
 export default function FilePreview({ file, allFiles = [], onFileChange, onClose }) {
   const { api, addTransfer, updateTransfer, removeTransfer, animationsEnabled } = useApp();
@@ -89,9 +91,9 @@ export default function FilePreview({ file, allFiles = [], onFileChange, onClose
       if (signal.aborted) return;
       const blob = new Blob([buffer], { type: getMimeType(fileName) });
       const url = URL.createObjectURL(blob);
-      if (window.electron) {
-        const savePath = await window.electron.saveFile(fileName);
-        if (savePath) await window.electron.writeFile(savePath, new Uint8Array(buffer));
+      if (ipc) {
+        const savePath = await ipc.saveFile(fileName);
+        if (savePath) await ipc.writeFile(savePath, new Uint8Array(buffer));
       } else {
         const a = document.createElement('a'); a.href = url; a.download = fileName; a.click();
       }
@@ -181,7 +183,7 @@ export default function FilePreview({ file, allFiles = [], onFileChange, onClose
 
     return () => {
       isMounted = false;
-      window.electron?.cancelUpload?.(transferId);
+      ipc?.cancelUpload?.(transferId);
       removeTransfer(transferId);
     };
   }, [file.id, api, name, ext, mime]); 

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { X, Upload, Download, ChevronDown, ChevronUp, CheckCircle2, AlertCircle, Square, RefreshCw } from 'lucide-react';
-import { useApp } from '../AppContext.jsx';
+import { useApp } from '@/AppContext.jsx';
 import styles from './TransferPanel.module.css';
 
 function fmtSpeed(bytesPerSec) {
