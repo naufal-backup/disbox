@@ -60,6 +60,7 @@ contextBridge.exposeInMainWorld('electron', {
   verifyPin: (hash, pin)          => ipcRenderer.invoke('verify-pin', hash, pin),
   hasPin: (hash)                  => ipcRenderer.invoke('has-pin', hash),
   removePin: (hash)               => ipcRenderer.invoke('remove-pin', hash),
+  getPinHash: (hash)              => ipcRenderer.invoke('get-pin-hash', hash),
 
   onMetadataChange: (callback) => {
     const listener = (_, hash) => callback(hash);

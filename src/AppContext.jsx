@@ -1,6 +1,7 @@
 import { createContext, useContext, useCallback, useEffect, useRef } from 'react';
 import { DisboxAPI, buildTree } from '@/utils/disbox.js';
 import { ipc } from '@/utils/ipc';
+import { clearThumbCache } from '@/utils/thumbnailCache.js';
 
 import { useCore, saveWebhookToList, getSavedWebhooks } from './hooks/useCore.js';
 import { usePreferences } from './hooks/usePreferences.js';
@@ -27,7 +28,7 @@ export function AppProvider({ children }) {
     if (!api) return;
     if (!silent) setLoading(true);
     try {
-      await api.syncMetadata();
+      await api.syncMetadata({ force: true });
       const fs = await api.getFileSystem();
       setFilesRef.current?.(fs);
       setFileTreeRef.current?.(buildTree(fs));
@@ -47,8 +48,8 @@ export function AppProvider({ children }) {
   const cloudSave = useCloudSave(api, isConnected, webhookUrl, prefs.chunkSize);
 
   const { setFiles, setFileTree, setCurrentPath } = files;
-  const { setPinExists } = auth;
-  const { setShareEnabled, setShareMode, setCfWorkerUrl, setShareLinks } = share;
+  const { setPinExists, setIsVerified } = auth;
+  const { setShareEnabled, setShareMode, setCfWorkerUrl, setShareLinks, loadShareLinks } = share;
 
   useEffect(() => {
     if (!ipc?.onMetadataStatus) return;
@@ -76,7 +77,7 @@ export function AppProvider({ children }) {
     return cleanup;
   }, [api, refresh]);
 
-  const connect = useCallback(async (url, metadataId = null) => {
+  const connect = useCallback(async (url, options = {}) => {
     setIsConnecting(true);
     setLoading(true);
     setIsConnected(false);
@@ -92,16 +93,22 @@ export function AppProvider({ children }) {
 
     try {
       const instance = new DisboxAPI(url);
-      await instance.init(metadataId);
+      await instance.init(options);
       const fs = await instance.getFileSystem();
 
-      localStorage.setItem('disbox_webhook', url);
-      saveWebhookToList(url);
-      setSavedWebhooks(getSavedWebhooks());
+      const normalizedUrl = instance.webhookUrl;
 
-      ipc?.setActiveWebhook(url, instance.hashedWebhook);
+      localStorage.setItem('disbox_webhook', normalizedUrl);
+      
+      const isCloudAccount = !!localStorage.getItem('dbx_username');
+      if (!isCloudAccount) {
+        saveWebhookToList(normalizedUrl);
+        setSavedWebhooks(getSavedWebhooks());
+      }
 
-      setWebhookUrl(url);
+      ipc?.setActiveWebhook(normalizedUrl, instance.hashedWebhook);
+
+      setWebhookUrl(normalizedUrl);
       setApi(instance);
       setFiles(fs);
       setFileTree(buildTree(fs));
@@ -118,14 +125,14 @@ export function AppProvider({ children }) {
             enabled: shareSettings.enabled,
             mode: shareSettings.mode || 'public',
             cf_worker_url: shareSettings.cf_worker_url || '',
-            webhook_url: url
+            webhook_url: normalizedUrl
           });
         } else {
           await ipc.shareSaveSettings(instance.hashedWebhook, {
             enabled: 1,
             mode: 'public',
             cf_worker_url: '',
-            webhook_url: url
+            webhook_url: normalizedUrl
           });
           setShareEnabled(true);
           setShareMode('public');
@@ -137,10 +144,10 @@ export function AppProvider({ children }) {
         console.warn('[share] Failed to load share settings:', e.message);
       }
 
-      return { ok: true };
+      return { ok: true, instance };
     } catch (e) {
       console.error('Connect failed:', e);
-      return { ok: false, reason: 'unknown', message: e.message };
+      return { ok: false, reason: 'error', message: e.message };
     } finally {
       setIsConnecting(false);
       setLoading(false);
@@ -151,17 +158,41 @@ export function AppProvider({ children }) {
     abortControllersRef.current.forEach(controller => controller.abort());
     abortControllersRef.current.clear();
 
+    clearThumbCache();
     localStorage.removeItem('disbox_webhook');
+    localStorage.removeItem('dbx_username');
     setApi(null);
     setWebhookUrl('');
     setIsConnected(false);
     setPinExists(null);
+    setIsVerified(false);
     setFiles([]);
     setFileTree(null);
     setCurrentPath('/');
     setTransfers([]);
     setShareLinks([]);
-  }, [setApi, setWebhookUrl, setIsConnected, setPinExists, setFiles, setFileTree, setCurrentPath, setTransfers, setShareLinks, abortControllersRef]);
+  }, [setApi, setWebhookUrl, setIsConnected, setPinExists, setIsVerified, setFiles, setFileTree, setCurrentPath, setTransfers, setShareLinks, abortControllersRef]);
+
+  const handleUpdateLabel = useCallback((url, label) => {
+    const list = getSavedWebhooks();
+    const index = list.findIndex(i => i.url === url);
+    if (index >= 0) {
+      list[index].label = label;
+      localStorage.setItem('disbox_saved_webhooks', JSON.stringify(list));
+      setSavedWebhooks(list);
+    }
+  }, [setSavedWebhooks]);
+
+  const handleRemoveWebhook = useCallback((url) => {
+    const list = getSavedWebhooks().filter(i => i.url !== url);
+    localStorage.setItem('disbox_saved_webhooks', JSON.stringify(list));
+    setSavedWebhooks(list);
+  }, [setSavedWebhooks]);
+
+  const handleAddWebhook = useCallback((url, label) => {
+    saveWebhookToList(url, label);
+    setSavedWebhooks(getSavedWebhooks());
+  }, [setSavedWebhooks]);
 
   const combinedContext = {
     ...core,
@@ -173,7 +204,10 @@ export function AppProvider({ children }) {
     ...share,
     connect,
     disconnect,
-    refresh
+    refresh,
+    updateWebhookLabel: handleUpdateLabel,
+    removeWebhook: handleRemoveWebhook,
+    addWebhook: handleAddWebhook,
   };
 
   return (

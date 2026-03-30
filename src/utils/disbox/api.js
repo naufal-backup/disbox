@@ -25,9 +25,11 @@ import { captureVideoThumbnail, captureVideoThumbnailFfmpeg } from './thumbnails
 
 export class DisboxAPI {
   constructor(webhookUrl) {
-    this.webhookUrl = webhookUrl.split('?')[0];
+    this.rawWebhookUrl = webhookUrl.split('?')[0].trim();
+    // Auto-migrate to discord.com
+    this.webhookUrl = this.rawWebhookUrl.replace('discordapp.com', 'discord.com').replace(/\/+$/, '');
     this.hashedWebhook = null;
-    this.encryptionKey = null;
+    this.encryptionKeys = []; // Array of possible keys for resilience
     this.MAGIC_HEADER = new TextEncoder().encode('DBX_ENC:');
     this.lastSyncedId = null;
     const savedChunkSize = Number(localStorage.getItem('disbox_chunk_size'));
@@ -71,19 +73,57 @@ export class DisboxAPI {
     );
   }
 
-  async init(forceSyncId = null) {
+  async init(options = {}) {
+    const { forceId, metadataUrl } = (typeof options === 'string') ? { forceId: options } : options;
+    
+    console.log('[init] Connecting to webhook:', this.webhookUrl.split('/').slice(0, 6).join('/') + '/...');
+    
+    // First, validate the webhook itself
+    const res = await ipc.fetch(this.webhookUrl);
+    if (!res.ok) {
+      if (res.status === 404) {
+        throw new Error('Webhook URL tidak ditemukan (404). Pastikan URL yang Anda salin dari Discord benar.');
+      }
+      throw new Error(`Webhook tidak dapat diakses (HTTP ${res.status}).`);
+    }
+
     this.hashedWebhook = await this.hashWebhook(this.webhookUrl);
-    this.encryptionKey = await this.deriveKey(this.webhookUrl);
-    await this.syncMetadata(forceSyncId);
+    
+    // Derive multiple potential keys for resilience
+    const variants = new Set([
+      this.webhookUrl,                             // Normalized (no trailing slash)
+      this.webhookUrl + '/',                       // With trailing slash
+      this.webhookUrl.replace('discord.com', 'discordapp.com'),
+      this.webhookUrl.replace('discord.com', 'discordapp.com') + '/',
+      this.rawWebhookUrl                           // Original input
+    ]);
+
+    this.encryptionKeys = [];
+    for (const variant of variants) {
+      try {
+        const key = await this.deriveKey(variant);
+        this.encryptionKeys.push(key);
+      } catch (e) {
+        console.warn('[init] Failed to derive key for variant:', variant);
+      }
+    }
+
+    try {
+      await this.syncMetadata({ forceId, metadataUrl });
+    } catch (e) {
+      console.error('[init] Metadata sync failed during init:', e);
+      throw e;
+    }
     return this.hashedWebhook;
   }
 
   async encrypt(data) {
-    if (!this.encryptionKey) return data;
+    if (!this.encryptionKeys.length) return data;
+    const primaryKey = this.encryptionKeys[0];
     const iv = crypto.getRandomValues(new Uint8Array(12));
     const encrypted = await crypto.subtle.encrypt(
       { name: 'AES-GCM', iv },
-      this.encryptionKey,
+      primaryKey,
       data
     );
     const result = new Uint8Array(this.MAGIC_HEADER.length + iv.length + encrypted.byteLength);
@@ -94,8 +134,10 @@ export class DisboxAPI {
   }
 
   async decrypt(data) {
-    if (!this.encryptionKey) return data;
+    if (!this.encryptionKeys.length) return data;
     const uint8 = new Uint8Array(data);
+
+    if (uint8.length < this.MAGIC_HEADER.length) return data;
 
     for (let i = 0; i < this.MAGIC_HEADER.length; i++) {
       if (uint8[i] !== this.MAGIC_HEADER[i]) {
@@ -104,19 +146,27 @@ export class DisboxAPI {
       }
     }
 
-    try {
-      const iv = uint8.slice(this.MAGIC_HEADER.length, this.MAGIC_HEADER.length + 12);
-      const ciphertext = uint8.slice(this.MAGIC_HEADER.length + 12);
-      const decrypted = await crypto.subtle.decrypt(
-        { name: 'AES-GCM', iv },
-        this.encryptionKey,
-        ciphertext
-      );
-      return decrypted;
-    } catch (e) {
-      console.error('[crypto] Decryption failed:', e);
-      return data;
+    const iv = uint8.slice(this.MAGIC_HEADER.length, this.MAGIC_HEADER.length + 12);
+    const ciphertext = uint8.slice(this.MAGIC_HEADER.length + 12);
+
+    let lastError = null;
+    for (let i = 0; i < this.encryptionKeys.length; i++) {
+      try {
+        const decrypted = await crypto.subtle.decrypt(
+          { name: 'AES-GCM', iv },
+          this.encryptionKeys[i],
+          ciphertext
+        );
+        // If we succeeded with a non-primary key, log it
+        if (i > 0) console.log(`[crypto] Decryption succeeded using fallback key #${i}`);
+        return decrypted;
+      } catch (e) {
+        lastError = e;
+      }
     }
+
+    console.error('[crypto] Decryption failed with all available keys:', lastError);
+    throw new Error('Gagal mendekripsi metadata. Webhook URL Anda mungkin berbeda dari saat metadata ini dibuat.');
   }
 
   async _getMsgIdFromDiscovery() {
@@ -131,77 +181,237 @@ export class DisboxAPI {
         const res = await ipc.fetch(this.webhookUrl);
         if (res.ok) {
           const info = JSON.parse(res.body);
-          const match = info.name?.match(/(?:dbx|disbox|db)[:\s]+(\d+)/i);
+          // Match any numbers following dbx, disbox, or db with more flexible regex
+          const match = info.name?.match(/(?:dbx|disbox|db)[:\s]*(\d+)/i) || info.name?.match(/(\d{15,})/);
           webhookMsgId = match?.[1] || null;
+          
+          if (webhookMsgId) {
+            console.log('[sync] Found ID in webhook name:', webhookMsgId);
+          }
+        } else if (res.status === 404) {
+          console.error('[sync] Webhook returned 404. This URL is invalid or deleted.');
+          throw new Error('Webhook URL tidak valid (404). Silakan cek kembali di Discord.');
         }
-      } catch (_) {}
+      } catch (e) {
+        console.warn('[sync] Webhook discovery failed:', e.message);
+        if (e.message.includes('404')) throw e;
+      }
 
-      const candidates = [localMsgId, webhookMsgId].filter(v => v && /^\d+$/.test(v));
-      if (candidates.length === 0) return { best: null, snapshotHistory: [], isDirty };
+      // Collect all candidates, prioritize the one from webhook name if it's different
+      const candidates = [webhookMsgId, localMsgId, ...snapshotHistory].filter(v => v && /^\d+$/.test(v));
+      
+      if (candidates.length === 0) return { best: null, snapshotHistory, isDirty };
+      
+      // Use BigInt for accurate comparison of Discord snowflakes
       const best = candidates.reduce((a, b) => BigInt(a) >= BigInt(b) ? a : b);
+      console.log('[sync] Best candidate found:', best);
+      
       return { best, snapshotHistory, isDirty };
     } catch (e) {
       console.error('[sync] Discovery error:', e);
-      return { best: null, snapshotHistory: [], isDirty: false };
+      throw e;
     }
   }
 
   async _downloadMetadataFromMsg(msgId) {
     const msgUrl = `${this.webhookUrl}/messages/${msgId}`;
     const msgRes = await ipc.fetch(msgUrl);
-    if (!msgRes.ok) throw new Error(`Message ${msgId} tidak bisa diakses: ${msgRes.status}`);
+    
+    if (!msgRes.ok) {
+      if (msgRes.status === 404) {
+        throw new Error(`Pesan metadata (${msgId}) tidak ditemukan. Pesan mungkin sudah dihapus atau Webhook Anda tidak memiliki izin untuk membacanya.`);
+      }
+      throw new Error(`Gagal mendownload metadata: HTTP ${msgRes.status}`);
+    }
+
     const msg = JSON.parse(msgRes.body);
     const attachment = msg.attachments?.find(a => a.filename.includes('metadata.json'));
     const attachmentUrl = attachment?.url || msg.attachments?.[0]?.url;
-    if (!attachmentUrl) throw new Error('Tidak ada attachment di message ' + msgId);
+    if (!attachmentUrl) throw new Error('Pesan ditemukan, tetapi tidak ada file metadata di dalamnya.');
+    
     const bytes = await ipc.proxyDownload(attachmentUrl);
     const decryptedBytes = await this.decrypt(bytes);
     const jsonStr = new TextDecoder().decode(decryptedBytes);
-    const data = JSON.parse(jsonStr);
-    return data;
+    return JSON.parse(jsonStr);
   }
 
-  async syncMetadata(forceId = null) {
+  async _downloadMetadataFromUrl(url) {
+    console.log('[sync] Downloading metadata directly from URL...');
+    const bytes = await ipc.proxyDownload(url);
+    const decryptedBytes = await this.decrypt(bytes);
+    const jsonStr = new TextDecoder().decode(decryptedBytes);
+    return JSON.parse(jsonStr);
+  }
+
+  async syncMetadata(options = {}) {
+    const { forceId, metadataUrl, force } = (typeof options === 'string') ? { forceId: options } : options;
+
     return this._enqueue(async () => {
       if (this._syncing) return false;
       this._syncing = true;
       try {
-        const discovery = forceId ? { best: forceId, snapshotHistory: [] } : await this._getMsgIdFromDiscovery();
-        const { best: msgId, snapshotHistory, isDirty } = discovery;
-        if (!msgId) return false;
-        if (isDirty && msgId === this.lastSyncedId && !forceId) return true;
-        if (!forceId && msgId === this.lastSyncedId) {
-          const local = await ipc.loadMetadata(this.hashedWebhook);
-          if (Array.isArray(local) && local.length > 0) return true;
-        }
         let data;
-        let resolvedMsgId = msgId;
-        try {
-          data = await this._downloadMetadataFromMsg(msgId);
-        } catch (e) {
-          const fallbackCandidates = [...snapshotHistory].reverse().filter(id => id !== msgId);
-          if (this.lastSyncedId && !fallbackCandidates.includes(this.lastSyncedId)) fallbackCandidates.push(this.lastSyncedId);
-          let success = false;
-          for (const fallbackId of fallbackCandidates) {
-            try {
-              data = await this._downloadMetadataFromMsg(fallbackId);
-              resolvedMsgId = fallbackId;
-              success = true;
-              break;
-            } catch (err) {}
+        let resolvedMsgId = forceId || null;
+
+        if (metadataUrl) {
+          // Direct download from CDN link
+          data = await this._downloadMetadataFromUrl(metadataUrl);
+          if (!resolvedMsgId && metadataUrl.includes('/attachments/')) {
+            const parts = metadataUrl.split('/');
+            resolvedMsgId = parts[parts.length - 2];
           }
-          if (!success) return false;
+        } else {
+          // 1. Tentukan msgId tujuan
+          let msgId = forceId;
+          let snapshotHistory = [];
+
+          // 2. Jika tidak ada forceId, atau jika kita ingin memastikan ID terbaru
+          if (!forceId) {
+            const discovery = await this._getMsgIdFromDiscovery();
+            if (!discovery) { console.log('[sync] Tidak ada msgId ditemukan, skip sync.'); return false; }
+            msgId = discovery.best;
+            snapshotHistory = discovery.snapshotHistory;
+          }
+
+          // Force bypass check: Jika force=true, tetap download meskipun ID sama
+          if (!force && !forceId && msgId === this.lastSyncedId) {
+            const local = await ipc.loadMetadata(this.hashedWebhook);
+            if (Array.isArray(local) && local.length > 0) {
+              console.log('[sync] Local up-to-date, skip download. msgId:', msgId);
+              return true;
+            }
+          }
+
+          console.log('[sync] Downloading metadata dari Discord, msgId:', msgId);
+          
+          try {
+            data = await this._downloadMetadataFromMsg(msgId);
+            resolvedMsgId = msgId;
+          } catch (e) {
+            console.warn('[sync] ID utama gagal (mungkin 404):', msgId, e.message);
+            
+            // JIKA forceId GAGAL, coba lakukan Discovery aktif sebagai cadangan!
+            if (forceId) {
+              console.log('[sync] ForceId gagal, mencoba discovery aktif...');
+              const discovery = await this._getMsgIdFromDiscovery();
+              if (discovery && discovery.best !== forceId) {
+                try {
+                  data = await this._downloadMetadataFromMsg(discovery.best);
+                  resolvedMsgId = discovery.best;
+                  console.log('[sync] Berhasil pulih menggunakan ID hasil discovery:', resolvedMsgId);
+                } catch (err) {
+                  throw new Error('ID lama sudah mati dan discovery juga gagal.');
+                }
+              } else {
+                throw e; 
+              }
+            } else {
+              // Fallback history untuk non-forceId
+              const fallbackCandidates = [...snapshotHistory].reverse().filter(id => id !== msgId);
+              if (this.lastSyncedId && !fallbackCandidates.includes(this.lastSyncedId) && this.lastSyncedId !== msgId) {
+                fallbackCandidates.push(this.lastSyncedId);
+              }
+              let success = false;
+              for (const fallbackId of fallbackCandidates) {
+                try {
+                  data = await this._downloadMetadataFromMsg(fallbackId);
+                  resolvedMsgId = fallbackId;
+                  success = true;
+                  break;
+                } catch (err) {
+                  console.error('[sync] Fallback gagal untuk msgId:', fallbackId, err.message);
+                }
+              }
+              if (!success) throw new Error('Semua upaya download (termasuk fallback) gagal.');
+            }
+          }
         }
+
         await ipc.saveMetadata(this.hashedWebhook, data, resolvedMsgId);
         this.lastSyncedId = resolvedMsgId;
         localStorage.setItem(`dbx_last_sync_${this.hashedWebhook}`, this.lastSyncedId);
+        
+        // Update Cloud Profile jika ID berubah
+        const username = localStorage.getItem('dbx_username');
+        if (username && resolvedMsgId !== forceId) {
+          ipc.fetch('https://disbox.naufal.dev/api/cloud/sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, last_msg_id: resolvedMsgId })
+          }).catch(() => {});
+        }
+
+        const itemCount = Array.isArray(data) ? data.length : (data.files?.length || 0);
+        console.log('[sync] ✓ Berhasil sync. msgId:', this.lastSyncedId, '| items:', itemCount);
         return true;
       } catch (e) {
+        console.error('[sync] Fatal error:', e.message);
+        if (metadataUrl) throw e;
         return false;
       } finally {
         this._syncing = false;
       }
     });
+  }
+
+  async uploadMetadataToDiscord(files) {
+    if (!this.webhookUrl) return;
+    try {
+      console.log('[disbox] Uploading metadata to Discord...');
+
+      let pinRow = null;
+      try {
+        pinRow = await ipc.getPinHash?.(this.hashedWebhook);
+      } catch {}
+
+      let shareLinks = [];
+      try {
+        shareLinks = await ipc.shareGetLinks?.(this.hashedWebhook) || [];
+      } catch {}
+
+      const container = { files, pinHash: pinRow || null, shareLinks, updatedAt: Date.now() };
+      const jsonStr = JSON.stringify(container);
+      const jsonBytes = new TextEncoder().encode(jsonStr);
+      const encryptedBytes = await this.encrypt(jsonBytes.buffer);
+      const b64 = await _bufferToBase64(encryptedBytes);
+      
+      const res = await ipc.uploadChunk(this.webhookUrl, b64, 'disbox_metadata.json');
+      if (res.ok) {
+        const data = JSON.parse(res.body);
+        this.lastSyncedId = data.id;
+        localStorage.setItem(`dbx_last_sync_${this.hashedWebhook}`, data.id);
+        
+        // Update SQLite/Local Metadata dengan MsgID terbaru agar sync selanjutnya valid
+        await ipc.saveMetadata(this.hashedWebhook, files, data.id);
+        
+        console.log('[disbox] Metadata synced to Discord. ID:', data.id);
+
+        // ─── CLOUD SYNC: Update Cloud Profile jika login ───
+        const username = localStorage.getItem('dbx_username');
+        if (username) {
+          // Use net-fetch to call remote API
+          await ipc.fetch('https://disbox.naufal.dev/api/cloud/sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              username: username,
+              webhook_url: this.webhookUrl,
+              last_msg_id: data.id,
+              metadata_b64: b64
+            })
+          }).catch(e => console.warn('[cloud] Sync failed:', e.message));
+        }
+
+        // Best effort update webhook name
+        await ipc.fetch(this.webhookUrl, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: `dbx: ${data.id}` })
+        }).catch(() => {});
+      }
+    } catch (e) {
+      console.error('[disbox] Failed to upload metadata:', e);
+    }
   }
 
   async validateWebhook() {
@@ -216,7 +426,16 @@ export class DisboxAPI {
   async getFileSystem() {
     try {
       let data = await ipc.loadMetadata(this.hashedWebhook);
-      let files = Array.isArray(data) ? data : [];
+      if (!Array.isArray(data) || data.length === 0) {
+        console.log('[disbox] Local kosong, mencoba download dari Discord...');
+        await this.syncMetadata();
+        data = await ipc.loadMetadata(this.hashedWebhook);
+        if (!Array.isArray(data) || data.length === 0) {
+          console.log('[disbox] Tidak ada metadata, opening as empty drive');
+          data = [];
+        }
+      }
+      let files = Array.isArray(data) ? data : (data?.files || []);
       let changed = false;
       files = files.map(f => {
         if (!f.id) { changed = true; return { ...f, id: crypto.randomUUID() }; }
@@ -224,12 +443,16 @@ export class DisboxAPI {
       });
       if (changed) await ipc.saveMetadata(this.hashedWebhook, files);
       return files;
-    } catch (e) { return []; }
+    } catch (e) {
+      console.error('[disbox] getFileSystem error:', e.message);
+      return [];
+    }
   }
 
   async _saveFileSystem(files) {
     if (!files || !Array.isArray(files)) return;
     await ipc.saveMetadata(this.hashedWebhook, files);
+    await this.uploadMetadataToDiscord(files);
   }
 
   async createFile(filePath, messageIds, size = 0, id = null, thumbnailMsgId = null) {
@@ -361,90 +584,84 @@ export class DisboxAPI {
         thumbBlob = await captureVideoThumbnailFfmpeg(firstChunkBuffer, ext);
       }
       if (!thumbBlob) {
-        const mimeMap = { mp4: 'video/mp4', webm: 'video/webm', ogg: 'video/ogg', mkv: 'video/x-matroska', mov: 'video/quicktime', avi: 'video/x-msvideo' };
-        const mime = mimeMap[ext] || 'video/mp4';
-        const videoBlob = new Blob([firstChunkBuffer], { type: mime });
-        thumbBlob = await captureVideoThumbnail(videoBlob);
+        thumbBlob = await captureVideoThumbnail(firstChunkBuffer, ext);
       }
       if (!thumbBlob) return null;
-      const thumbBuffer = await thumbBlob.arrayBuffer();
-      const thumbName = `${fileId}_thumb.webp`;
-      const thumbB64 = await _bufferToBase64(thumbBuffer);
+
+      const thumbName = `thumb_${fileId}.jpg`;
+      const thumbB64 = await _bufferToBase64(await thumbBlob.arrayBuffer());
       const res = await ipc.uploadChunk(this.webhookUrl, thumbB64, thumbName);
-      if (!res.ok) return null;
-      const data = JSON.parse(res.body);
-      return data.id;
-    } catch (e) { return null; }
+      return res.messageIds?.[0] || null;
+    } catch (e) {
+      console.warn('[thumb] Upload failed:', e.message);
+      return null;
+    }
   }
 
-  async uploadFile(file, filePath, onProgress, signal = null, transferId = null) {
-    const fileId = crypto.randomUUID();
-    throwIfAborted(signal);
-    const fileName = filePath.split('/').pop();
-    const ext = fileName.split('.').pop().toLowerCase();
-    const isVideo = ['mp4', 'webm', 'ogg', 'mkv', 'mov', 'avi'].includes(ext);
+  async uploadFile(file, onProgress, signal) {
+    return this._enqueue(async () => {
+      const fileName = file.name;
+      const fileSize = file.size;
+      const fileId = crypto.randomUUID();
+      const filePath = file.path; // Virtual path
+      const isVideo = ['mp4', 'mkv', 'mov', 'avi', 'webm'].includes(fileName.split('.').pop().toLowerCase());
 
-    if (file.nativePath && ipc?.uploadFileFromPath) {
-      const tid = transferId || fileId;
-      const abortListener = () => ipc.cancelUpload(tid);
-      signal?.addEventListener('abort', abortListener);
-      try {
+      let thumbnailMsgId = null;
+
+      // Handle file native path (Electron side)
+      if (file.nativePath) {
+        const tid = Math.random().toString(36).substring(7);
+        if (signal) {
+          signal.addEventListener('abort', () => ipc.cancelUpload(tid));
+        }
+
+        if (isVideo) {
+          try {
+            const stats = await ipc.statFile(file.nativePath);
+            if (stats.size > 0) {
+              const head = await ipc.readFileRange(file.nativePath, 0, 10 * 1024 * 1024);
+              thumbnailMsgId = await this._uploadVideoThumbnail(fileId, head, fileName);
+            }
+          } catch (e) { console.warn('[thumb] Error:', e); }
+        }
+
         const res = await ipc.uploadFileFromPath(this.webhookUrl, file.nativePath, `${fileId}_${fileName}`, (p) => { if (!signal?.aborted) onProgress?.(p); }, tid, this.chunkSize);
-        throwIfAborted(signal);
-        if (!res.ok) throw new Error(res.error || 'Upload gagal');
-        let thumbnailMsgId = null;
+        
         if (isVideo && res.messageIds?.length > 1) {
           try {
             const firstMsgId = res.messageIds[0];
             const msgRes = await ipc.fetch(`${this.webhookUrl}/messages/${firstMsgId}`);
             if (msgRes.ok) {
-              const msg = JSON.parse(msgRes.body);
-              const attachmentUrl = msg.attachments?.[0]?.url;
-              if (attachmentUrl) {
-                const chunkData = await ipc.proxyDownload(attachmentUrl);
-                const decrypted = await this.decrypt(chunkData);
-                thumbnailMsgId = await this._uploadVideoThumbnail(fileId, decrypted, fileName);
-              }
+               // Additional logic if needed
             }
           } catch (e) {}
         }
+
         return await this.createFile(filePath, res.messageIds, res.size, fileId, thumbnailMsgId);
-      } finally { signal?.removeEventListener('abort', abortListener); }
-    }
+      }
 
-    const totalSize = file.buffer.byteLength;
-    const numChunks = Math.ceil(totalSize / this.chunkSize) || 1;
-    const messageIds = [];
-    let firstDecryptedChunk = null;
-    for (let i = 0; i < numChunks; i++) {
-      throwIfAborted(signal);
-      const start = i * this.chunkSize;
-      const chunk = file.buffer.slice(start, Math.min(start + this.chunkSize, totalSize));
-      if (i === 0 && isVideo && numChunks > 1) firstDecryptedChunk = chunk;
-      const encryptedChunk = await this.encrypt(chunk);
-      const chunkB64 = await _bufferToBase64(encryptedChunk);
-      const chunkName = `${fileId}_${fileName}.part${i}`;
-      const res = await ipc.uploadChunk(this.webhookUrl, chunkB64, chunkName);
-      if (!res.ok) throw new Error(`Upload chunk ${i} gagal`);
-      const data = JSON.parse(res.body);
-      messageIds.push(data.id);
-      onProgress?.((i + 1) / numChunks);
-    }
-    let thumbnailMsgId = null;
-    if (isVideo && numChunks > 1 && firstDecryptedChunk) thumbnailMsgId = await this._uploadVideoThumbnail(fileId, firstDecryptedChunk, fileName);
-    return await this.createFile(filePath, messageIds, totalSize, fileId, thumbnailMsgId);
+      // Handle browser buffer (if any)
+      const buffer = await file.arrayBuffer();
+      const messageIds = [];
+      let totalSize = 0;
+
+      for (let offset = 0; offset < buffer.byteLength; offset += this.chunkSize) {
+        throwIfAborted(signal);
+        const chunk = buffer.slice(offset, offset + this.chunkSize);
+        const encrypted = await this.encrypt(chunk);
+        const chunkB64 = await _bufferToBase64(encrypted);
+        const chunkName = `chunk_${fileId}_${offset}`;
+        const res = await ipc.uploadChunk(this.webhookUrl, chunkB64, chunkName);
+        messageIds.push(res.messageIds[0]);
+        totalSize += chunk.byteLength;
+        onProgress?.(totalSize / buffer.byteLength);
+      }
+
+      return await this.createFile(filePath, messageIds, totalSize, fileId, thumbnailMsgId);
+    });
   }
 
-  async downloadThumbnail(thumbnailMsgId, transferId = null) {
-    const msgRes = await ipc.fetch(`${this.webhookUrl}/messages/${thumbnailMsgId}`, { transferId });
-    if (!msgRes.ok) throw new Error(`Gagal fetch thumbnail: ${msgRes.status}`);
-    const msg = JSON.parse(msgRes.body);
-    const attachmentUrl = msg.attachments?.[0]?.url;
-    if (!attachmentUrl) throw new Error('Tidak ada attachment di thumbnail');
-    return await ipc.proxyDownload(attachmentUrl, transferId);
-  }
-
-  async downloadFile(file, onProgress, signal = null, transferId = null) {
+  async downloadFile(file, onProgress, signal) {
     const messageIds = file.messageIds || [];
     const chunks = [];
     for (let i = 0; i < messageIds.length; i++) {
@@ -452,44 +669,44 @@ export class DisboxAPI {
       const item = messageIds[i];
       const msgId = typeof item === 'string' ? item : item.msgId;
       const attachmentIndex = typeof item === 'object' ? (item.index || 0) : 0;
-      let chunkData = null;
-      let retryCount = 0;
-      while (retryCount <= 5) {
-        throwIfAborted(signal);
-        try {
-          const msgRes = await ipc.fetch(`${this.webhookUrl}/messages/${msgId}`, { transferId });
-          if (!msgRes.ok) throw new Error(`Fetch ${msgId} gagal`);
-          const msg = JSON.parse(msgRes.body);
-          const attachmentUrl = msg.attachments?.[attachmentIndex]?.url || msg.attachments?.[0]?.url;
-          chunkData = await ipc.proxyDownload(attachmentUrl, transferId);
-          break;
-        } catch (e) {
-          if (retryCount >= 5) throw e;
-          retryCount++;
-          await new Promise(r => setTimeout(r, 1000 * Math.pow(2, retryCount)));
-        }
-      }
-      chunks.push(await this.decrypt(chunkData));
+
+      const msgRes = await ipc.fetch(`${this.webhookUrl}/messages/${msgId}`);
+      if (!msgRes.ok) throw new Error(`Gagal memuat pesan ${msgId}`);
+      const msg = JSON.parse(msgRes.body);
+      const attachmentUrl = msg.attachments?.[attachmentIndex]?.url || msg.attachments?.[0]?.url;
+      if (!attachmentUrl) throw new Error('Attachment tidak ditemukan');
+
+      const bytes = await ipc.proxyDownload(attachmentUrl);
+      const decrypted = await this.decrypt(bytes);
+      chunks.push(decrypted);
       onProgress?.((i + 1) / messageIds.length);
     }
-    const totalSize = chunks.reduce((sum, c) => sum + c.byteLength, 0);
-    const merged = new Uint8Array(totalSize);
-    let offset = 0;
-    for (const chunk of chunks) { merged.set(new Uint8Array(chunk), offset); offset += chunk.byteLength; }
-    return merged.buffer;
+    return new Blob(chunks, { type: 'application/octet-stream' });
   }
 
-  async downloadFirstChunk(file, signal = null, transferId = null) {
+  async getThumbnail(thumbnailMsgId, transferId = null) {
+    const msgRes = await ipc.fetch(`${this.webhookUrl}/messages/${thumbnailMsgId}`, { transferId });
+    if (!msgRes.ok) return null;
+    const msg = JSON.parse(msgRes.body);
+    const attachmentUrl = msg.attachments?.[0]?.url;
+    if (!attachmentUrl) return null;
+    const bytes = await ipc.proxyDownload(attachmentUrl, transferId);
+    return new Blob([bytes], { type: 'image/jpeg' });
+  }
+
+  async getFirstChunk(file, transferId = null) {
     const messageIds = file.messageIds || [];
     if (messageIds.length === 0) return new ArrayBuffer(0);
     const item = messageIds[0];
     const msgId = typeof item === 'string' ? item : item.msgId;
     const attachmentIndex = typeof item === 'object' ? (item.index || 0) : 0;
+
     const msgRes = await ipc.fetch(`${this.webhookUrl}/messages/${msgId}`, { transferId });
-    if (!msgRes.ok) throw new Error(`Fetch ${msgId} gagal`);
+    if (!msgRes.ok) return new ArrayBuffer(0);
     const msg = JSON.parse(msgRes.body);
     const attachmentUrl = msg.attachments?.[attachmentIndex]?.url || msg.attachments?.[0]?.url;
-    const chunkData = await ipc.proxyDownload(attachmentUrl, transferId);
-    return await this.decrypt(chunkData);
+    if (!attachmentUrl) return new ArrayBuffer(0);
+    const bytes = await ipc.proxyDownload(attachmentUrl, transferId);
+    return await this.decrypt(bytes);
   }
 }

@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useApp } from '@/AppContext.jsx';
-import { User, Edit2, Trash2, Key, AlertCircle, Eye, EyeOff, HardDrive, FileText, Plus, Loader2, CheckCircle } from 'lucide-react';
+import { User, Edit2, Trash2, Key, AlertCircle, Eye, EyeOff, HardDrive, FileText, Plus, Loader2, CheckCircle, ShieldCheck, Save, LogOut } from 'lucide-react';
 import { ConfirmModal } from '@/components/FolderModal/FolderModal.jsx';
 import styles from './ProfilePage.module.css';
 import toast from 'react-hot-toast';
@@ -11,7 +11,7 @@ import { ipc } from '@/utils/ipc';
 const DISCORD_WEBHOOK_REGEX = /^https:\/\/discord(app)?\.com\/api\/webhooks\/\d+\/.+$/;
 
 export default function ProfilePage() {
-  const { savedWebhooks, updateWebhookLabel, removeWebhook, t, animationsEnabled, files, connect } = useApp();
+  const { savedWebhooks, updateWebhookLabel, removeWebhook, addWebhook, t, animationsEnabled, files, connect } = useApp();
   const [editingWebhook, setEditingWebhook] = useState(null); // { url, label }
   const [newLabel, setNewLabel] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(null); // url
@@ -76,35 +76,16 @@ export default function ProfilePage() {
     setVerifyStatus(null);
     
     try {
-      // Pengecekan real ke Discord
       const res = await ipc.fetch(url);
       if (res.ok) {
         setVerifyStatus('valid');
-        // Simpan ke list via localStorage (AppContext akan refresh saat dipanggil fungsi connect atau sejenisnya)
-        // Disini kita memanggil connect agar dia otomatis tersimpan ke list tanpa harus login
-        // Tapi jika kita tidak ingin ganti akun, kita bisa panggil fungsi manual nanti di AppContext
-        // Untuk sekarang, kita pakai trick: connect(url) lalu kembali? 
-        // Lebih baik kita expose saveWebhookToList di AppContext.
-        
-        // Kita butuh fungsi ini di AppContext, mari kita asumsikan sudah ada atau kita tambahkan nanti.
-        // Update: Saya akan memanggil connect saja agar dia tersimpan, tapi user mungkin tidak mau pindah akun.
-        // Jadi saya akan menambahkan fungsi 'addOnly' di AppContext nanti.
-        
-        // Sementara kita simpan manual ke localStorage agar tidak mengganggu sesi aktif
-        const saved = JSON.parse(localStorage.getItem('disbox_saved_webhooks') || '[]');
-        if (!saved.some(i => i.url === url)) {
-          saved.unshift({ url, label: addName.trim() || `Webhook #${url.split('/').pop().slice(-6)}`, lastUsed: Date.now() });
-          localStorage.setItem('disbox_saved_webhooks', JSON.stringify(saved.slice(0, 50)));
-          window.dispatchEvent(new Event('storage')); // Trigger update di tab lain jika ada
-        }
+        addWebhook(url, addName.trim() || `Webhook #${url.split('/').pop().slice(-6)}`);
         
         toast.success(t('webhook_valid'));
         setShowAddModal(false);
         setAddUrl('');
         setAddName('');
         setVerifyStatus(null);
-        // Refresh saved webhooks di AppContext dengan memanggil refresh (jika ada) atau biarkan useEffect bekerja
-        window.location.reload(); // Quick fix untuk refresh list di AppContext
       } else {
         setVerifyStatus('invalid');
         toast.error(t('webhook_invalid'));
@@ -149,72 +130,78 @@ export default function ProfilePage() {
           </div>
         </div>
 
-        <div className={styles.section}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-            <h3 className={styles.sectionTitle} style={{ margin: 0 }}>
-              {t('saved_webhooks')}
-            </h3>
-            <button className={styles.addBtn} onClick={() => setShowAddModal(true)}>
-              <Plus size={16} />
-              <span>{t('add_webhook')}</span>
-            </button>
-          </div>
-          
-          {savedWebhooks.length === 0 ? (
-            <div className={styles.emptyState}>
-              <Key className={styles.emptyIcon} />
-              <p>{t('no_saved_webhooks') || 'No saved webhooks found.'}</p>
+        {/* ─── CLOUD SAVE SECTION ─── */}
+        <CloudSaveSection />
+
+        {/* Hanya tampilkan history jika TIDAK sedang dalam mode Cloud Account */}
+        {!localStorage.getItem('dbx_username') && (
+          <div className={styles.section}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <h3 className={styles.sectionTitle} style={{ margin: 0 }}>
+                {t('saved_webhooks') || 'History Webhook Lokal'}
+              </h3>
+              <button className={styles.addBtn} onClick={() => setShowAddModal(true)}>
+                <Plus size={16} />
+                <span>{t('add_webhook')}</span>
+              </button>
             </div>
-          ) : (
-            <div className={styles.list}>
-              <AnimatePresence>
-                {savedWebhooks.map((webhook, idx) => {
-                  const isVisible = visibleWebhooks[webhook.url];
-                  return (
-                    <motion.div
-                      key={webhook.url}
-                      initial={animationsEnabled ? { opacity: 0, y: 10 } : false}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={animationsEnabled ? { opacity: 0, scale: 0.95 } : false}
-                      transition={animationsEnabled ? { duration: 0.2, delay: idx * 0.05 } : { duration: 0 }}
-                      className={styles.card}
-                    >
-                      <div className={styles.cardMain}>
-                        <div className={styles.cardLabel}>{webhook.label}</div>
-                        <div className={`${styles.cardUrl} ${!isVisible ? styles.blurred : ''}`}>
-                          {webhook.url}
+            
+            {savedWebhooks.length === 0 ? (
+              <div className={styles.emptyState}>
+                <Key className={styles.emptyIcon} />
+                <p>{t('no_saved_webhooks') || 'Belum ada history webhook tersimpan.'}</p>
+              </div>
+            ) : (
+              <div className={styles.list}>
+                <AnimatePresence>
+                  {savedWebhooks.map((webhook, idx) => {
+                    const isVisible = visibleWebhooks[webhook.url];
+                    return (
+                      <motion.div
+                        key={webhook.url}
+                        initial={animationsEnabled ? { opacity: 0, y: 10 } : false}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={animationsEnabled ? { opacity: 0, scale: 0.95 } : false}
+                        transition={animationsEnabled ? { duration: 0.2, delay: idx * 0.05 } : { duration: 0 }}
+                        className={styles.card}
+                      >
+                        <div className={styles.cardMain}>
+                          <div className={styles.cardLabel}>{webhook.label}</div>
+                          <div className={`${styles.cardUrl} ${!isVisible ? styles.blurred : ''}`}>
+                            {webhook.url}
+                          </div>
                         </div>
-                      </div>
-                      <div className={styles.cardActions}>
-                        <button 
-                          className={styles.actionBtn} 
-                          onClick={() => toggleWebhookVisibility(webhook.url)}
-                          title={isVisible ? 'Hide URL' : 'Show URL'}
-                        >
-                          {isVisible ? <EyeOff size={16} /> : <Eye size={16} />}
-                        </button>
-                        <button 
-                          className={styles.actionBtn} 
-                          onClick={() => handleEditClick(webhook)}
-                          title="Edit Name"
-                        >
-                          <Edit2 size={16} />
-                        </button>
-                        <button 
-                          className={`${styles.actionBtn} ${styles.danger}`} 
-                          onClick={() => setConfirmDelete(webhook.url)}
-                          title="Remove"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      </div>
-                    </motion.div>
-                  );
-                })}
-              </AnimatePresence>
-            </div>
-          )}
-        </div>
+                        <div className={styles.cardActions}>
+                          <button 
+                            className={styles.actionBtn} 
+                            onClick={() => toggleWebhookVisibility(webhook.url)}
+                            title={isVisible ? 'Hide URL' : 'Show URL'}
+                          >
+                            {isVisible ? <EyeOff size={16} /> : <Eye size={16} />}
+                          </button>
+                          <button 
+                            className={styles.actionBtn} 
+                            onClick={() => handleEditClick(webhook)}
+                            title="Edit Name"
+                          >
+                            <Edit2 size={16} />
+                          </button>
+                          <button 
+                            className={`${styles.actionBtn} ${styles.danger}`} 
+                            onClick={() => setConfirmDelete(webhook.url)}
+                            title="Remove"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      </motion.div>
+                    );
+                  })}
+                </AnimatePresence>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Add Webhook Modal */}
@@ -353,6 +340,126 @@ export default function ProfilePage() {
           onClose={() => setConfirmDelete(null)}
         />
       )}
+    </div>
+  );
+}
+
+function CloudSaveSection() {
+  const { webhookUrl, api } = useApp();
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [isEditing, setIsEditing] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState(null);
+  const currentAccount = localStorage.getItem('dbx_username');
+
+  const handleRegister = async (e) => {
+    e.preventDefault();
+    setBusy(true); setStatus(null);
+    try {
+      const currentId = api?.lastSyncedId || localStorage.getItem(`dbx_last_sync_${api?.hashedWebhook}`);
+      
+      const res = await ipc.fetch('https://disbox.naufal.dev/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: username.trim(),
+          password,
+          webhook_url: webhookUrl,
+          last_msg_id: currentId
+        })
+      });
+      const data = JSON.parse(res.body);
+      if (data.ok) {
+        setStatus({ type: 'success', msg: 'Akun terdaftar!' });
+        localStorage.setItem('dbx_username', username.trim().toLowerCase());
+      } else {
+        setStatus({ type: 'error', msg: data.error });
+      }
+    } catch (e) {
+      setStatus({ type: 'error', msg: 'Gagal menghubungi server.' });
+    } finally { setBusy(false); }
+  };
+
+  const handleUpdate = async (e) => {
+    e.preventDefault();
+    setBusy(true); setStatus(null);
+    try {
+      const res = await ipc.fetch('https://disbox.naufal.dev/api/auth/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          current_username: currentAccount,
+          new_username: username.trim() || currentAccount,
+          new_password: password || null
+        })
+      });
+      const data = JSON.parse(res.body);
+      if (data.ok) {
+        setStatus({ type: 'success', msg: 'Akun berhasil diperbarui!' });
+        localStorage.setItem('dbx_username', data.username);
+        setTimeout(() => { setIsEditing(false); setStatus(null); }, 2000);
+      } else {
+        setStatus({ type: 'error', msg: data.error });
+      }
+    } catch (e) {
+      setStatus({ type: 'error', msg: 'Gagal memperbarui.' });
+    } finally { setBusy(false); }
+  };
+
+  if (currentAccount && !isEditing) {
+    return (
+      <div className={styles.section} style={{ marginBottom: '32px' }}>
+        <h3 className={styles.sectionTitle}>Cloud Account</h3>
+        <div className={styles.cloudBadge} style={{ justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <ShieldCheck size={20} color="#10b981" />
+            <span>Terhubung sebagai: <strong>@{currentAccount}</strong></span>
+          </div>
+          <button 
+            onClick={() => { setIsEditing(true); setUsername(currentAccount); }}
+            style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: '6px', padding: '4px 10px', fontSize: '11px', cursor: 'pointer', color: 'var(--text-secondary)' }}
+          >
+            Edit Akun
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className={styles.section} style={{ marginBottom: '32px' }}>
+      <h3 className={styles.sectionTitle}>{currentAccount ? 'Edit Cloud Account' : 'Cloud Sync Account'}</h3>
+      <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '12px' }}>
+        {currentAccount ? 'Kosongkan password jika tidak ingin diubah.' : 'Daftarkan akun untuk membuka drive ini di perangkat lain.'}
+      </p>
+      <form onSubmit={currentAccount ? handleUpdate : handleRegister} className={styles.cloudForm}>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <input 
+            type="text" placeholder="Username" className={styles.input} style={{ flex: 1, minWidth: '150px' }}
+            value={username} onChange={e => setUsername(e.target.value)} required={!currentAccount}
+          />
+          <input 
+            type="password" placeholder={currentAccount ? "Password baru (opsional)" : "Password"} className={styles.input} style={{ flex: 1, minWidth: '150px' }}
+            value={password} onChange={e => setPassword(e.target.value)} required={!currentAccount}
+          />
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button className={styles.saveBtn} disabled={busy} style={{ background: 'var(--accent)', color: 'white', border: 'none', borderRadius: '6px', padding: '0 16px', fontWeight: '600', cursor: 'pointer' }}>
+              {busy ? '...' : (currentAccount ? 'Simpan' : 'Daftar')}
+            </button>
+            {isEditing && (
+              <button type="button" onClick={() => setIsEditing(false)} style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: '6px', padding: '0 12px', cursor: 'pointer' }}>
+                Batal
+              </button>
+            )}
+          </div>
+        </div>
+        {status && (
+          <div style={{ marginTop: '10px', fontSize: '12px', color: status.type === 'success' ? '#10b981' : '#ef4444', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <AlertCircle size={14} /> {status.msg}
+          </div>
+        )}
+      </form>
     </div>
   );
 }

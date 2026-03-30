@@ -1,31 +1,17 @@
-import { useState, useEffect } from 'react';
+/**
+ * Thumbnail.jsx
+ *
+ * Aligned with disbox-web thumbnail system:
+ * - Persistent cache (survives folder navigation)
+ * - Concurrency control (3 parallel)
+ * - Intersection Observer (priority load)
+ */
+
+import { useState, useEffect, useRef } from 'react';
 import { useApp } from '@/AppContext.jsx';
 import { getMimeType } from '@/utils/disbox.js';
 import { ipc } from '@/utils/ipc';
-
-// ─── Thumbnail Queue — serial (1 per 1) ─────────────────────────────────────
-const thumbQueue = [];
-let thumbRunning = false;
-
-function enqueueThumb(id, task) {
-  return new Promise((resolve, reject) => {
-    thumbQueue.push({ id, task, resolve, reject });
-    processThumbQueue();
-  });
-}
-
-function processThumbQueue() {
-  if (thumbRunning || thumbQueue.length === 0) return;
-  const { task, resolve, reject } = thumbQueue.shift();
-  thumbRunning = true;
-  task()
-    .then(resolve)
-    .catch(reject)
-    .finally(() => {
-      thumbRunning = false;
-      processThumbQueue();
-    });
-}
+import { enqueueThumb, cancelThumb, getCachedThumb, isThumbCached } from '@/utils/thumbnailCache.js';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 function compressImageBlob(blob) {
@@ -68,10 +54,7 @@ function captureFrameFromBlob(blob) {
     };
 
     const capture = () => {
-      if (!video.videoWidth || !video.videoHeight) {
-        done(null);
-        return;
-      }
+      if (!video.videoWidth || !video.videoHeight) { done(null); return; }
       try {
         const MAX = 256;
         let w = video.videoWidth, h = video.videoHeight;
@@ -82,21 +65,15 @@ function captureFrameFromBlob(blob) {
         canvas.height = Math.max(1, h);
         canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
         canvas.toBlob(done, 'image/webp', 0.7);
-      } catch (e) {
-        done(null);
-      }
+      } catch (e) { done(null); }
     };
 
     const timer = setTimeout(() => done(null), 8000);
-
-    video.onloadedmetadata = () => {
-      video.currentTime = Math.min(1, (video.duration || 2) / 2);
-    };
+    video.onloadedmetadata = () => { video.currentTime = Math.min(1, (video.duration || 2) / 2); };
     video.onseeked     = () => capture();
     video.onloadeddata = () => { if (!settled && video.readyState >= 2) capture(); };
     video.oncanplay    = () => { if (!settled) capture(); };
     video.onerror      = () => done(null);
-
     video.src = url;
     video.load();
   });
@@ -123,130 +100,185 @@ function captureAudioArtworkFromBlob(blob) {
   });
 }
 
-export default function FileThumbnail({ file, size = 32 }) {
-  const { api, showPreviews, showImagePreviews, showVideoPreviews, showAudioPreviews, addTransfer, updateTransfer, removeTransfer } = useApp();
-  const [thumbUrl, setThumbUrl] = useState(null);
-  const [loading, setLoading] = useState(false);
+// ─── Global Intersection Observer ────────────────────────────────────────────
+const visibilityMap = new Map();
+let sharedObserver = null;
 
-  const name = file.path.split('/').pop();
-  const ext  = name.split('.').pop().toLowerCase();
+function getObserver() {
+  if (!sharedObserver) {
+    sharedObserver = new IntersectionObserver(
+      (entries) => {
+        entries.forEach(e => {
+          const id = e.target.dataset.thumbId;
+          if (id) visibilityMap.set(id, e.isIntersecting);
+        });
+      },
+      { rootMargin: '200px' }
+    );
+  }
+  return sharedObserver;
+}
+
+export default function FileThumbnail({ file, size = 32 }) {
+  const {
+    api, showPreviews, showImagePreviews, showVideoPreviews, showAudioPreviews,
+    addTransfer, updateTransfer, removeTransfer
+  } = useApp();
+
+  const name   = file.path.split('/').pop();
+  const ext    = name.split('.').pop().toLowerCase();
   const isImage = ['png', 'jpg', 'jpeg', 'webp', 'svg'].includes(ext);
   const isVideo = ['mp4', 'webm', 'ogg', 'mkv', 'mov', 'avi'].includes(ext);
   const isAudio = ['mp3', 'wav', 'flac', 'ogg', 'm4a', 'aac'].includes(ext);
 
-  useEffect(() => {
-    const canShowImage = showPreviews && showImagePreviews && isImage;
-    const canShowVideo = showPreviews && showVideoPreviews && isVideo;
-    const canShowAudio = showPreviews && showAudioPreviews && isAudio;
-
-    if (!canShowImage && !canShowVideo && !canShowAudio) {
-      if (thumbUrl) { URL.revokeObjectURL(thumbUrl); setThumbUrl(null); }
-      return;
-    }
-
-    let isMounted  = true;
-    let objectUrl  = null;
-    const transferId = `thumb-${file.id}`;
-
-    const loadThumb = async () => {
-      setLoading(true);
-      try {
-        await enqueueThumb(transferId, async () => {
-          if (!isMounted) return;
-
-          const signal = addTransfer({
-            id: transferId, name: `Thumbnail: ${name}`,
-            progress: 0, type: 'download', status: 'active', hidden: true
-          });
-
-          let buffer;
-
-          if (isVideo || isAudio) {
-            buffer = await api.downloadFirstChunk(file, signal, transferId);
-          } else {
-            buffer = await api.downloadFile(
-              file,
-              (p) => updateTransfer(transferId, { progress: p }),
-              signal,
-              transferId
-            );
-          }
-
-          if (!isMounted || signal.aborted) return;
-
-          const mime = getMimeType(name);
-          const blob = new Blob([buffer], { type: mime });
-
-          let compressedBlob = null;
-
-          if (isVideo) {
-            compressedBlob = await captureFrameFromBlob(blob);
-          } else if (isAudio) {
-            compressedBlob = await captureAudioArtworkFromBlob(blob);
-          } else {
-            compressedBlob = await compressImageBlob(blob);
-          }
-
-          if (compressedBlob && isMounted) {
-            objectUrl = URL.createObjectURL(compressedBlob);
-            setThumbUrl(objectUrl);
-          }
-
-          updateTransfer(transferId, { status: 'done', progress: 1 });
-          setTimeout(() => removeTransfer(transferId), 500);
-        });
-      } catch (e) {
-        if (isMounted) console.warn('[thumb] Failed:', name, e.message);
-      } finally {
-        if (isMounted) setLoading(false);
-      }
-    };
-
-    loadThumb();
-
-    return () => {
-      isMounted = false;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-      ipc?.cancelUpload?.(transferId);
-      removeTransfer(transferId);
-      const idx = thumbQueue.findIndex(q => q.id === transferId);
-      if (idx >= 0) thumbQueue.splice(idx, 1);
-    };
-  }, [file.id, showPreviews, showImagePreviews, showVideoPreviews, showAudioPreviews, isImage, isVideo, isAudio]);
-
   const canShowImage = showPreviews && showImagePreviews && isImage;
   const canShowVideo = showPreviews && showVideoPreviews && isVideo;
   const canShowAudio = showPreviews && showAudioPreviews && isAudio;
+  const shouldLoad   = canShowImage || canShowVideo || canShowAudio;
 
-  if ((canShowImage || canShowVideo || canShowAudio) && thumbUrl) {
-    return (
-      <div style={{ width: '100%', height: '100%', overflow: 'hidden', borderRadius: 0, display: 'flex', alignItems: canShowAudio ? 'center' : 'flex-start', justifyContent: 'center', flexShrink: 0, position: 'relative' }}>
+  const [thumbUrl, setThumbUrl]   = useState(() => shouldLoad ? getCachedThumb(file.id) : null);
+  const [isLoading, setIsLoading] = useState(() => shouldLoad && !isThumbCached(file.id));
+
+  const containerRef = useRef(null);
+  const abortRef = useRef(null);
+
+  useEffect(() => {
+    if (!shouldLoad || !containerRef.current) return;
+    const el = containerRef.current;
+    el.dataset.thumbId = file.id;
+    const obs = getObserver();
+    obs.observe(el);
+    return () => obs.unobserve(el);
+  }, [file.id, shouldLoad]);
+
+  useEffect(() => {
+    if (!shouldLoad) {
+      setThumbUrl(null);
+      setIsLoading(false);
+      return;
+    }
+
+    if (isThumbCached(file.id)) {
+      setThumbUrl(getCachedThumb(file.id));
+      setIsLoading(false);
+      return;
+    }
+
+    let isMounted = true;
+    setIsLoading(true);
+
+    const priority = visibilityMap.get(file.id) === false ? 100 : 0;
+    const transferId = `thumb-${file.id}`;
+
+    const task = async () => {
+      const ctrl = new AbortController();
+      abortRef.current = ctrl;
+      const { signal } = ctrl;
+
+      const transferSignal = addTransfer({
+        id: transferId, name: `Thumbnail: ${name}`,
+        progress: 0, type: 'download', status: 'active', hidden: true
+      });
+
+      const combinedAbort = new AbortController();
+      const onAbort = () => combinedAbort.abort();
+      signal.addEventListener('abort', onAbort);
+      transferSignal?.addEventListener?.('abort', onAbort);
+
+      try {
+        let buffer;
+        if (isVideo || isAudio) {
+          buffer = await api.downloadFirstChunk(file, combinedAbort.signal, transferId);
+        } else {
+          buffer = await api.downloadFile(
+            file,
+            (p) => updateTransfer(transferId, { progress: p }),
+            combinedAbort.signal,
+            transferId
+          );
+        }
+
+        if (combinedAbort.signal.aborted) return null;
+
+        const mime = getMimeType(name);
+        const blob = new Blob([buffer], { type: mime });
+        
+        let compressed;
+        if (isVideo) {
+          compressed = await captureFrameFromBlob(blob);
+        } else if (isAudio) {
+          compressed = await captureAudioArtworkFromBlob(blob);
+        } else {
+          compressed = await compressImageBlob(blob);
+        }
+
+        if (!compressed) return null;
+
+        const objectUrl = URL.createObjectURL(compressed);
+        updateTransfer(transferId, { status: 'done', progress: 1 });
+        setTimeout(() => removeTransfer(transferId), 500);
+        return objectUrl;
+
+      } catch (e) {
+        if (!combinedAbort.signal.aborted) {
+          console.warn('[thumb] Failed:', name, e.message);
+        }
+        removeTransfer(transferId);
+        return null;
+      } finally {
+        signal.removeEventListener('abort', onAbort);
+        transferSignal?.removeEventListener?.('abort', onAbort);
+        abortRef.current = null;
+      }
+    };
+
+    enqueueThumb(file.id, priority, task)
+      .then((url) => {
+        if (!isMounted) return;
+        setThumbUrl(url);
+        setIsLoading(false);
+      })
+      .catch(() => {
+        if (isMounted) setIsLoading(false);
+      });
+
+    return () => {
+      isMounted = false;
+      abortRef.current?.abort();
+      cancelThumb(file.id);
+    };
+  }, [file.id, shouldLoad]);
+
+  return (
+    <div
+      ref={containerRef}
+      style={{
+        width: '100%', height: '100%',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}
+    >
+      {shouldLoad && thumbUrl ? (
         <img
           src={thumbUrl}
           alt=""
           style={{
-            width: '100%',
-            height: '100%',
+            width: '100%', height: '100%',
             objectFit: 'cover',
-            objectPosition: canShowAudio ? 'center' : 'top',
-            boxShadow: canShowAudio ? '0 4px 12px rgba(0,0,0,0.15)' : 'none',
-            borderRadius: canShowAudio ? '4px' : '0'
+            objectPosition: isAudio ? 'center' : 'top',
+            boxShadow: isAudio ? '0 4px 12px rgba(0,0,0,0.15)' : 'none',
+            borderRadius: isAudio ? '4px' : '0'
           }}
           draggable={false}
         />
-      </div>
-    );
-  }
-
-  if ((canShowImage || canShowVideo || canShowAudio) && loading) {
-    return <div className="skeleton" style={{ width: '100%', height: '100%', borderRadius: 0 }} />;
-  }
-
-  return (
-    <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-muted)' }}>
-      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" width={size} height={size} style={{ opacity: 0.5 }}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="m20.25 7.5-.625 10.632a2.25 2.25 0 0 1-2.247 2.118H6.622a2.25 2.25 0 0 1-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z" />
-      </svg>
-    </span>
+      ) : shouldLoad && isLoading ? (
+        <div className="skeleton" style={{ width: '100%', height: '100%', borderRadius: 0 }} />
+      ) : (
+        <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-muted)' }}>
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" width={size} height={size} style={{ opacity: 0.5 }}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="m20.25 7.5-.625 10.632a2.25 2.25 0 0 1-2.247 2.118H6.622a2.25 2.25 0 0 1-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z" />
+          </svg>
+        </span>
+      )}
+    </div>
   );
 }

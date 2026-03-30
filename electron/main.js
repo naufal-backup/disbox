@@ -44,7 +44,7 @@ const MAGIC_HEADER = Buffer.from('DBX_ENC:');
 
 function getEncryptionKey(url) {
   if (!url) return null;
-  const baseUrl = url.split('?')[0];
+  const baseUrl = url.split('?')[0].replace(/\/+$/, '');
   return cryptoNode.createHash('sha256').update(baseUrl).digest();
 }
 
@@ -614,13 +614,13 @@ ipcMain.handle('net-fetch', async (_, url, options = {}) => {
   const controller = new AbortController();
   if (transferId) abortControllers.set(transferId, controller);
 
-  const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
+  const timeoutId = setTimeout(() => controller.abort(), 60000); // Increased to 60s timeout
 
   try {
     const response = await net.fetch(url, {
       method: options.method || 'GET',
       headers: {
-        'User-Agent': 'Mozilla/5.0 Disbox/2.0',
+        'User-Agent': 'Mozilla/5.0 Disbox/3.6',
         ...(options.headers || {}),
       },
       body: options.body || undefined,
@@ -628,10 +628,16 @@ ipcMain.handle('net-fetch', async (_, url, options = {}) => {
     });
     const body = await response.text();
     clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      console.warn(`[net-fetch] HTTP ${response.status} for ${url.split('/messages/')[0]}...`);
+    }
+
     return { status: response.status, body, ok: response.ok };
   } catch (e) {
     clearTimeout(timeoutId);
     if (e.name === 'AbortError' || controller.signal.aborted) {
+      console.error('[net-fetch] Timeout or Aborted:', url);
       return { status: 0, body: '', ok: false, error: 'TIMEOUT_OR_ABORTED' };
     }
     console.error('[net-fetch] error:', url, e.message);
@@ -1674,6 +1680,16 @@ ipcMain.handle('set-pin', async (_, hash, pin) => {
   } catch (e) {
     console.error('[set-pin] error:', e.message);
     return false;
+  }
+});
+
+ipcMain.handle('get-pin-hash', async (_, hash) => {
+  try {
+    const row = db.prepare("SELECT value FROM settings WHERE hash = ? AND key = 'pin_hash'").get(hash);
+    return row ? row.value : null;
+  } catch (e) {
+    console.error('[get-pin-hash] error:', e.message);
+    return null;
   }
 });
 

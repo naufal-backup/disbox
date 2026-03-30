@@ -1,189 +1,206 @@
 import { useState, useEffect } from 'react';
-import { Cloud, ExternalLink, AlertCircle, Loader2, Clock, ChevronDown, X } from 'lucide-react';
+import { Cloud, User, ExternalLink, AlertCircle, Loader2, Clock, ChevronDown, X, Key, Sparkles } from 'lucide-react';
 import { useApp } from '@/AppContext.jsx';
 import styles from './LoginPage.module.css';
+
+import { ipc } from '@/utils/ipc';
 
 const DISCORD_WEBHOOK_REGEX = /^https:\/\/discord(app)?\.com\/api\/webhooks\/\d+\/.+$/;
 
 export default function LoginPage() {
   const { connect, loading, savedWebhooks, t } = useApp();
+  const [loginMode, setLoginMode] = useState(null); // 'manual', 'account', or null
+  
+  // Manual States
   const [url, setUrl] = useState('');
-  const [metadataId, setMetadataId] = useState('');
-  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [metadataUrl, setMetadataUrl] = useState('');
+  
+  // Account States
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  
   const [error, setError] = useState('');
   const [showHistory, setShowHistory] = useState(false);
 
-  // Auto-load config: saat URL berubah dan valid, tampilkan info
-  const isValid = DISCORD_WEBHOOK_REGEX.test(url.trim());
-
-  // Auto-fill dari saved webhook pertama kali (tapi jangan auto-connect)
-  useEffect(() => {
-    if (!url && savedWebhooks.length > 0) {
-      // Jangan auto-fill — biarkan user pilih sendiri
-    }
-  }, []);
-
-  const handleConnect = async (webhookUrl) => {
+  const handleManualConnect = async (webhookUrl) => {
     const target = webhookUrl || url.trim();
+    const cdnTarget = metadataUrl.trim();
+
     setError('');
-    if (!target) { setError('Masukkan webhook URL'); return; }
+    if (!target) { setError(t('error_no_url')); return; }
+    if (!cdnTarget) { setError('Masukkan Link CDN Metadata'); return; }
+
     if (!DISCORD_WEBHOOK_REGEX.test(target)) {
-      setError('Format webhook URL tidak valid');
+      setError(t('error_invalid_url'));
       return;
     }
+
     if (webhookUrl) setUrl(webhookUrl);
-    const result = await connect(target, metadataId.trim() || null);
+    const result = await connect(target, { metadataUrl: cdnTarget });
     if (!result.ok) {
-      setError('Gagal connect. Pastikan webhook URL benar dan coba lagi.');
+      setError(result.message || 'Gagal connect. Pastikan Webhook URL dan CDN Link benar.');
+    }
+  };
+
+  const handleAccountLogin = async () => {
+    setError('');
+    if (!username.trim() || !password.trim()) {
+      setError('Masukkan username dan password');
+      return;
+    }
+
+    try {
+      const res = await ipc.fetch('https://disbox.naufal.dev/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: username.trim(), password })
+      });
+      const data = JSON.parse(res.body);
+      
+      if (!data.ok) {
+        setError(data.error || 'Login gagal');
+        return;
+      }
+
+      localStorage.setItem('dbx_username', data.username);
+      
+      const result = await connect(data.webhook_url, { 
+        forceId: data.last_msg_id,
+        metadataUrl: data.cloud_metadata_url 
+      });
+      if (!result.ok) setError(result.message || 'Gagal menghubungkan drive.');
+      
+    } catch (e) {
+      setError('Terjadi kesalahan server.');
     }
   };
 
   return (
     <div className={styles.page}>
       <div className={styles.bg}>
-        <div className={styles.glow1} />
-        <div className={styles.glow2} />
-        <div className={styles.grid} />
+        <div className={styles.glow1} /><div className={styles.glow2} /><div className={styles.grid} />
       </div>
 
       <div className={styles.card}>
         <div className={styles.logo}>
-          <div className={styles.logoRing}>
-            <Cloud size={28} strokeWidth={1.5} />
-          </div>
+          <div className={styles.logoRing}><Cloud size={28} strokeWidth={1.5} /></div>
         </div>
 
         <h1 className={styles.title}>Disbox</h1>
         <p className={styles.subtitle}>{t('subtitle')}</p>
 
-        <div className={styles.features}>
-          {[t('feature_unlimited'), t('feature_chunk'), t('feature_local'), t('feature_virtual')].map(f => (
-            <div key={f} className={styles.feature}>
-              <div className={styles.featureDot} />
-              <span>{f}</span>
-            </div>
-          ))}
-        </div>
-
         <div className={styles.divider} />
 
-        {/* Saved webhooks */}
-        {savedWebhooks.length > 0 && (
-          <div className={styles.savedSection}>
-            <button
-              className={styles.savedToggle}
-              onClick={() => setShowHistory(h => !h)}
-            >
-              <Clock size={12} />
-              <span>{t('saved_webhooks_count', { count: savedWebhooks.length })}</span>
-              <ChevronDown size={12} style={{ transform: showHistory ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
+        {!loginMode ? (
+          <div className={styles.methodSelector}>
+            <button className={styles.methodBtnPrimary} onClick={() => setLoginMode('account')} disabled={loading}>
+              <User size={20} />
+              <div className={styles.methodInfo}>
+                <span className={styles.methodTitle}>Masuk dengan Akun</span>
+                <span className={styles.methodDesc}>Username & Password</span>
+              </div>
             </button>
 
-            {showHistory && (
-              <div className={styles.savedList}>
-                {savedWebhooks.map((w, i) => (
-                  <button
-                    key={i}
-                    className={styles.savedItem}
-                    onClick={() => handleConnect(w.url)}
-                    disabled={loading}
-                  >
-                    <div className={styles.savedIcon}>
-                      <Cloud size={11} />
-                    </div>
-                    <div className={styles.savedInfo}>
-                      <span className={styles.savedLabel}>{w.label}</span>
-                      <span className={styles.savedUrl}>{w.url.slice(0, 48)}…</span>
-                    </div>
-                    {loading ? <Loader2 size={12} className="spin" /> : null}
-                  </button>
-                ))}
+            <button className={styles.methodBtnSecondary} onClick={() => setLoginMode('manual')} disabled={loading}>
+              <Cloud size={20} />
+              <div className={styles.methodInfo}>
+                <span className={styles.methodTitle}>Masuk Manual</span>
+                <span className={styles.methodDesc}>Webhook + Link Metadata</span>
+              </div>
+            </button>
+          </div>
+        ) : loginMode === 'account' ? (
+          <div className={styles.manualForm}>
+            <div className={styles.formHeader}>
+              <button className={styles.backBtn} onClick={() => { setLoginMode(null); setError(''); }}>← Kembali</button>
+              <span className={styles.formTitle}>Login Akun</span>
+            </div>
+
+            <div className={styles.inputGroup}>
+              <label className={styles.label}>Username</label>
+              <input 
+                type="text" className={styles.input} placeholder="Masukkan username"
+                value={username} onChange={e => setUsername(e.target.value)}
+              />
+            </div>
+
+            <div className={styles.inputGroup}>
+              <label className={styles.label}>Password</label>
+              <input 
+                type="password" className={styles.input} placeholder="••••••••"
+                value={password} onChange={e => setPassword(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleAccountLogin()}
+              />
+            </div>
+
+            {error && <div className={styles.errorMsg}><AlertCircle size={12} /> {error}</div>}
+
+            <button className={styles.connectBtn} onClick={handleAccountLogin} disabled={loading}>
+              {loading ? <><Loader2 size={16} className="spin" /> Memuat...</> : <><Key size={16} /> Masuk</>}
+            </button>
+          </div>
+        ) : (
+          <div className={styles.manualForm}>
+            <div className={styles.formHeader}>
+              <button className={styles.backBtn} onClick={() => { setLoginMode(null); setError(''); }}>← Kembali</button>
+              <span className={styles.formTitle}>Masuk Manual</span>
+            </div>
+
+            {savedWebhooks.length > 0 && (
+              <div className={styles.savedSection}>
+                <button className={styles.savedToggle} onClick={() => setShowHistory(h => !h)}>
+                  <Clock size={12} />
+                  <span>{t('saved_webhooks_count', { count: savedWebhooks.length })}</span>
+                  <ChevronDown size={12} style={{ transform: showHistory ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
+                </button>
+                {showHistory && (
+                  <div className={styles.savedList}>
+                    {savedWebhooks.map((w, i) => (
+                      <button key={i} className={styles.savedItem} onClick={() => handleManualConnect(w.url)} disabled={loading}>
+                        <div className={styles.savedIcon}><Cloud size={11} /></div>
+                        <div className={styles.savedInfo}><span className={styles.savedLabel}>{w.label}</span><span className={styles.savedUrl}>{w.url.slice(0, 48)}…</span></div>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
+
+            <div className={styles.inputGroup}>
+              <label className={styles.label}>Webhook URL</label>
+              <input 
+                type="text" className={styles.input} placeholder="https://discord.com/api/webhooks/..."
+                value={url} onChange={e => setUrl(e.target.value)}
+              />
+            </div>
+
+            <div className={styles.inputGroup}>
+              <label className={styles.label}>Link CDN Metadata</label>
+              <input 
+                type="text" className={styles.input} placeholder="https://cdn.discordapp.com/attachments/..."
+                value={metadataUrl} onChange={e => setMetadataUrl(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleManualConnect()}
+              />
+              <p className={styles.helpText}>Klik kanan file disbox_metadata.json di Discord &gt; Copy Link</p>
+            </div>
+
+            {error && <div className={styles.errorMsg}><AlertCircle size={12} /> {error}</div>}
+
+            <button className={styles.connectBtn} onClick={() => handleManualConnect()} disabled={loading}>
+              {loading ? <><Loader2 size={16} className="spin" /> Menghubungkan...</> : <><Cloud size={16} /> Connect Drive</>}
+            </button>
           </div>
         )}
 
-        {/* URL Input */}
-        <div className={styles.inputGroup}>
-          <label className={styles.label}>{t('webhook_url')}</label>
-          <div className={styles.inputRow}>
-            <input
-              type="text"
-              className={`${styles.input} ${error ? styles.inputError : ''} ${isValid ? styles.inputValid : ''}`}
-              placeholder={t('webhook_placeholder')}
-              value={url}
-              onChange={e => { setUrl(e.target.value); setError(''); }}
-              onKeyDown={e => e.key === 'Enter' && handleConnect()}
-              spellCheck={false}
-              autoFocus
-            />
-            {url && (
-              <button className={styles.clearBtn} onClick={() => { setUrl(''); setError(''); }}>
-                <X size={12} />
-              </button>
-            )}
-          </div>
-          {error && (
-            <div className={styles.errorMsg}>
-              <AlertCircle size={12} /> {error}
-            </div>
-          )}
-          {isValid && !error && (
-            <div className={styles.validMsg}>✓ {t('url_valid')}</div>
-          )}
-        </div>
-
-        {/* Advanced Options */}
-        <div className={styles.advancedSection}>
-          <button 
-            className={styles.advancedToggle}
-            onClick={() => setShowAdvanced(!showAdvanced)}
-            type="button"
-          >
-            {showAdvanced ? t('hide_advanced') : t('advanced_options')}
-          </button>
-          
-          {showAdvanced && (
-            <div className={styles.advancedFields}>
-              <label className={styles.label}>{t('metadata_msg_id')}</label>
-              <input
-                type="text"
-                className={styles.input}
-                placeholder={t('metadata_id_placeholder')}
-                value={metadataId}
-                onChange={e => setMetadataId(e.target.value)}
-              />
-              <p className={styles.helpText}>{t('metadata_help')}</p>
-            </div>
-          )}
-        </div>
-
-        <button className={styles.connectBtn} onClick={() => handleConnect()} disabled={loading || !url.trim()}>
-          {loading ? (
-            <><Loader2 size={16} className="spin" /> {t('connecting')}</>
-          ) : (
-            <><Cloud size={16} /> {t('connect_drive')}</>
-          )}
-        </button>
-
         <div className={styles.help}>
-          <a
-            className={styles.helpLink}
-            href="https://support.discord.com/hc/en-us/articles/228383668-Intro-to-Webhooks"
-            target="_blank"
-            rel="noreferrer"
-            onClick={e => { e.preventDefault(); window.open?.(e.currentTarget.href, '_blank'); }}
-          >
-            <ExternalLink size={11} /> {t('how_to_webhook')}
+          <a className={styles.helpLink} href="https://support.discord.com/hc/en-us/articles/228383668-Intro-to-Webhooks" target="_blank" rel="noreferrer" onClick={e => { e.preventDefault(); window.open?.(e.currentTarget.href, '_blank'); }}>
+            <Sparkles size={11} /> Apa itu Webhook?
           </a>
         </div>
       </div>
 
       <div className={styles.version}>
-        <div>Disbox v3.6.0 · Serverless Edition</div>
-        <div style={{ marginTop: 4, opacity: 0.6, fontSize: '0.9em' }}>
-          Created by <b>naufal-backup</b> · naufalalamsyah453@gmail.com
-        </div>
+        <div>Disbox v3.6.0 · Cloud Profile Edition</div>
       </div>
     </div>
   );
