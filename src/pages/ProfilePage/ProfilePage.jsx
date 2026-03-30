@@ -9,6 +9,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { ipc } from '@/utils/ipc';
 
 const DISCORD_WEBHOOK_REGEX = /^https:\/\/discord(app)?\.com\/api\/webhooks\/\d+\/.+$/;
+const BASE_API_URL = 'https://disbox.naufal.dev';
 
 export default function ProfilePage() {
   const { savedWebhooks, updateWebhookLabel, removeWebhook, addWebhook, t, animationsEnabled, files, connect } = useApp();
@@ -345,7 +346,7 @@ export default function ProfilePage() {
 }
 
 function CloudSaveSection() {
-  const { webhookUrl, api } = useApp();
+  const { webhookUrl, api, t } = useApp();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [isEditing, setIsEditing] = useState(false);
@@ -359,7 +360,7 @@ function CloudSaveSection() {
     try {
       const currentId = api?.lastSyncedId || localStorage.getItem(`dbx_last_sync_${api?.hashedWebhook}`);
       
-      const res = await ipc.fetch('https://disbox.naufal.dev/api/auth/register', {
+      const res = await ipc.fetch(`${BASE_API_URL}/api/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -385,7 +386,7 @@ function CloudSaveSection() {
     e.preventDefault();
     setBusy(true); setStatus(null);
     try {
-      const res = await ipc.fetch('https://disbox.naufal.dev/api/auth/update', {
+      const res = await ipc.fetch(`${BASE_API_URL}/api/auth/update`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

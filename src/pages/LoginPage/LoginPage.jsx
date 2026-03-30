@@ -1,26 +1,27 @@
-import { useState, useEffect } from 'react';
-import { Cloud, User, ExternalLink, AlertCircle, Loader2, Clock, ChevronDown, X, Key, Sparkles } from 'lucide-react';
+import { useState } from 'react';
+import { Cloud, User, AlertCircle, Loader2, Key, Sparkles, X, Clock, ChevronDown } from 'lucide-react';
 import { useApp } from '@/AppContext.jsx';
 import styles from './LoginPage.module.css';
 
 import { ipc } from '@/utils/ipc';
 
 const DISCORD_WEBHOOK_REGEX = /^https:\/\/discord(app)?\.com\/api\/webhooks\/\d+\/.+$/;
+const BASE_API_URL = 'https://disbox.naufal.dev';
 
 export default function LoginPage() {
   const { connect, loading, savedWebhooks, t } = useApp();
-  const [loginMode, setLoginMode] = useState(null); // 'manual', 'account', or null
+  const [loginMode, setLoginMode] = useState(null); // 'manual', 'account', atau null
   
   // Manual States
   const [url, setUrl] = useState('');
   const [metadataUrl, setMetadataUrl] = useState('');
+  const [showHistory, setShowHistory] = useState(false);
   
   // Account States
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   
   const [error, setError] = useState('');
-  const [showHistory, setShowHistory] = useState(false);
 
   const handleManualConnect = async (webhookUrl) => {
     const target = webhookUrl || url.trim();
@@ -28,7 +29,7 @@ export default function LoginPage() {
 
     setError('');
     if (!target) { setError(t('error_no_url')); return; }
-    if (!cdnTarget) { setError('Masukkan Link CDN Metadata'); return; }
+    if (!cdnTarget && !webhookUrl) { setError('Masukkan Link CDN Metadata'); return; }
 
     if (!DISCORD_WEBHOOK_REGEX.test(target)) {
       setError(t('error_invalid_url'));
@@ -50,19 +51,31 @@ export default function LoginPage() {
     }
 
     try {
-      const res = await ipc.fetch('https://disbox.naufal.dev/api/auth/login', {
+      const res = await ipc.fetch(`${BASE_API_URL}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: username.trim(), password })
       });
-      const data = JSON.parse(res.body);
       
-      if (!data.ok) {
+      let data;
+      try {
+        data = JSON.parse(res.body);
+      } catch (e) {
+        console.error('[Login] JSON Parse error:', res.body);
+        setError('Respons server tidak valid.');
+        return;
+      }
+      
+      if (!res.ok || !data.ok) {
         setError(data.error || 'Login gagal');
         return;
       }
 
       localStorage.setItem('dbx_username', data.username);
+      if (data.user_id) {
+        localStorage.setItem('dbx_user_id', data.user_id);
+        sessionStorage.setItem('dbx_user_id', data.user_id);
+      }
       
       const result = await connect(data.webhook_url, { 
         forceId: data.last_msg_id,
@@ -71,7 +84,8 @@ export default function LoginPage() {
       if (!result.ok) setError(result.message || 'Gagal menghubungkan drive.');
       
     } catch (e) {
-      setError('Terjadi kesalahan server.');
+      console.error('[Login] Error:', e);
+      setError('Terjadi kesalahan koneksi ke server.');
     }
   };
 
@@ -88,6 +102,15 @@ export default function LoginPage() {
 
         <h1 className={styles.title}>Disbox</h1>
         <p className={styles.subtitle}>{t('subtitle')}</p>
+
+        <div className={styles.features}>
+          {[t('feature_unlimited'), t('feature_chunk'), t('feature_local'), t('feature_virtual')].map(f => (
+            <div key={f} className={styles.feature}>
+              <div className={styles.featureDot} />
+              <span>{f}</span>
+            </div>
+          ))}
+        </div>
 
         <div className={styles.divider} />
 
@@ -133,7 +156,7 @@ export default function LoginPage() {
               />
             </div>
 
-            {error && <div className={styles.errorMsg}><AlertCircle size={12} /> {error}</div>}
+            {error && <div className={styles.errorMsg} style={{ marginBottom: 15 }}><AlertCircle size={12} /> {error}</div>}
 
             <button className={styles.connectBtn} onClick={handleAccountLogin} disabled={loading}>
               {loading ? <><Loader2 size={16} className="spin" /> Memuat...</> : <><Key size={16} /> Masuk</>}
@@ -168,23 +191,29 @@ export default function LoginPage() {
 
             <div className={styles.inputGroup}>
               <label className={styles.label}>Webhook URL</label>
-              <input 
-                type="text" className={styles.input} placeholder="https://discord.com/api/webhooks/..."
-                value={url} onChange={e => setUrl(e.target.value)}
-              />
+              <div className={styles.inputRow}>
+                <input 
+                  type="text" className={styles.input} placeholder="https://discord.com/api/webhooks/..."
+                  value={url} onChange={e => setUrl(e.target.value)}
+                />
+                {url && <button className={styles.clearBtn} onClick={() => setUrl('')}><X size={12} /></button>}
+              </div>
             </div>
 
             <div className={styles.inputGroup}>
               <label className={styles.label}>Link CDN Metadata</label>
-              <input 
-                type="text" className={styles.input} placeholder="https://cdn.discordapp.com/attachments/..."
-                value={metadataUrl} onChange={e => setMetadataUrl(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && handleManualConnect()}
-              />
+              <div className={styles.inputRow}>
+                <input 
+                  type="text" className={styles.input} placeholder="https://cdn.discordapp.com/attachments/..."
+                  value={metadataUrl} onChange={e => setMetadataUrl(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleManualConnect()}
+                />
+                {metadataUrl && <button className={styles.clearBtn} onClick={() => setMetadataUrl('')}><X size={12} /></button>}
+              </div>
               <p className={styles.helpText}>Klik kanan file disbox_metadata.json di Discord &gt; Copy Link</p>
             </div>
 
-            {error && <div className={styles.errorMsg}><AlertCircle size={12} /> {error}</div>}
+            {error && <div className={styles.errorMsg} style={{ marginBottom: 15 }}><AlertCircle size={12} /> {error}</div>}
 
             <button className={styles.connectBtn} onClick={() => handleManualConnect()} disabled={loading}>
               {loading ? <><Loader2 size={16} className="spin" /> Menghubungkan...</> : <><Cloud size={16} /> Connect Drive</>}
@@ -200,7 +229,7 @@ export default function LoginPage() {
       </div>
 
       <div className={styles.version}>
-        <div>Disbox v3.6.0 · Cloud Profile Edition</div>
+        <div>Disbox v4.0.1 · Cloud Profile Edition</div>
       </div>
     </div>
   );

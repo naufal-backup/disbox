@@ -76,15 +76,21 @@ export class DisboxAPI {
   async init(options = {}) {
     const { forceId, metadataUrl } = (typeof options === 'string') ? { forceId: options } : options;
     
-    console.log('[init] Connecting to webhook:', this.webhookUrl.split('/').slice(0, 6).join('/') + '/...');
+    console.log('[init] Initializing DisboxAPI...', { forceId, metadataUrl });
     
-    // First, validate the webhook itself
-    const res = await ipc.fetch(this.webhookUrl);
-    if (!res.ok) {
-      if (res.status === 404) {
-        throw new Error('Webhook URL tidak ditemukan (404). Pastikan URL yang Anda salin dari Discord benar.');
+    // First, validate the webhook itself (be more lenient with 503 errors)
+    try {
+      const res = await ipc.fetch(this.webhookUrl);
+      if (!res.ok) {
+        if (res.status === 404) {
+          throw new Error('Webhook URL tidak ditemukan (404).');
+        }
+        // Jika 503, mungkin Discord sedang down/busy, tapi kita tetap coba lanjut
+        console.warn(`[init] Webhook validation returned HTTP ${res.status}. Attempting to continue anyway...`);
       }
-      throw new Error(`Webhook tidak dapat diakses (HTTP ${res.status}).`);
+    } catch (e) {
+      if (e.message.includes('404')) throw e;
+      console.warn('[init] Webhook validation failed:', e.message, '. Proceeding...');
     }
 
     this.hashedWebhook = await this.hashWebhook(this.webhookUrl);
@@ -109,6 +115,7 @@ export class DisboxAPI {
     }
 
     try {
+      // Sangat Penting: Pastikan metadataUrl diteruskan ke syncMetadata
       await this.syncMetadata({ forceId, metadataUrl });
     } catch (e) {
       console.error('[init] Metadata sync failed during init:', e);
@@ -134,18 +141,30 @@ export class DisboxAPI {
   }
 
   async decrypt(data) {
-    if (!this.encryptionKeys.length) return data;
+    if (this.encryptionKeys.length === 0) {
+      console.log('[crypto] No encryption keys available, returning raw data');
+      return data;
+    }
     const uint8 = new Uint8Array(data);
+    if (uint8.length < this.MAGIC_HEADER.length) {
+      console.log('[crypto] Data too short for magic header, returning raw');
+      return data;
+    }
 
-    if (uint8.length < this.MAGIC_HEADER.length) return data;
-
+    let hasMagic = true;
     for (let i = 0; i < this.MAGIC_HEADER.length; i++) {
       if (uint8[i] !== this.MAGIC_HEADER[i]) {
-        console.log('[crypto] No magic header, assuming unencrypted data');
-        return data;
+        hasMagic = false;
+        break;
       }
     }
 
+    if (!hasMagic) {
+      console.log('[crypto] No magic header found, returning raw data');
+      return data;
+    }
+
+    console.log('[crypto] Magic header found, attempting decryption...');
     const iv = uint8.slice(this.MAGIC_HEADER.length, this.MAGIC_HEADER.length + 12);
     const ciphertext = uint8.slice(this.MAGIC_HEADER.length + 12);
 
@@ -157,90 +176,118 @@ export class DisboxAPI {
           this.encryptionKeys[i],
           ciphertext
         );
-        // If we succeeded with a non-primary key, log it
-        if (i > 0) console.log(`[crypto] Decryption succeeded using fallback key #${i}`);
+        console.log(`[crypto] Decryption success with key #${i}`);
         return decrypted;
       } catch (e) {
         lastError = e;
       }
     }
 
-    console.error('[crypto] Decryption failed with all available keys:', lastError);
-    throw new Error('Gagal mendekripsi metadata. Webhook URL Anda mungkin berbeda dari saat metadata ini dibuat.');
+    console.error('[crypto] Decryption failed with all available keys. Last error:', lastError?.message || lastError);
+    return data;
   }
 
   async _getMsgIdFromDiscovery() {
-    try {
-      const localRes = await ipc.getLatestMetadataMsgId?.(this.hashedWebhook);
-      const isDirty = localRes?.isDirty || false;
-      const localMsgId = typeof localRes === 'object' ? localRes?.lastMsgId : localRes;
-      const snapshotHistory = localRes?.snapshotHistory || [];
+    const localRes = await ipc.getLatestMetadataMsgId?.(this.hashedWebhook);
+    const localMsgId = typeof localRes === 'object' ? localRes?.lastMsgId : localRes;
+    const snapshotHistory = localRes?.snapshotHistory || [];
 
-      let webhookMsgId = null;
+    let remoteMsgId = null;
+    let channelId = null;
+
+    try {
+      console.log('[sync] Fetching channel info from webhook...');
+      const res = await ipc.fetch(this.webhookUrl);
+      if (res.ok) {
+        const info = JSON.parse(res.body);
+        channelId = info.channel_id;
+      }
+    } catch (e) {
+      console.warn('[sync] Gagal fetch webhook info:', e.message);
+    }
+
+    // SELALU lakukan Discovery ke Channel untuk mencari pesan terbaru (Prioritas Utama)
+    if (channelId) {
       try {
-        const res = await ipc.fetch(this.webhookUrl);
-        if (res.ok) {
-          const info = JSON.parse(res.body);
-          // Match any numbers following dbx, disbox, or db with more flexible regex
-          const match = info.name?.match(/(?:dbx|disbox|db)[:\s]*(\d+)/i) || info.name?.match(/(\d{15,})/);
-          webhookMsgId = match?.[1] || null;
-          
-          if (webhookMsgId) {
-            console.log('[sync] Found ID in webhook name:', webhookMsgId);
-          }
-        } else if (res.status === 404) {
-          console.error('[sync] Webhook returned 404. This URL is invalid or deleted.');
-          throw new Error('Webhook URL tidak valid (404). Silakan cek kembali di Discord.');
+        console.log('[sync] Searching for latest metadata message in channel:', channelId);
+        const accessToken = sessionStorage.getItem('dbx_oauth_token');
+        const discUrl = accessToken 
+          ? `https://disbox.naufal.dev/api/discord/discover?channel_id=${channelId}&access_token=${accessToken}`
+          : `https://disbox.naufal.dev/api/discord/discover?channel_id=${channelId}`;
+
+        const discRes = await ipc.fetch(discUrl);
+        const discData = JSON.parse(discRes.body);
+        
+        if (discData.ok && discData.found) {
+          console.log('[sync] Discovery found latest message:', discData.message_id);
+          remoteMsgId = discData.message_id;
+        } else {
+          console.log('[sync] No metadata found in channel history via discovery API.');
         }
       } catch (e) {
-        console.warn('[sync] Webhook discovery failed:', e.message);
-        if (e.message.includes('404')) throw e;
+        console.warn('[sync] Discovery API failed:', e.message);
       }
-
-      // Collect all candidates, prioritize the one from webhook name if it's different
-      const candidates = [webhookMsgId, localMsgId, ...snapshotHistory].filter(v => v && /^\d+$/.test(v));
-      
-      if (candidates.length === 0) return { best: null, snapshotHistory, isDirty };
-      
-      // Use BigInt for accurate comparison of Discord snowflakes
-      const best = candidates.reduce((a, b) => BigInt(a) >= BigInt(b) ? a : b);
-      console.log('[sync] Best candidate found:', best);
-      
-      return { best, snapshotHistory, isDirty };
-    } catch (e) {
-      console.error('[sync] Discovery error:', e);
-      throw e;
     }
+
+    // Bandingkan Lokal vs Remote, ambil yang paling baru (ID terbesar)
+    const candidates = [localMsgId, remoteMsgId].filter(Boolean);
+    if (candidates.length === 0) {
+      console.log('[sync] Discovery: Tidak ada metadata ditemukan (Drive Baru).');
+      return null;
+    }
+
+    const best = candidates.reduce((a, b) => BigInt(a) >= BigInt(b) ? a : b);
+    console.log(`[sync] Sync point: local=${localMsgId}, remote=${remoteMsgId} → using=${best}`);
+    
+    return { best, snapshotHistory };
   }
 
   async _downloadMetadataFromMsg(msgId) {
     const msgUrl = `${this.webhookUrl}/messages/${msgId}`;
-    const msgRes = await ipc.fetch(msgUrl);
-    
-    if (!msgRes.ok) {
-      if (msgRes.status === 404) {
-        throw new Error(`Pesan metadata (${msgId}) tidak ditemukan. Pesan mungkin sudah dihapus atau Webhook Anda tidak memiliki izin untuk membacanya.`);
-      }
-      throw new Error(`Gagal mendownload metadata: HTTP ${msgRes.status}`);
+    let msgRes = await ipc.fetch(msgUrl);
+    if (!msgRes.ok) throw new Error(`Message ${msgId} tidak bisa diakses: ${msgRes.status}`);
+    let msg = JSON.parse(msgRes.body);
+    let attachment = msg.attachments?.find(a => a.filename === 'disbox_metadata.json') || msg.attachments?.[0];
+    let attachmentUrl = attachment?.url;
+    if (!attachmentUrl) throw new Error('Tidak ada attachment di message ' + msgId);
+
+    // Gunakan URL fresh dari message — Discord CDN URL bisa expire, selalu pakai yg baru dari message API
+    let bytes;
+    try {
+      bytes = await ipc.proxyDownload(attachmentUrl);
+    } catch (e) {
+      // Jika CDN URL expired, coba fetch message lagi untuk URL baru
+      console.warn('[sync] CDN URL mungkin expired, retry fetch message:', e.message);
+      const retryRes = await ipc.fetch(msgUrl + '?_refresh=1');
+      if (!retryRes.ok) throw new Error(`Retry fetch message ${msgId} gagal: ${retryRes.status}`);
+      const retryMsg = JSON.parse(retryRes.body);
+      const retryAttachment = retryMsg.attachments?.find(a => a.filename.includes('metadata.json'));
+      const freshUrl = retryAttachment?.url || retryMsg.attachments?.[0]?.url;
+      if (!freshUrl) throw new Error('Attachment tidak ditemukan setelah retry ' + msgId);
+      bytes = await ipc.proxyDownload(freshUrl);
     }
 
-    const msg = JSON.parse(msgRes.body);
-    const attachment = msg.attachments?.find(a => a.filename.includes('metadata.json'));
-    const attachmentUrl = attachment?.url || msg.attachments?.[0]?.url;
-    if (!attachmentUrl) throw new Error('Pesan ditemukan, tetapi tidak ada file metadata di dalamnya.');
-    
-    const bytes = await ipc.proxyDownload(attachmentUrl);
     const decryptedBytes = await this.decrypt(bytes);
     const jsonStr = new TextDecoder().decode(decryptedBytes);
-    return JSON.parse(jsonStr);
+    const data = JSON.parse(jsonStr);
+    const isValid = Array.isArray(data) || (data !== null && typeof data === 'object');
+    if (!isValid) throw new Error('Format metadata tidak valid');
+    return data;
   }
 
   async _downloadMetadataFromUrl(url) {
-    console.log('[sync] Downloading metadata directly from URL...');
-    const bytes = await ipc.proxyDownload(url);
-    const decryptedBytes = await this.decrypt(bytes);
-    const jsonStr = new TextDecoder().decode(decryptedBytes);
-    return JSON.parse(jsonStr);
+    try {
+      console.log('[sync] Downloading metadata directly from URL:', url);
+      const bytes = await ipc.proxyDownload(url);
+      const decryptedBytes = await this.decrypt(bytes);
+      const jsonStr = new TextDecoder().decode(decryptedBytes);
+      const data = JSON.parse(jsonStr);
+      console.log('[sync] Metadata parsed successfully from URL');
+      return data;
+    } catch (e) {
+      console.error('[sync] _downloadMetadataFromUrl failed:', e.message);
+      throw e;
+    }
   }
 
   async syncMetadata(options = {}) {
@@ -387,13 +434,16 @@ export class DisboxAPI {
         console.log('[disbox] Metadata synced to Discord. ID:', data.id);
 
         // ─── CLOUD SYNC: Update Cloud Profile jika login ───
+        const userId = sessionStorage.getItem('dbx_user_id') || localStorage.getItem('dbx_user_id');
         const username = localStorage.getItem('dbx_username');
-        if (username) {
+        
+        if (userId || username) {
           // Use net-fetch to call remote API
           await ipc.fetch('https://disbox.naufal.dev/api/cloud/sync', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
+              user_id: userId,
               username: username,
               webhook_url: this.webhookUrl,
               last_msg_id: data.id,

@@ -1,6 +1,6 @@
 import { 
   HardDrive, Clock, Star, Settings, RefreshCw, LogOut, 
-  Sun, Moon, Lock, Cloud, Link2, User, Repeat, ChevronRight, Plus
+  Sun, Moon, Lock, Cloud, Link2, User, Repeat, ChevronRight, Plus, Infinity
 } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 import { useApp } from '@/AppContext.jsx';
@@ -36,10 +36,12 @@ export default function Sidebar({ activePage, onNavigate }) {
     { icon: Cloud,     label: t('cloud_save'),  id: 'cloud-save', alwaysShow: false, showKey: 'cloudSaveEnabled' },
   ];
 
+  const currentUsername = localStorage.getItem('dbx_username');
   const activeWebhook = savedWebhooks.find(w => w.url === webhookUrl);
-  const userLabel = activeWebhook ? activeWebhook.label : 'Guest User';
+  const userLabel = currentUsername ? `@${currentUsername}` : (activeWebhook ? activeWebhook.label : 'Guest User');
 
   const handleSwitchAccount = async (url) => {
+    if (currentUsername) return; 
     if (url === webhookUrl) return;
     setShowSwitcher(false);
     await connect(url);
@@ -76,7 +78,7 @@ export default function Sidebar({ activePage, onNavigate }) {
           <span>{t('storage')}</span>
           <span className={styles.storageValue}>{formatSizeGB(totalSize)}</span>
         </div>
-        <span className={styles.storageNote}>Discord Unlimited ∞</span>
+        <span className={styles.storageNote}>Discord Unlimited <Infinity size={11} style={{ verticalAlign: 'middle', marginBottom: 1 }} /></span>
       </div>
 
       {/* Nav */}
@@ -128,17 +130,19 @@ export default function Sidebar({ activePage, onNavigate }) {
             </div>
             <div className={styles.userInfo}>
               <span className={styles.userName}>{userLabel}</span>
-              <span className={styles.userStatus}>Online</span>
+              <span className={styles.userStatus}>{currentUsername ? 'Cloud Account' : 'Online'}</span>
             </div>
           </motion.button>
           
-          <button 
-            className={styles.switchBtn} 
-            onClick={(e) => { e.stopPropagation(); setShowSwitcher(!showSwitcher); }}
-            title="Switch Account"
-          >
-            <Repeat size={14} />
-          </button>
+          {!currentUsername && (
+            <button 
+              className={styles.switchBtn} 
+              onClick={(e) => { e.stopPropagation(); setShowSwitcher(!showSwitcher); }}
+              title="Switch Account"
+            >
+              <Repeat size={14} />
+            </button>
+          )}
         </div>
 
         <AnimatePresence>

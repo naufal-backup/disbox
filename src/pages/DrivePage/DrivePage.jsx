@@ -55,6 +55,7 @@ export default function DrivePage({ activePage, onNavigate }) {
             {activePage === 'locked' && t('locked')}
             {activePage === 'cloud-save' && t('cloud_save')}
             {activePage === 'shared' && 'Shared'}
+            {activePage === 'profile' && t('profile')}
             {activePage === 'settings' && t('settings')}
           </h1>
         </header>

@@ -161,6 +161,8 @@ export function AppProvider({ children }) {
     clearThumbCache();
     localStorage.removeItem('disbox_webhook');
     localStorage.removeItem('dbx_username');
+    localStorage.removeItem('dbx_user_id');
+    sessionStorage.removeItem('dbx_user_id');
     setApi(null);
     setWebhookUrl('');
     setIsConnected(false);

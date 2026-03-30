@@ -146,3 +146,36 @@
 .btnConfirm { background: var(--accent); color: var(--text-on-accent); border-color: var(--accent); }
 .btnConfirm:hover { background: var(--accent-hover); transform: translateY(-1px); }
 .btnConfirm:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+/* Cloud Sync Section */
+.cloudBadge {
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: #10b981;
+  font-size: 14px;
+}
+.cloudBadge strong { color: var(--text-primary); }
+
+.cloudForm {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 20px;
+}
+
+.saveBtn {
+  height: 46px;
+  transition: all 0.2s;
+}
+.saveBtn:hover:not(:disabled) {
+  filter: brightness(1.1);
+  transform: translateY(-1px);
+}
+.saveBtn:active:not(:disabled) {
+  transform: translateY(0);
+}

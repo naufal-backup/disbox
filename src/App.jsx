@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Toaster } from 'react-hot-toast';
+import { Toaster, toast } from 'react-hot-toast';
+import { Hexagon } from 'lucide-react';
 import { AppProvider, useApp } from '@/AppContext.jsx';
 import LoginPage from '@/pages/LoginPage/LoginPage.jsx';
 import DrivePage from '@/pages/DrivePage/DrivePage.jsx';
@@ -117,9 +118,9 @@ function AppLockGateway({ onUnlocked }) {
 
 function AppInner() {
   const { 
-    isConnected, isConnecting, webhookUrl, connect, loading, 
+    isConnected, isConnecting, webhookUrl, connect, disconnect, loading, 
     appLockEnabled, isAppUnlocked, setIsAppUnlocked,
-    currentTrack, setCurrentTrack, playlist
+    currentTrack, setCurrentTrack, playlist, t
   } = useApp();
   const [activePage, setActivePage] = useState('drive');
   const [autoConnecting, setAutoConnecting] = useState(false);
@@ -155,6 +156,7 @@ function AppInner() {
       connect(webhookUrl)
         .catch(err => {
           console.error('[App] Auto-connect failed:', err);
+          toast.error(err.message || 'Gagal menghubungkan ke drive. Silakan coba login kembali.');
         })
         .finally(() => {
           if (isMounted) setAutoConnecting(false);
@@ -185,11 +187,20 @@ function AppInner() {
         {(autoConnecting || isConnecting) ? (
           <div className={styles.splash}>
             <div className={styles.splashIcon}>
-              <span style={{ fontSize: 32 }}>⬡</span>
+              <Hexagon size={48} className="spin-slow" style={{ color: 'var(--accent)' }} />
             </div>
             <p className={styles.splashText}>
               {isConnecting ? 'Switching drive...' : 'Reconnecting to drive...'}
             </p>
+            <button 
+              className={styles.cancelAutoBtn}
+              onClick={() => {
+                disconnect();
+                setAutoConnecting(false);
+              }}
+            >
+              Batal & Keluar
+            </button>
           </div>
         ) : isConnected ? (
           <DrivePage activePage={activePage} onNavigate={setActivePage} />
