@@ -121,6 +121,7 @@ export default function LoginPage() {
         return;
       }
 
+      localStorage.setItem('dbx_username', username.trim().toLowerCase());
       toast.success('Akun berhasil dibuat! Silakan login.');
       setLoginMode('account');
       setPassword('');
