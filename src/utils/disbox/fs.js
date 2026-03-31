@@ -42,7 +42,7 @@ export function getMimeType(name) {
   const map = {
     pdf: 'application/pdf',
     mp4: 'video/mp4', mov: 'video/quicktime', avi: 'video/x-msvideo',
-    mp3: 'audio/mpeg', wav: 'audio/wav', flac: 'audio/flac',
+    mp3: 'audio/mpeg', wav: 'audio/wav', flac: 'audio/flac', m4a: 'audio/mp4', aac: 'audio/aac',
     jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
     gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml',
     txt: 'text/plain', html: 'text/html', css: 'text/css',

@@ -30,44 +30,35 @@ export default function MusicBar({ track, playlist, onNext, onPrev, onClose }) {
 
     const loadTrack = async () => {
       setLoading(true);
-      setMetadata({ title: track.path.split('/').pop(), artist: 'Unknown Artist' });
+      setMetadata({ title: track.path.split('/').pop(), artist: 'Disbox Audio' });
       
       try {
-        const signal = addTransfer({
-          id: transferId, name: `Music: ${track.path.split('/').pop()}`,
-          progress: 0, type: 'download', status: 'active', hidden: true
-        });
-
-        const buffer = await api.downloadFile(
-          track,
-          (p) => updateTransfer(transferId, { progress: p }),
-          signal,
-          transferId
-        );
-
-        if (isMounted && !signal.aborted) {
-          const blob = new Blob([buffer], { type: getMimeType(track.path) });
-          url = URL.createObjectURL(blob);
-          setAudioUrl(url);
+        // ─── Use streaming API for audio (similar to FilePreview) ──────────
+        const mime = getMimeType(track.path);
+        const messagesStr = encodeURIComponent(JSON.stringify(track.messageIds));
+        const streamUrl = `disbox-stream://${track.id}?webhook=${encodeURIComponent(api.webhookUrl)}&mime=${encodeURIComponent(mime)}&size=${track.size}&chunkSize=${api.chunkSize}&messages=${messagesStr}&_t=${Date.now()}`;
+        
+        if (isMounted) {
+          setAudioUrl(streamUrl);
           setIsPlaying(true);
-
-          if (window.jsmediatags) {
-            window.jsmediatags.read(blob, {
-              onSuccess: (tag) => {
-                if (isMounted) {
-                  setMetadata({
-                    title: tag.tags.title || track.path.split('/').pop(),
-                    artist: tag.tags.artist || 'Unknown Artist'
-                  });
-                }
-              }
-            });
-          }
         }
-        removeTransfer(transferId);
+
+        // We still might want to fetch some metadata (ID3 tags) from the first chunk
+        const firstChunk = await api.downloadFirstChunk(track);
+        if (isMounted && window.jsmediatags) {
+          window.jsmediatags.read(new Blob([firstChunk]), {
+            onSuccess: (tag) => {
+              if (isMounted) {
+                setMetadata({
+                  title: tag.tags.title || track.path.split('/').pop(),
+                  artist: tag.tags.artist || 'Unknown Artist'
+                });
+              }
+            }
+          });
+        }
       } catch (e) {
         console.error('Failed to load music:', e);
-        removeTransfer(transferId);
       } finally {
         if (isMounted) setLoading(false);
       }

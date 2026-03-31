@@ -126,7 +126,7 @@ export default function FilePreview({ file, allFiles = [], onFileChange, onClose
       try {
         const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(ext);
         const isVideo = ['mp4', 'webm', 'ogg', 'mov', 'mkv', 'avi'].includes(ext);
-        const isAudio = ['mp3', 'wav', 'flac', 'ogg'].includes(ext);
+        const isAudio = ['mp3', 'wav', 'flac', 'ogg', 'm4a', 'aac'].includes(ext);
         const isPdf = ext === 'pdf';
         const isText = ['txt', 'md', 'js', 'jsx', 'ts', 'tsx', 'py', 'rs', 'html', 'css', 'json', 'yml', 'yaml', 'sql', 'sh', 'bash', 'xml', 'cpp', 'c', 'java'].includes(ext);
 
@@ -135,7 +135,7 @@ export default function FilePreview({ file, allFiles = [], onFileChange, onClose
         if (isVideo || isAudio) {
           // Use disbox-stream protocol for video and audio (streaming)
           const messagesStr = encodeURIComponent(JSON.stringify(file.messageIds));
-          const streamUrl = `disbox-stream://${file.id}?webhook=${encodeURIComponent(api.webhookUrl)}&mime=${encodeURIComponent(mime)}&size=${file.size}&chunkSize=${api.chunkSize}&messages=${messagesStr}`;
+          const streamUrl = `disbox-stream://${file.id}?webhook=${encodeURIComponent(api.webhookUrl)}&mime=${encodeURIComponent(mime)}&size=${file.size}&chunkSize=${api.chunkSize}&messages=${messagesStr}&_t=${Date.now()}`;
           newContent = { type: isVideo ? 'video' : 'audio', url: streamUrl, isStream: true };
           // For streaming, we don't need to show download progress
           setLoading(false);
