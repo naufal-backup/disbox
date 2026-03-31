@@ -275,6 +275,10 @@ export class DisboxAPI {
   }
 
   async _downloadMetadataFromUrl(url) {
+    if (!url || !url.startsWith('http')) {
+      console.warn('[sync] Skipping invalid or non-HTTP metadata URL:', url);
+      return null;
+    }
     try {
       // Tambahkan cache-buster agar tidak mengambil dari CDN cache yang lama
       const freshUrl = url.includes('?') ? `${url}&t=${Date.now()}` : `${url}?t=${Date.now()}`;
