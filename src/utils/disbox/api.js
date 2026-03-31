@@ -66,8 +66,8 @@ export class DisboxAPI {
     const iv = crypto.getRandomValues(new Uint8Array(12));
     const enc = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, this.encryptionKeys[0], data);
     const res = new Uint8Array(this.MAGIC_HEADER.length + iv.length + enc.byteLength);
-    res.set(this.MAGIC_HEADER, 0); res.set(iv, this.MAGIC_HEADER.length);
-    res.set(new Uint8Array(enc), this.MAGIC_HEADER.length + iv.length);
+    result.set(this.MAGIC_HEADER, 0); result.set(iv, this.MAGIC_HEADER.length);
+    result.set(new Uint8Array(enc), this.MAGIC_HEADER.length + iv.length);
     return res.buffer;
   }
 
@@ -103,19 +103,37 @@ export class DisboxAPI {
 
       console.log('[sync] Database is empty. Checking Discord/CDN for legacy metadata...');
       let legacyData = null;
+
       try {
-        if (metadataUrl && metadataUrl.startsWith('http')) {
-          legacyData = await this._downloadMetadataFromUrl(metadataUrl);
-        } else {
+        const cfgRes = await ipc.fetch(`${BASE_API}/api/cloud/config?identifier=${identifier}`);
+        if (cfgRes.ok) {
+          const cfg = JSON.parse(cfgRes.body);
+          if (cfg.metadata_b64) {
+            console.log('[sync] Found legacy blob in cloud config. Migrating...');
+            const binary = atob(cfg.metadata_b64);
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+            const dec = await this.decrypt(bytes.buffer);
+            legacyData = JSON.parse(new TextDecoder().decode(dec));
+          }
+        }
+      } catch (err) { console.warn('[sync] Cloud config failed'); }
+
+      if (!legacyData && metadataUrl && metadataUrl.startsWith('http')) {
+        try { legacyData = await this._downloadMetadataFromUrl(metadataUrl); } catch (err) { console.warn('[sync] CDN failed'); }
+      }
+
+      if (!legacyData) {
+        try {
           const discovery = await this._getMsgIdFromDiscovery();
           const msgId = forceId || discovery?.best;
           if (msgId) legacyData = await this._downloadMetadataFromMsg(msgId);
-        }
-      } catch (err) { console.warn('[sync] Legacy fetch failed:', err.message); }
+        } catch (err) { console.warn('[sync] Discord discovery failed'); }
+      }
 
       if (legacyData) {
         const files = Array.isArray(legacyData) ? legacyData : (legacyData.files || []);
-        console.log(`[sync] ✓ Found ${files.length} legacy items. Migrating...`);
+        console.log(`[sync] ✓ Found ${files.length} legacy items. Migrating to database rows...`);
         for (const f of files) {
           await ipc.fetch(`${BASE_API}/api/files/upsert`, {
             method: 'POST',
@@ -163,11 +181,12 @@ export class DisboxAPI {
 
   async getFileSystem() {
     const data = await ipc.loadMetadata(this.hashedWebhook);
-    if (data === null || data === undefined || (Array.isArray(data) && data.length === 0)) {
+    if (data === null || data === undefined) {
       const found = await this.syncMetadata();
       if (found) return await ipc.loadMetadata(this.hashedWebhook);
+      return [];
     }
-    return Array.isArray(data) ? data : (data?.files || []);
+    return data;
   }
 
   async uploadMetadataToDiscord(files) {
@@ -190,8 +209,6 @@ export class DisboxAPI {
     } catch (e) { console.error('[backup] sync failed:', e); }
   }
 
-  // --- INTERNAL CORE OPERATIONS ---
-
   async _internalUpsert(identifier, file) {
     const res = await ipc.fetch('https://disbox-web-weld.vercel.app/api/files/upsert', {
       method: 'POST',
@@ -209,8 +226,6 @@ export class DisboxAPI {
     });
     if (!res.ok) throw new Error(`Failed to delete ${path}`);
   }
-
-  // --- PUBLIC API ---
 
   async createFile(path, messageIds, size, id, thumbnailMsgId = null) {
     return this._enqueue(async () => {
