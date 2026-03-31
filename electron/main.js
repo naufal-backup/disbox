@@ -1575,6 +1575,7 @@ function findLatestMetadataFile(hash) {
   } catch { return null; }
 }
 
+/*
 fs.watch(METADATA_DIR, (eventType, filename) => {
   if (filename && filename.endsWith('.json')) {
     const hash = filename.split('.')[0];
@@ -1589,6 +1590,7 @@ fs.watch(METADATA_DIR, (eventType, filename) => {
     }
   }
 });
+*/
 
 ipcMain.handle('get-latest-metadata-msgid', async (_, hash) => {
   try {

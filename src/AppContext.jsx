@@ -28,10 +28,18 @@ export function AppProvider({ children }) {
     if (!api) return;
     if (!silent) setLoading(true);
     try {
+      // 1. Ambil data lokal dulu agar instant
+      const fsLocal = await ipc.loadMetadata(api.hashedWebhook);
+      if (fsLocal) {
+        setFilesRef.current?.(fsLocal);
+        setFileTreeRef.current?.(buildTree(fsLocal));
+      }
+
+      // 2. Sync background untuk memastikan data terbaru dari server
       await api.syncMetadata({ force: true });
-      const fs = await api.getFileSystem();
-      setFilesRef.current?.(fs);
-      setFileTreeRef.current?.(buildTree(fs));
+      const fsSync = await api.getFileSystem();
+      setFilesRef.current?.(fsSync);
+      setFileTreeRef.current?.(buildTree(fsSync));
     } catch (e) {
       console.error('Refresh failed:', e);
     } finally {
