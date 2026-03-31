@@ -276,8 +276,10 @@ export class DisboxAPI {
 
   async _downloadMetadataFromUrl(url) {
     try {
-      console.log('[sync] Downloading metadata directly from URL:', url);
-      const bytes = await ipc.proxyDownload(url);
+      // Tambahkan cache-buster agar tidak mengambil dari CDN cache yang lama
+      const freshUrl = url.includes('?') ? `${url}&t=${Date.now()}` : `${url}?t=${Date.now()}`;
+      console.log('[sync] Downloading metadata directly from URL:', freshUrl);
+      const bytes = await ipc.proxyDownload(freshUrl);
       const decryptedBytes = await this.decrypt(bytes);
       const jsonStr = new TextDecoder().decode(decryptedBytes);
       const data = JSON.parse(jsonStr);

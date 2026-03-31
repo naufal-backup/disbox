@@ -437,21 +437,52 @@ function CloudSaveSection() {
     } finally { setBusy(false); }
   };
 
+  const handleSyncToCloud = async () => {
+    if (!api || files.length === 0) {
+      toast.error('Tidak ada data untuk disinkronisasi.');
+      return;
+    }
+    setBusy(true);
+    try {
+      await api.uploadMetadataToDiscord(files);
+      toast.success('Metadata lokal berhasil diunggah ke Cloud!');
+      setStatus({ type: 'success', msg: 'Sinkronisasi Cloud berhasil pada ' + new Date().toLocaleTimeString() });
+    } catch (e) {
+      toast.error('Gagal sinkronisasi: ' + e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   if (currentAccount && !isEditing) {
     return (
       <div className={styles.section} style={{ marginBottom: '32px' }}>
         <h3 className={styles.sectionTitle}>Cloud Account</h3>
-        <div className={styles.cloudBadge} style={{ justifyContent: 'space-between' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <ShieldCheck size={20} color="#10b981" />
-            <span>Terhubung sebagai: <strong>@{currentAccount}</strong></span>
+        <div className={styles.cloudBadge} style={{ flexDirection: 'column', gap: '16px', alignItems: 'flex-start' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <ShieldCheck size={20} color="#10b981" />
+              <span>Terhubung sebagai: <strong>@{currentAccount}</strong></span>
+            </div>
+            <button 
+              onClick={() => { setIsEditing(true); setUsername(currentAccount); }}
+              style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: '6px', padding: '4px 10px', fontSize: '11px', cursor: 'pointer', color: 'var(--text-secondary)' }}
+            >
+              Edit Akun
+            </button>
           </div>
-          <button 
-            onClick={() => { setIsEditing(true); setUsername(currentAccount); }}
-            style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: '6px', padding: '4px 10px', fontSize: '11px', cursor: 'pointer', color: 'var(--text-secondary)' }}
-          >
-            Edit Akun
-          </button>
+          
+          <div style={{ display: 'flex', gap: '10px', width: '100%' }}>
+            <button 
+              className={styles.syncBtn} 
+              onClick={handleSyncToCloud}
+              disabled={busy}
+              style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '10px', background: 'var(--accent-dim)', color: 'var(--accent-bright)', border: '1px solid var(--accent)', borderRadius: '8px', cursor: 'pointer', fontWeight: '600' }}
+            >
+              {busy ? <Loader2 size={16} className="spin" /> : <Save size={16} />}
+              Push Metadata ke Cloud
+            </button>
+          </div>
         </div>
       </div>
     );
