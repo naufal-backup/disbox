@@ -8,49 +8,35 @@ export function useFiles(api, refresh) {
 
   const createFolder = useCallback(async (folderName) => {
     if (!api || !folderName.trim()) return false;
-    const name = folderName.trim();
-    const folderPath = currentPath === '/' ? `${name}/.keep` : `${currentPath.replace(/^\//, '')}/${name}/.keep`;
-    
-    // --- OPTIMISTIC ---
-    const tempId = 'temp-' + Date.now();
-    const optFolder = { path: folderPath, messageIds: [], size: 0, id: tempId, isOptimistic: true, createdAt: Date.now() };
-    setFiles(prev => [...prev, optFolder]);
-
     try { 
-      await api.createFolder(name, currentPath); 
-      setFiles(prev => prev.map(f => f.id === tempId ? { ...f, isOptimistic: false } : f));
+      await api.createFolder(folderName.trim(), currentPath); 
+      await refresh(); 
       return true; 
     }
-    catch (e) { 
-      console.error('Create folder failed:', e);
-      setFiles(prev => prev.filter(f => f.id !== tempId));
-      return false; 
-    }
+    catch (e) { console.error('Create folder failed:', e); return false; }
   }, [api, currentPath, refresh]);
+
+  const movePath = useCallback(async (oldPath, destDir, id = null) => {
+    if (!api) return false;
+    const name = oldPath.split('/').pop();
+    const newPath = destDir ? `${destDir}/${name}` : name;
+    try { await api.renamePath(oldPath, newPath, id); await refresh(); return true; }
+    catch (e) { console.error('Move failed:', e); return false; }
+  }, [api, refresh]);
+
+  const copyPath = useCallback(async (oldPath, destDir, id = null) => {
+    if (!api) return false;
+    const name = oldPath.split('/').pop();
+    const newPath = destDir ? `${destDir}/${name}` : name;
+    try { await api.copyPath(oldPath, newPath, id); await refresh(); return true; }
+    catch (e) { console.error('Copy failed:', e); return false; }
+  }, [api, refresh]);
 
   const deletePath = useCallback(async (path, id = null) => {
     if (!api) return false;
-    
-    // --- OPTIMISTIC ---
-    const backup = [...files];
-    const filtered = files.filter(f => {
-      if (id && f.id === id) return false;
-      if (!id && f.path === path) return false;
-      if (f.path.startsWith(path + '/')) return false;
-      return true;
-    });
-    setFiles(filtered);
-
-    try { 
-      await api.deletePath(path, id); 
-      return true; 
-    }
-    catch (e) { 
-      console.error('Delete failed:', e);
-      setFiles(backup);
-      return false; 
-    }
-  }, [api, files]);
+    try { await api.deletePath(path, id); await refresh(); return true; }
+    catch (e) { console.error('Delete failed:', e); return false; }
+  }, [api, refresh]);
 
   const bulkDelete = useCallback(async (paths) => {
     if (!api) return false;
