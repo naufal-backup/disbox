@@ -2,15 +2,6 @@ import { ipc } from '@/utils/ipc';
 
 const CHUNK_SIZE = 7.5 * 1024 * 1024;
 
-function _bufferToBase64(buffer) {
-  return new Promise((resolve) => {
-    const blob = new Blob([buffer]);
-    const reader = new FileReader();
-    reader.onloadend = () => resolve(reader.result.split(',')[1]);
-    reader.readAsDataURL(blob);
-  });
-}
-
 export class DisboxAPI {
   constructor(webhookUrl) {
     this.rawWebhookUrl = webhookUrl.split('?')[0].trim();
@@ -18,7 +9,6 @@ export class DisboxAPI {
     this.hashedWebhook = null;
     this.encryptionKeys = [];
     this.MAGIC_HEADER = new TextEncoder().encode('DBX_ENC:');
-    this.lastSyncedId = null;
     this._taskQueue = Promise.resolve();
     this._syncing = false;
   }
@@ -55,7 +45,7 @@ export class DisboxAPI {
 
     const found = await this.syncMetadata({ forceId, metadataUrl });
     if (!found) {
-      console.log('[init] New drive detected. Initializing local database.');
+      console.log('[init] New drive. Initializing empty structure.');
       await ipc.saveMetadata(this.hashedWebhook, []);
     }
     return this.hashedWebhook;
@@ -66,8 +56,8 @@ export class DisboxAPI {
     const iv = crypto.getRandomValues(new Uint8Array(12));
     const enc = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, this.encryptionKeys[0], data);
     const res = new Uint8Array(this.MAGIC_HEADER.length + iv.length + enc.byteLength);
-    result.set(this.MAGIC_HEADER, 0); result.set(iv, this.MAGIC_HEADER.length);
-    result.set(new Uint8Array(enc), this.MAGIC_HEADER.length + iv.length);
+    res.set(this.MAGIC_HEADER, 0); res.set(iv, this.MAGIC_HEADER.length);
+    res.set(new Uint8Array(enc), this.MAGIC_HEADER.length + iv.length);
     return res.buffer;
   }
 
@@ -79,7 +69,7 @@ export class DisboxAPI {
     for (const key of this.encryptionKeys) {
       try { return await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ct); } catch {}
     }
-    throw new Error('Gagal dekripsi metadata. Webhook tidak cocok.');
+    throw new Error('Gagal dekripsi metadata.');
   }
 
   async syncMetadata(options = {}) {
@@ -91,7 +81,7 @@ export class DisboxAPI {
       const identifier = username || this.hashedWebhook;
       const BASE_API = 'https://disbox-web-weld.vercel.app';
 
-      console.log(`[sync] Fetching from Database (${identifier})...`);
+      console.log(`[sync] Pulling structure for ${identifier}...`);
       const res = await ipc.fetch(`${BASE_API}/api/files/list?identifier=${identifier}`);
       const result = JSON.parse(res.body);
 
@@ -101,46 +91,23 @@ export class DisboxAPI {
         return true;
       }
 
-      console.log('[sync] Database is empty. Checking Discord/CDN for legacy metadata...');
       let legacyData = null;
-
-      try {
-        const cfgRes = await ipc.fetch(`${BASE_API}/api/cloud/config?identifier=${identifier}`);
-        if (cfgRes.ok) {
-          const cfg = JSON.parse(cfgRes.body);
-          if (cfg.metadata_b64) {
-            console.log('[sync] Found legacy blob in cloud config. Migrating...');
-            const binary = atob(cfg.metadata_b64);
-            const bytes = new Uint8Array(binary.length);
-            for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-            const dec = await this.decrypt(bytes.buffer);
-            legacyData = JSON.parse(new TextDecoder().decode(dec));
-          }
-        }
-      } catch (err) { console.warn('[sync] Cloud config failed'); }
-
-      if (!legacyData && metadataUrl && metadataUrl.startsWith('http')) {
-        try { legacyData = await this._downloadMetadataFromUrl(metadataUrl); } catch (err) { console.warn('[sync] CDN failed'); }
-      }
-
-      if (!legacyData) {
-        try {
-          const discovery = await this._getMsgIdFromDiscovery();
-          const msgId = forceId || discovery?.best;
-          if (msgId) legacyData = await this._downloadMetadataFromMsg(msgId);
-        } catch (err) { console.warn('[sync] Discord discovery failed'); }
+      if (metadataUrl && metadataUrl.startsWith('http')) {
+        legacyData = await this._downloadMetadataFromUrl(metadataUrl);
+      } else {
+        const discovery = await this._getMsgIdFromDiscovery();
+        const msgId = forceId || discovery?.best;
+        if (msgId) legacyData = await this._downloadMetadataFromMsg(msgId);
       }
 
       if (legacyData) {
         const files = Array.isArray(legacyData) ? legacyData : (legacyData.files || []);
-        console.log(`[sync] ✓ Found ${files.length} legacy items. Migrating to database rows...`);
-        for (const f of files) {
-          await ipc.fetch(`${BASE_API}/api/files/upsert`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ identifier, file: f })
-          });
-        }
+        console.log(`[sync] ✓ Migrating ${files.length} items to Supabase Files table...`);
+        await ipc.fetch(`${BASE_API}/api/files/sync-all`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ identifier, files })
+        });
         await ipc.saveMetadata(this.hashedWebhook, files);
         return true;
       }
@@ -181,65 +148,32 @@ export class DisboxAPI {
 
   async getFileSystem() {
     const data = await ipc.loadMetadata(this.hashedWebhook);
-    if (data === null || data === undefined) {
-      const found = await this.syncMetadata();
-      if (found) return await ipc.loadMetadata(this.hashedWebhook);
-      return [];
+    if (!data || data.length === 0) {
+      await this.syncMetadata();
+      return await ipc.loadMetadata(this.hashedWebhook) || [];
     }
     return data;
   }
 
-  async uploadMetadataToDiscord(files) {
-    if (!this.webhookUrl) return;
-    try {
-      const username = localStorage.getItem('dbx_username');
-      const identifier = username || this.hashedWebhook;
-      const container = { files, updatedAt: Date.now() };
-      const bytes = new TextEncoder().encode(JSON.stringify(container));
-      const enc = await this.encrypt(bytes.buffer);
-      const b64 = await _bufferToBase64(enc);
-
-      ipc.fetch('https://disbox-web-weld.vercel.app/api/cloud/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ identifier, username, webhook_url: this.webhookUrl, metadata_b64: b64 })
-      }).catch(() => {});
-
-      await ipc.saveMetadata(this.hashedWebhook, files);
-    } catch (e) { console.error('[backup] sync failed:', e); }
-  }
-
-  async _internalUpsert(identifier, file) {
-    const res = await ipc.fetch('https://disbox-web-weld.vercel.app/api/files/upsert', {
+  async persistCloud(files) {
+    const username = localStorage.getItem('dbx_username');
+    const identifier = username || this.hashedWebhook;
+    ipc.fetch('https://disbox-web-weld.vercel.app/api/files/sync-all', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ identifier, file })
-    });
-    if (!res.ok) throw new Error(`Failed to upsert ${file.path}`);
-  }
-
-  async _internalDelete(identifier, path) {
-    const res = await ipc.fetch('https://disbox-web-weld.vercel.app/api/files/delete', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ identifier, path })
-    });
-    if (!res.ok) throw new Error(`Failed to delete ${path}`);
+      body: JSON.stringify({ identifier, files })
+    }).catch(console.error);
   }
 
   async createFile(path, messageIds, size, id, thumbnailMsgId = null) {
     return this._enqueue(async () => {
-      const username = localStorage.getItem('dbx_username');
-      const identifier = username || this.hashedWebhook;
-      const fileId = id || crypto.randomUUID();
-      const entry = { path, messageIds, size, createdAt: Date.now(), id: fileId, thumbnailMsgId };
-
-      await this._internalUpsert(identifier, entry);
-
       const files = await this.getFileSystem();
+      const entry = { path, messageIds, size, createdAt: Date.now(), id: id || crypto.randomUUID(), thumbnailMsgId };
       const idx = files.findIndex(f => f.path === path);
       if (idx >= 0) files[idx] = entry; else files.push(entry);
+      
       await ipc.saveMetadata(this.hashedWebhook, files);
+      this.persistCloud(files);
       return entry;
     });
   }
@@ -252,38 +186,28 @@ export class DisboxAPI {
 
   async deletePath(targetPath) {
     return this._enqueue(async () => {
-      const username = localStorage.getItem('dbx_username');
-      const identifier = username || this.hashedWebhook;
-
-      await this._internalDelete(identifier, targetPath);
-
       const files = await this.getFileSystem();
       const filtered = files.filter(f => f.path !== targetPath && !f.path.startsWith(targetPath + '/'));
       await ipc.saveMetadata(this.hashedWebhook, filtered);
+      this.persistCloud(filtered);
     });
   }
 
   async renamePath(oldPath, newPath) {
     return this._enqueue(async () => {
-      const username = localStorage.getItem('dbx_username');
-      const identifier = username || this.hashedWebhook;
       const files = await this.getFileSystem();
-      const toUpdate = files.filter(f => f.path === oldPath || f.path.startsWith(oldPath + '/'));
-      const newFiles = [...files];
-
-      for (const f of toUpdate) {
-        const newFilePath = f.path.replace(oldPath, newPath);
-        await this._internalDelete(identifier, f.path);
-        const updatedEntry = { ...f, path: newFilePath, updatedAt: Date.now() };
-        await this._internalUpsert(identifier, updatedEntry);
-        const idx = newFiles.findIndex(x => x.id === f.id);
-        if (idx >= 0) newFiles[idx] = updatedEntry;
-      }
-      await ipc.saveMetadata(this.hashedWebhook, newFiles);
+      const updated = files.map(f => {
+        if (f.path === oldPath) return { ...f, path: newPath };
+        if (f.path.startsWith(oldPath + '/')) return { ...f, path: f.path.replace(oldPath, newPath) };
+        return f;
+      });
+      await ipc.saveMetadata(this.hashedWebhook, updated);
+      this.persistCloud(updated);
     });
   }
 }
 
+// Re-export helpers
 export function buildTree(files) {
   const root = { name: '/', children: {}, files: [] };
   for (const file of files) {
