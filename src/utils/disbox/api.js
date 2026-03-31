@@ -338,38 +338,23 @@ export class DisboxAPI {
             console.warn('[sync] ID utama gagal (mungkin 404):', msgId, e.message);
             
             // JIKA forceId GAGAL, coba lakukan Discovery aktif sebagai cadangan!
-            if (forceId) {
-              console.log('[sync] ForceId gagal, mencoba discovery aktif...');
-              const discovery = await this._getMsgIdFromDiscovery();
-              if (discovery && discovery.best !== forceId) {
-                try {
-                  data = await this._downloadMetadataFromMsg(discovery.best);
-                  resolvedMsgId = discovery.best;
-                  console.log('[sync] Berhasil pulih menggunakan ID hasil discovery:', resolvedMsgId);
-                } catch (err) {
-                  throw new Error('ID lama sudah mati dan discovery juga gagal.');
-                }
-              } else {
-                throw e; 
+            const discovery = await this._getMsgIdFromDiscovery();
+            if (discovery && discovery.best && discovery.best !== msgId) {
+              try {
+                console.log('[sync] Mencoba recovery dengan ID hasil discovery:', discovery.best);
+                data = await this._downloadMetadataFromMsg(discovery.best);
+                resolvedMsgId = discovery.best;
+                console.log('[sync] ✓ Berhasil pulih menggunakan ID hasil discovery:', resolvedMsgId);
+              } catch (err) {
+                console.error('[sync] Recovery discovery juga gagal:', err.message);
+                throw e; // Lempar error asli
               }
             } else {
-              // Fallback history untuk non-forceId
-              const fallbackCandidates = [...snapshotHistory].reverse().filter(id => id !== msgId);
-              if (this.lastSyncedId && !fallbackCandidates.includes(this.lastSyncedId) && this.lastSyncedId !== msgId) {
-                fallbackCandidates.push(this.lastSyncedId);
+              // Jika discovery tidak menemukan ID baru, cek apakah ini error 404
+              if (e.message.includes('404')) {
+                throw new Error(`Pesan metadata (${msgId}) tidak ditemukan atau tidak bisa diakses oleh Webhook. Pastikan Webhook memiliki akses ke channel penyimpanan.`);
               }
-              let success = false;
-              for (const fallbackId of fallbackCandidates) {
-                try {
-                  data = await this._downloadMetadataFromMsg(fallbackId);
-                  resolvedMsgId = fallbackId;
-                  success = true;
-                  break;
-                } catch (err) {
-                  console.error('[sync] Fallback gagal untuk msgId:', fallbackId, err.message);
-                }
-              }
-              if (!success) throw new Error('Semua upaya download (termasuk fallback) gagal.');
+              throw e; 
             }
           }
         }

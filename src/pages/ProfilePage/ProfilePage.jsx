@@ -385,6 +385,13 @@ function CloudSaveSection() {
       if (data.ok) {
         setStatus({ type: 'success', msg: 'Akun terdaftar!' });
         localStorage.setItem('dbx_username', username.trim().toLowerCase());
+        
+        // ─── PENTING: Sync metadata ke Cloud segera setelah register ───
+        // Agar cloud_metadata_url (Vercel Blob) terisi dan bisa dibaca di device lain.
+        if (api && files.length > 0) {
+          console.log('[Profile] Initial cloud sync after registration...');
+          await api.uploadMetadataToDiscord(files);
+        }
       } else {
         setStatus({ type: 'error', msg: data.error });
       }
