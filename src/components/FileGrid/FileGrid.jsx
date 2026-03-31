@@ -36,6 +36,7 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
     showSortMenu, setShowSortMenu,
     isLastPartTruncated,
     isDragOver, setIsDragOver,
+    ghostUploads,
     
     // Refs
     activeFolderRef,
@@ -236,6 +237,35 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
                   formatItemDate={formatItemDate}
                 />
               ))}
+              {ghostUploads
+                .filter(g => {
+                  // Only show ghosts for the current folder
+                  const ghostDir = g.path.includes('/') ? g.path.split('/').slice(0, -1).join('/') : '';
+                  return ghostDir === (currentPath === '/' ? '' : currentPath.slice(1));
+                })
+                .map(ghost => (
+                  <div key={ghost.id} className={`${styles.card} ${styles.ghostCard}`} style={{ '--ghost-progress': ghost.progress }}>
+                    <div className={styles.cardHeader}>
+                      <div className={styles.cardIconWrapper}>
+                        <div className={`skeleton ${styles.ghostIconSkeleton}`} />
+                      </div>
+                      <div className={styles.cardTitleWrapper}>
+                        <div className={`skeleton ${styles.ghostTitleSkeleton}`} />
+                      </div>
+                    </div>
+                    <div className={styles.cardPreview}>
+                      <div className={styles.cardPreviewInner}>
+                        <div className={`skeleton ${styles.ghostPreviewSkeleton}`} />
+                      </div>
+                    </div>
+                    <div className={styles.cardFooter}>
+                      <div className={styles.ghostProgressBar}>
+                        <div className={styles.ghostProgressFill} style={{ width: `${(ghost.progress * 100).toFixed(0)}%` }} />
+                      </div>
+                    </div>
+                  </div>
+                ))
+              }
             </motion.div>
           ) : (
             <motion.div 
@@ -305,6 +335,27 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
                   startRename={startRename}
                 />
               ))}
+              {ghostUploads
+                .filter(g => {
+                  const ghostDir = g.path.includes('/') ? g.path.split('/').slice(0, -1).join('/') : '';
+                  return ghostDir === (currentPath === '/' ? '' : currentPath.slice(1));
+                })
+                .map(ghost => (
+                  <div key={ghost.id} className={`${styles.listRow} ${styles.ghostRow}`} style={{ '--ghost-progress': ghost.progress }}>
+                    <div className={styles.listIcon} style={{ width: `calc(28px * var(--zoom))`, height: `calc(28px * var(--zoom))`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <div className={`skeleton ${styles.ghostIconSkeleton}`} style={{ width: '18px', height: '18px' }} />
+                    </div>
+                    <span className={styles.listName}>
+                      <div className={`skeleton ${styles.ghostTitleSkeleton}`} style={{ width: '120px' }} />
+                    </span>
+                    <span className={styles.listSize}>
+                      <div className={`skeleton ${styles.ghostTitleSkeleton}`} style={{ width: '40px', marginLeft: 'auto' }} />
+                    </span>
+                    <div className={styles.listActions}></div>
+                    <div className={styles.ghostProgressLine} style={{ width: `${(ghost.progress * 100).toFixed(0)}%` }} />
+                  </div>
+                ))
+              }
             </motion.div>
           )}
         </AnimatePresence>

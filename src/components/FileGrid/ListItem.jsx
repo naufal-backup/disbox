@@ -50,7 +50,8 @@ export default function ListItem({
     <div 
       key={itemKey}
       data-item-id={itemKey} 
-      className={`${styles.listRow} ${isSelected ? styles.selected : ''} ${dragOverTarget === fullPath ? styles.isDragTarget : ''}`} 
+      className={`${styles.listRow} ${isSelected ? styles.selected : ''} ${dragOverTarget === fullPath ? styles.isDragTarget : ''} ${item.__ghost ? styles.ghostRow : ''}`} 
+      style={item.__ghost ? { '--ghost-progress': 0.7 } : undefined}
       draggable 
       onDragStart={(e) => handleDragStart(e, fullPath, id)} 
       onDragEnd={() => setDragSource(null)} 
@@ -84,8 +85,10 @@ export default function ListItem({
         }); 
       }}
     >
-      <div className={styles.listIcon} style={{ width: `calc(28px * var(--zoom))`, height: isFolder ? undefined : `calc(28px * var(--zoom))`, display: isFolder ? undefined : 'flex', alignItems: isFolder ? undefined : 'center', justifyContent: isFolder ? undefined : 'center', flexShrink: 0, marginRight: isFolder ? 0 : 4 }}>
-        {item.isLocked ? (
+      <div className={styles.listIcon} style={{ width: `calc(28px * var(--zoom))`, height: isFolder ? undefined : `calc(28px * var(--zoom))`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginRight: isFolder ? 0 : 4 }}>
+        {item.__ghost ? (
+          <div className={`skeleton ${styles.ghostIconSkeleton}`} style={{ width: iconSize, height: iconSize, borderRadius: '4px' }} />
+        ) : item.isLocked ? (
           <Lock size={iconSize - (isFolder ? 2 : 0)} style={{ color: 'var(--accent-bright)' }} />
         ) : item.isStarred ? (
           <Star size={iconSize - (isFolder ? 2 : 0)} fill="var(--amber)" style={{ color: 'var(--amber)' }} />
@@ -109,25 +112,32 @@ export default function ListItem({
             autoFocus 
             onClick={e => e.stopPropagation()} 
           />
+        ) : item.__ghost ? (
+          <div className={`skeleton ${styles.ghostTitleSkeleton}`} style={{ width: '120px', height: '12px' }} />
         ) : name}
       </span>
-      <span className={styles.listSize}>{formatSize(isFolder ? item.size : (item.size || 0))}</span>
+      <span className={styles.listSize}>{item.__ghost ? '...' : formatSize(isFolder ? item.size : (item.size || 0))}</span>
       <div className={styles.listActions} onClick={e => e.stopPropagation()}>
-        {!isFolder && (
+        {!isFolder && !item.__ghost && (
           <button className={styles.iconBtn} onClick={() => handleDownloadClick(item)} title="Download">
             <Download size={13} />
           </button>
         )}
-        <button className={styles.iconBtn} onClick={() => setMoveModal({ id: isFolder ? null : item.id, path: fullPath, mode: 'move' })} title="Pindah">
-          <Move size={13} />
-        </button>
-        <button className={styles.iconBtn} onClick={() => setMoveModal({ id: isFolder ? null : item.id, path: fullPath, mode: 'copy' })} title="Salin">
-          <Copy size={13} />
-        </button>
-        <button className={styles.iconBtn} onClick={() => startRename(fullPath, isFolder, isFolder ? null : item.id)} title="Rename">
-          <Edit3 size={13} />
-        </button>
+        {!item.__ghost && (
+          <>
+            <button className={styles.iconBtn} onClick={() => setMoveModal({ id: isFolder ? null : item.id, path: fullPath, mode: 'move' })} title="Pindah">
+              <Move size={13} />
+            </button>
+            <button className={styles.iconBtn} onClick={() => setMoveModal({ id: isFolder ? null : item.id, path: fullPath, mode: 'copy' })} title="Salin">
+              <Copy size={13} />
+            </button>
+            <button className={styles.iconBtn} onClick={() => startRename(fullPath, isFolder, isFolder ? null : item.id)} title="Rename">
+              <Edit3 size={13} />
+            </button>
+          </>
+        )}
       </div>
+      {item.__ghost && <div className={styles.ghostProgressLine} style={{ width: '70%' }} />}
     </div>
   );
 }

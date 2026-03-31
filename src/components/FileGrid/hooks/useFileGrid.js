@@ -88,6 +88,7 @@ export default function useFileGrid({ isLockedView = false, isStarredView = fals
   const [showSortMenu, setShowSortMenu] = useState(false);
   const [isLastPartTruncated, setIsLastPartTruncated] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [ghostUploads, setGhostUploads] = useState([]); // { id, name, path, progress }
 
   const activeFolderRef = useRef(null);
   const contextMenuRef = useRef(null);
@@ -144,6 +145,7 @@ export default function useFileGrid({ isLockedView = false, isStarredView = fals
     const locks = new Map(); 
     const dates = new Map(); 
     const starredFolders = new Set();
+    const ghostFolders = new Set(); // track optimistic ghost folders
     const q = debouncedSearch.toLowerCase();
 
     files.forEach(f => {
@@ -151,6 +153,12 @@ export default function useFileGrid({ isLockedView = false, isStarredView = fals
 
       const parts = f.path.split('/').filter(Boolean);
       const name = parts[parts.length - 1];
+
+      // Track ghost folders (from optimistic createFolder)
+      if (f.__ghost && name === '.keep') {
+        const folderPath = parts.slice(0, -1).join('/');
+        ghostFolders.add(folderPath);
+      }
 
       let tempPath = '';
       for (let i = 0; i < parts.length - 1; i++) {
@@ -183,7 +191,8 @@ export default function useFileGrid({ isLockedView = false, isStarredView = fals
       } else if (isLockedView) {
         if (f.isLocked && name !== '.keep') shouldIncludeFile = true;
       } else {
-        if (!f.isLocked && name !== '.keep') shouldIncludeFile = true;
+        // Exclude ghost files from file list (ghost folders only show in dirs)
+        if (!f.isLocked && name !== '.keep' && !f.__ghost) shouldIncludeFile = true;
       }
 
       if (shouldIncludeFile && matchesSearch) {
@@ -235,7 +244,8 @@ export default function useFileGrid({ isLockedView = false, isStarredView = fals
       name,
       fullPath,
       createdAt: dates.get(fullPath) || 0,
-      size: sizes.get(fullPath) || 0
+      size: sizes.get(fullPath) || 0,
+      __ghost: ghostFolders.has(fullPath)
     }));
 
     const sortFn = (a, b) => {
@@ -499,12 +509,18 @@ export default function useFileGrid({ isLockedView = false, isStarredView = fals
       const CHUNK_SIZE = 7.5 * 1024 * 1024;
       const totalChunks = totalBytes > 0 ? Math.ceil(totalBytes / CHUNK_SIZE) || 1 : null;
       const signal = addTransfer({ id: transferId, name: fileName, progress: 0, type: 'upload', status: 'active', totalBytes, totalChunks, chunk: 0 });
+
+      // Add ghost upload item immediately
+      const ghostId = `ghost-upload-${transferId}`;
+      setGhostUploads(prev => [...prev, { id: ghostId, name: fileName, path: uploadPath, progress: 0 }]);
+
       try {
         let resultFile = null;
         if (nativePath) {
           resultFile = await api.uploadFile({ nativePath, name: fileName }, uploadPath, (progress) => {
             const chunk = totalChunks ? Math.min(Math.floor(progress * totalChunks), totalChunks - 1) : 0;
             updateTransfer(transferId, { progress, chunk });
+            setGhostUploads(prev => prev.map(g => g.id === ghostId ? { ...g, progress } : g));
           }, signal, transferId);
         } else {
           const buffer = await new Promise((resolve, reject) => {
@@ -518,20 +534,26 @@ export default function useFileGrid({ isLockedView = false, isStarredView = fals
           resultFile = await api.uploadFile({ buffer, name: fileName, size: buffer.byteLength }, uploadPath, (progress) => {
             const chunk = Math.min(Math.floor(progress * tc), tc - 1);
             updateTransfer(transferId, { progress, chunk });
+            setGhostUploads(prev => prev.map(g => g.id === ghostId ? { ...g, progress } : g));
           }, signal);
         }
         if (isLockedView && resultFile?.id) {
           await ipc.setLocked(resultFile.id, api.hashedWebhook, 1);
         }
         if (!signal.aborted) updateTransfer(transferId, { status: 'done', progress: 1 });
+        setGhostUploads(prev => prev.map(g => g.id === ghostId ? { ...g, progress: 1 } : g));
       } catch (e) {
         if (e.name !== 'AbortError' && !signal.aborted) {
           updateTransfer(transferId, { status: 'error', error: e.message });
           setTimeout(() => removeTransfer(transferId), 3000);
         }
+        setGhostUploads(prev => prev.filter(g => g.id !== ghostId));
       }
     }
-    setUploading(false); refresh();
+    setUploading(false);
+    // Remove ghost items after refresh completes so no flash of duplicate
+    await refresh();
+    setGhostUploads([]);
   }, [api, dirPath, addTransfer, updateTransfer, isLockedView, refresh]);
 
   const handlePickFiles = useCallback(async () => {
@@ -678,6 +700,7 @@ export default function useFileGrid({ isLockedView = false, isStarredView = fals
     showSortMenu, setShowSortMenu,
     isLastPartTruncated,
     isDragOver, setIsDragOver,
+    ghostUploads,
     
     // Refs
     activeFolderRef,

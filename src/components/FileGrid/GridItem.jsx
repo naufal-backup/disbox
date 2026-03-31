@@ -44,7 +44,8 @@ export default function GridItem({
     <div 
       key={itemKey}
       data-item-id={itemKey} 
-      className={`${styles.card} ${isSelected ? styles.selected : ''} ${dragOverTarget === fullPath ? styles.isDragTarget : ''}`} 
+      className={`${styles.card} ${isSelected ? styles.selected : ''} ${dragOverTarget === fullPath ? styles.isDragTarget : ''} ${item.__ghost ? styles.ghostCard : ''}`}
+      style={item.__ghost ? { '--ghost-progress': 0.7 } : undefined}
       draggable 
       onDragStart={(e) => handleDragStart(e, fullPath, id)} 
       onDragEnd={() => setDragSource(null)} 
