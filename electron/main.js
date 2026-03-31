@@ -610,6 +610,7 @@ function buildMetadataFormData(contentBuffer, filename) {
 }
 
 ipcMain.handle('net-fetch', async (_, url, options = {}) => {
+  console.log(`[net-fetch] ${options.method || 'GET'} ${url}`);
   const transferId = options.transferId;
   const controller = new AbortController();
   if (transferId) abortControllers.set(transferId, controller);

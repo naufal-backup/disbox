@@ -59,10 +59,15 @@ export default function LoginPage() {
       
       let data;
       try {
+        if (!res.body || res.body.trim() === '') {
+          throw new Error('Response body is empty');
+        }
         data = JSON.parse(res.body);
       } catch (e) {
-        console.error('[Login] JSON Parse error:', res.body);
-        setError('Respons server tidak valid.');
+        console.error('[Login] JSON Parse error:', e.message);
+        console.error('[Login] Raw Response Body:', res.body);
+        console.error('[Login] Response Status:', res.status);
+        setError(`Gagal memproses respons server (HTTP ${res.status}).`);
         return;
       }
       

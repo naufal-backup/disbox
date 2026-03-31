@@ -370,7 +370,18 @@ function CloudSaveSection() {
           last_msg_id: currentId
         })
       });
-      const data = JSON.parse(res.body);
+      
+      let data;
+      try {
+        if (!res.body) throw new Error('Response body is empty');
+        data = JSON.parse(res.body);
+      } catch (e) {
+        console.error('[Profile] JSON Parse error:', e.message, 'Body:', res.body);
+        setStatus({ type: 'error', msg: `Gagal memproses respons (HTTP ${res.status}).` });
+        setBusy(false);
+        return;
+      }
+
       if (data.ok) {
         setStatus({ type: 'success', msg: 'Akun terdaftar!' });
         localStorage.setItem('dbx_username', username.trim().toLowerCase());
@@ -395,7 +406,18 @@ function CloudSaveSection() {
           new_password: password || null
         })
       });
-      const data = JSON.parse(res.body);
+      
+      let data;
+      try {
+        if (!res.body) throw new Error('Response body is empty');
+        data = JSON.parse(res.body);
+      } catch (e) {
+        console.error('[Profile] JSON Parse error:', e.message, 'Body:', res.body);
+        setStatus({ type: 'error', msg: `Gagal memproses respons (HTTP ${res.status}).` });
+        setBusy(false);
+        return;
+      }
+
       if (data.ok) {
         setStatus({ type: 'success', msg: 'Akun berhasil diperbarui!' });
         localStorage.setItem('dbx_username', data.username);
