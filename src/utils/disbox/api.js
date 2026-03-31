@@ -380,10 +380,10 @@ export class DisboxAPI {
     });
   }
 
-  async persistMetadata(files) {
+  async uploadMetadataToDiscord(files) {
     if (!this.webhookUrl) return;
     try {
-      console.log('[disbox] Persisting metadata...');
+      console.log('[disbox] Uploading metadata...');
 
       let pinRow = null;
       try { pinRow = await ipc.getPinHash?.(this.hashedWebhook); } catch {}
@@ -400,20 +400,21 @@ export class DisboxAPI {
       const userId = sessionStorage.getItem('dbx_user_id') || localStorage.getItem('dbx_user_id');
 
       if (username || userId) {
-        // ─── PURE VERCEL MODE: Hanya simpan ke Vercel (Cepat & Efisien) ───
+        // ─── PURE VERCEL MODE (Non-blocking) ───
         console.log('[disbox] Saving to Pure Vercel Cloud...');
-        await ipc.fetch('https://disbox-web-weld.vercel.app/api/cloud/sync', {
+        ipc.fetch('https://disbox-web-weld.vercel.app/api/cloud/sync', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             user_id: userId,
             username: username,
             webhook_url: this.webhookUrl,
-            metadata_b64: b64
+            metadata_b64: b64,
+            last_msg_id: this.lastSyncedId
           })
-        });
+        }).catch(e => console.warn('[cloud] Background sync failed:', e.message));
         
-        // Tetap simpan ke local SQLite/IndexedDB
+        // Tetap simpan ke local SQLite segera
         await ipc.saveMetadata(this.hashedWebhook, files, this.lastSyncedId);
       } else {
         // ─── GUEST MODE: Tetap gunakan Discord Webhook ───
@@ -425,25 +426,23 @@ export class DisboxAPI {
           localStorage.setItem(`dbx_last_sync_${this.hashedWebhook}`, data.id);
           await ipc.saveMetadata(this.hashedWebhook, files, data.id);
           
-          // Best effort update webhook name
-          await ipc.fetch(this.webhookUrl, {
+          ipc.fetch(this.webhookUrl, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ name: `dbx: ${data.id}` })
           }).catch(() => {});
         }
       }
-      console.log('[disbox] ✓ Metadata persisted successfully.');
     } catch (e) {
-      console.error('[disbox] Failed to persist metadata:', e);
-      throw e;
+      console.error('[disbox] Failed to upload metadata:', e);
     }
   }
 
   async _saveFileSystem(files) {
     if (!files || !Array.isArray(files)) return;
     await ipc.saveMetadata(this.hashedWebhook, files);
-    await this.persistMetadata(files);
+    // Jalankan upload/sync tanpa menunggu (non-blocking) agar UI tidak freeze
+    this.uploadMetadataToDiscord(files);
   }
 
   async createFile(filePath, messageIds, size = 0, id = null, thumbnailMsgId = null) {
