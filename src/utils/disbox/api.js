@@ -182,7 +182,7 @@ export class DisboxAPI {
   async persistCloud(files) {
     const username = localStorage.getItem('dbx_username');
     const identifier = username || this.hashedWebhook;
-    ipc.fetch('https://disbox-web-weld.vercel.app/api/files/sync-all', {
+    return ipc.fetch('https://disbox-web-weld.vercel.app/api/files/sync-all', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ identifier, files })
@@ -237,7 +237,7 @@ export class DisboxAPI {
       if (idx >= 0) files[idx] = entry; else files.push(entry);
       
       await ipc.saveMetadata(this.hashedWebhook, files);
-      this.persistCloud(files);
+      await this.persistCloud(files);
       await this.uploadMetadataToDiscord(files);
       return entry;
     });
@@ -258,7 +258,7 @@ export class DisboxAPI {
         return true;
       });
       await ipc.saveMetadata(this.hashedWebhook, filtered);
-      this.persistCloud(filtered);
+      await this.persistCloud(filtered);
       await this.uploadMetadataToDiscord(filtered);
     });
   }
@@ -268,7 +268,7 @@ export class DisboxAPI {
       const files = await this.getFileSystem();
       const filtered = files.filter(f => !pathsOrIds.some(p => f.id === p || f.path === p || f.path.startsWith(p + '/')));
       await ipc.saveMetadata(this.hashedWebhook, filtered);
-      this.persistCloud(filtered);
+      await this.persistCloud(filtered);
       await this.uploadMetadataToDiscord(filtered);
     });
   }
@@ -282,7 +282,7 @@ export class DisboxAPI {
         return f;
       });
       await ipc.saveMetadata(this.hashedWebhook, updated);
-      this.persistCloud(updated);
+      await this.persistCloud(updated);
       await this.uploadMetadataToDiscord(updated);
     });
   }
@@ -305,7 +305,7 @@ export class DisboxAPI {
         return f;
       });
       await ipc.saveMetadata(this.hashedWebhook, updated);
-      this.persistCloud(updated);
+      await this.persistCloud(updated);
       await this.uploadMetadataToDiscord(updated);
     });
   }
@@ -323,7 +323,7 @@ export class DisboxAPI {
       });
       const next = [...files, ...toAdd];
       await ipc.saveMetadata(this.hashedWebhook, next);
-      this.persistCloud(next);
+      await this.persistCloud(next);
       await this.uploadMetadataToDiscord(next);
     });
   }
@@ -347,7 +347,7 @@ export class DisboxAPI {
       });
       const next = [...files, ...toAdd];
       await ipc.saveMetadata(this.hashedWebhook, next);
-      this.persistCloud(next);
+      await this.persistCloud(next);
       await this.uploadMetadataToDiscord(next);
     });
   }
