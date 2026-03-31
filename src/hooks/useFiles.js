@@ -17,6 +17,7 @@ export function useFiles(api, refresh) {
       onOptimistic?.();
 
       await api.createFolder(folderName.trim(), currentPath);
+      await refresh();
       return true;
     }
     catch (e) { console.error('Create folder failed:', e); await refresh(); return false; }
@@ -26,7 +27,7 @@ export function useFiles(api, refresh) {
     if (!api) return false;
     const name = oldPath.split('/').pop();
     const newPath = destDir ? `${destDir}/${name}` : name;
-    try { await api.renamePath(oldPath, newPath, id); return true; }
+    try { await api.renamePath(oldPath, newPath, id); await refresh(); return true; }
     catch (e) { console.error('Move failed:', e); await refresh(); return false; }
   }, [api, refresh]);
 
@@ -34,7 +35,7 @@ export function useFiles(api, refresh) {
     if (!api) return false;
     const name = oldPath.split('/').pop();
     const newPath = destDir ? `${destDir}/${name}` : name;
-    try { await api.copyPath(oldPath, newPath, id); return true; }
+    try { await api.copyPath(oldPath, newPath, id); await refresh(); return true; }
     catch (e) { console.error('Copy failed:', e); await refresh(); return false; }
   }, [api, refresh]);
 
@@ -45,7 +46,7 @@ export function useFiles(api, refresh) {
       if (id) return f.id !== id;
       return f.path !== path && !f.path.startsWith(path + '/');
     }));
-    try { await api.deletePath(path, id); return true; }
+    try { await api.deletePath(path, id); await refresh(); return true; }
     catch (e) { console.error('Delete failed:', e); await refresh(); return false; }
   }, [api, refresh, setFiles]);
 
@@ -63,7 +64,7 @@ export function useFiles(api, refresh) {
       }
       return true;
     }));
-    try { await api.bulkDelete(paths); return true; }
+    try { await api.bulkDelete(paths); await refresh(); return true; }
     catch (e) { console.error('Bulk delete failed:', e); await refresh(); return false; }
   }, [api, refresh, setFiles]);
 
