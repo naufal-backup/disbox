@@ -337,7 +337,7 @@ export class DisboxAPI {
           } catch (e) {
             console.warn('[sync] ID utama gagal (mungkin 404):', msgId, e.message);
             
-            // JIKA forceId GAGAL, coba lakukan Discovery aktif sebagai cadangan!
+            // 1. JIKA forceId GAGAL, coba lakukan Discovery aktif sebagai cadangan!
             const discovery = await this._getMsgIdFromDiscovery();
             if (discovery && discovery.best && discovery.best !== msgId) {
               try {
@@ -347,10 +347,34 @@ export class DisboxAPI {
                 console.log('[sync] ✓ Berhasil pulih menggunakan ID hasil discovery:', resolvedMsgId);
               } catch (err) {
                 console.error('[sync] Recovery discovery juga gagal:', err.message);
-                throw e; // Lempar error asli
               }
-            } else {
-              // Jika discovery tidak menemukan ID baru, cek apakah ini error 404
+            }
+
+            // 2. JIKA Discovery masih belum memberikan data, coba Cloud Backup (Vercel Blob)
+            if (!data) {
+              const username = localStorage.getItem('dbx_username');
+              if (username) {
+                try {
+                  console.log('[sync] Mencoba recovery dari Cloud Backup (Vercel Blob)...');
+                  const BASE_API_URL = 'https://disbox-web-weld.vercel.app';
+                  const cfgRes = await ipc.fetch(`${BASE_API_URL}/api/cloud/config?username=${username}`);
+                  if (cfgRes.ok) {
+                    const cfg = JSON.parse(cfgRes.body);
+                    if (cfg.cloud_metadata_url) {
+                      console.log('[sync] Mengunduh metadata dari Cloud Backup:', cfg.cloud_metadata_url);
+                      data = await this._downloadMetadataFromUrl(cfg.cloud_metadata_url);
+                      if (cfg.last_msg_id) resolvedMsgId = cfg.last_msg_id;
+                      console.log('[sync] ✓ Berhasil pulih menggunakan Cloud Backup!');
+                    }
+                  }
+                } catch (err) {
+                  console.error('[sync] Recovery Cloud Backup gagal:', err.message);
+                }
+              }
+            }
+
+            if (!data) {
+              // Jika semua upaya recovery gagal
               if (e.message.includes('404')) {
                 throw new Error(`Pesan metadata (${msgId}) tidak ditemukan atau tidak bisa diakses oleh Webhook. Pastikan Webhook memiliki akses ke channel penyimpanan.`);
               }

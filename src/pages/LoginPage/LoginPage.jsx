@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { Cloud, User, AlertCircle, Loader2, Key, Sparkles, X, Clock, ChevronDown } from 'lucide-react';
+import { Cloud, User, AlertCircle, Loader2, Key, Sparkles, X, Clock, ChevronDown, Info, UserPlus, Zap } from 'lucide-react';
 import { useApp } from '@/AppContext.jsx';
 import styles from './LoginPage.module.css';
+import toast from 'react-hot-toast';
 
 import { ipc } from '@/utils/ipc';
 
@@ -10,7 +11,8 @@ const BASE_API_URL = 'https://disbox-web-weld.vercel.app';
 
 export default function LoginPage() {
   const { connect, loading, savedWebhooks, t } = useApp();
-  const [loginMode, setLoginMode] = useState(null); // 'manual', 'account', atau null
+  const [loginMode, setLoginMode] = useState(null); // 'manual', 'account', 'register' atau null
+  const [showInfo, setShowInfo] = useState(false);
   
   // Manual States
   const [url, setUrl] = useState('');
@@ -25,11 +27,9 @@ export default function LoginPage() {
 
   const handleManualConnect = async (webhookUrl) => {
     const target = webhookUrl || url.trim();
-    const cdnTarget = metadataUrl.trim();
 
     setError('');
     if (!target) { setError(t('error_no_url')); return; }
-    if (!cdnTarget && !webhookUrl) { setError('Masukkan Link CDN Metadata'); return; }
 
     if (!DISCORD_WEBHOOK_REGEX.test(target)) {
       setError(t('error_invalid_url'));
@@ -37,9 +37,9 @@ export default function LoginPage() {
     }
 
     if (webhookUrl) setUrl(webhookUrl);
-    const result = await connect(target, { metadataUrl: cdnTarget });
+    const result = await connect(target, { metadataUrl: metadataUrl.trim() });
     if (!result.ok) {
-      setError(result.message || 'Gagal connect. Pastikan Webhook URL dan CDN Link benar.');
+      setError(result.message || 'Gagal connect. Pastikan Webhook URL benar.');
     }
   };
 
@@ -59,14 +59,8 @@ export default function LoginPage() {
       
       let data;
       try {
-        if (!res.body || res.body.trim() === '') {
-          throw new Error('Response body is empty');
-        }
         data = JSON.parse(res.body);
       } catch (e) {
-        console.error('[Login] JSON Parse error:', e.message);
-        console.error('[Login] Raw Response Body:', res.body);
-        console.error('[Login] Response Status:', res.status);
         setError(`Gagal memproses respons server (HTTP ${res.status}).`);
         return;
       }
@@ -77,10 +71,6 @@ export default function LoginPage() {
       }
 
       localStorage.setItem('dbx_username', data.username);
-      if (data.user_id) {
-        localStorage.setItem('dbx_user_id', data.user_id);
-        sessionStorage.setItem('dbx_user_id', data.user_id);
-      }
       
       const result = await connect(data.webhook_url, { 
         forceId: data.last_msg_id,
@@ -94,28 +84,93 @@ export default function LoginPage() {
     }
   };
 
+  const handleRegister = async () => {
+    setError('');
+    if (!username.trim() || !password.trim() || !url.trim()) {
+      setError('Username, Password, dan Webhook wajib diisi');
+      return;
+    }
+
+    if (!DISCORD_WEBHOOK_REGEX.test(url.trim())) {
+      setError('Format webhook URL tidak valid');
+      return;
+    }
+
+    try {
+      const res = await ipc.fetch(`${BASE_API_URL}/api/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          username: username.trim(), 
+          password, 
+          webhook_url: url.trim(),
+          metadata_url: metadataUrl.trim() || null
+        })
+      });
+      
+      let data;
+      try {
+        data = JSON.parse(res.body);
+      } catch (e) {
+        setError('Gagal memproses respons server.');
+        return;
+      }
+      
+      if (!res.ok || !data.ok) {
+        setError(data.error || 'Registrasi gagal');
+        return;
+      }
+
+      toast.success('Akun berhasil dibuat! Silakan login.');
+      setLoginMode('account');
+      setPassword('');
+    } catch (e) {
+      setError('Terjadi kesalahan koneksi ke server.');
+    }
+  };
+
+  const InfoPopup = () => (
+    <div className={styles.infoOverlay} onClick={() => setShowInfo(false)}>
+      <div className={styles.infoContent} onClick={e => e.stopPropagation()}>
+        <h2 className={styles.infoTitle}><Info size={20} /> Informasi Akses</h2>
+        <div className={styles.infoList}>
+          <div className={styles.infoItem}>
+            <span className={styles.infoLabel}>Masuk dengan Akun</span>
+            <span className={styles.infoText}>Gunakan jika Anda sudah memiliki akun Disbox Cloud. Seluruh data metadata akan otomatis tersinkronisasi.</span>
+          </div>
+          <div className={styles.infoItem}>
+            <span className={styles.infoLabel}>Daftar Akun Baru</span>
+            <span className={styles.infoText}>Simpan konfigurasi drive Anda ke cloud. Metadata akan di-backup ke server Vercel & Discord. Bisa import metadata lama via link CDN.</span>
+          </div>
+          <div className={styles.infoItem}>
+            <span className={styles.infoLabel}>Setup Baru (Guest)</span>
+            <span className={styles.infoText}>Gunakan jika Anda benar-benar baru atau ingin menggunakan drive tanpa sistem akun (Metadata disimpan lokal/discord).</span>
+          </div>
+        </div>
+        <button className={styles.closeInfo} onClick={() => setShowInfo(false)}>Tutup</button>
+      </div>
+    </div>
+  );
+
   return (
     <div className={styles.page}>
+      {showInfo && <InfoPopup />}
+      
       <div className={styles.bg}>
         <div className={styles.glow1} /><div className={styles.glow2} /><div className={styles.grid} />
       </div>
 
       <div className={styles.card}>
+        <button className={styles.infoBtn} onClick={() => setShowInfo(true)} style={{ position: 'absolute', right: 20, top: 20, background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>
+          <Info size={18} />
+        </button>
+
         <div className={styles.logo}>
           <div className={styles.logoRing}><Cloud size={28} strokeWidth={1.5} /></div>
         </div>
 
         <h1 className={styles.title}>Disbox</h1>
         <p className={styles.subtitle}>{t('subtitle')}</p>
-
-        <div className={styles.features}>
-          {[t('feature_unlimited'), t('feature_chunk'), t('feature_local'), t('feature_virtual')].map(f => (
-            <div key={f} className={styles.feature}>
-              <div className={styles.featureDot} />
-              <span>{f}</span>
-            </div>
-          ))}
-        </div>
 
         <div className={styles.divider} />
 
@@ -125,15 +180,23 @@ export default function LoginPage() {
               <User size={20} />
               <div className={styles.methodInfo}>
                 <span className={styles.methodTitle}>Masuk dengan Akun</span>
-                <span className={styles.methodDesc}>Username & Password</span>
+                <span className={styles.methodDesc}>Sync metadata otomatis via Cloud</span>
               </div>
             </button>
 
-            <button className={styles.methodBtnSecondary} onClick={() => setLoginMode('manual')} disabled={loading}>
-              <Cloud size={20} />
+            <button className={styles.methodBtnSecondary} onClick={() => setLoginMode('register')} disabled={loading}>
+              <UserPlus size={20} />
               <div className={styles.methodInfo}>
-                <span className={styles.methodTitle}>Masuk Manual</span>
-                <span className={styles.methodDesc}>Webhook + Link Metadata</span>
+                <span className={styles.methodTitle}>Daftar Akun Baru</span>
+                <span className={styles.methodDesc}>Simpan profil ke database Cloud</span>
+              </div>
+            </button>
+
+            <button className={styles.methodBtnTernary} onClick={() => setLoginMode('manual')} disabled={loading}>
+              <Zap size={20} />
+              <div className={styles.methodInfo}>
+                <span className={styles.methodTitle}>Setup Baru (Guest)</span>
+                <span className={styles.methodDesc}>Input Webhook saja</span>
               </div>
             </button>
           </div>
@@ -167,11 +230,57 @@ export default function LoginPage() {
               {loading ? <><Loader2 size={16} className="spin" /> Memuat...</> : <><Key size={16} /> Masuk</>}
             </button>
           </div>
+        ) : loginMode === 'register' ? (
+          <div className={styles.manualForm}>
+            <div className={styles.formHeader}>
+              <button className={styles.backBtn} onClick={() => { setLoginMode(null); setError(''); }}>← Kembali</button>
+              <span className={styles.formTitle}>Daftar Akun Cloud</span>
+            </div>
+
+            <div className={styles.inputGroup}>
+              <label className={styles.label}>Username</label>
+              <input 
+                type="text" className={styles.input} placeholder="Username baru"
+                value={username} onChange={e => setUsername(e.target.value)}
+              />
+            </div>
+
+            <div className={styles.inputGroup}>
+              <label className={styles.label}>Password</label>
+              <input 
+                type="password" className={styles.input} placeholder="••••••••"
+                value={password} onChange={e => setPassword(e.target.value)}
+              />
+            </div>
+
+            <div className={styles.inputGroup}>
+              <label className={styles.label}>Webhook URL</label>
+              <input 
+                type="text" className={styles.input} placeholder="https://discord.com/api/webhooks/..."
+                value={url} onChange={e => setUrl(e.target.value)}
+              />
+            </div>
+
+            <div className={styles.inputGroup}>
+              <label className={styles.label}>Link CDN Metadata (Opsional)</label>
+              <input 
+                type="text" className={styles.input} placeholder="https://cdn.discordapp.com/..."
+                value={metadataUrl} onChange={e => setMetadataUrl(e.target.value)}
+              />
+              <p className={styles.helpText}>Gunakan jika ingin mengimpor data drive lama.</p>
+            </div>
+
+            {error && <div className={styles.errorMsg} style={{ marginBottom: 15 }}><AlertCircle size={12} /> {error}</div>}
+
+            <button className={styles.connectBtn} onClick={handleRegister} disabled={loading}>
+              {loading ? <><Loader2 size={16} className="spin" /> Mendaftar...</> : <><UserPlus size={16} /> Daftar & Simpan</>}
+            </button>
+          </div>
         ) : (
           <div className={styles.manualForm}>
             <div className={styles.formHeader}>
               <button className={styles.backBtn} onClick={() => { setLoginMode(null); setError(''); }}>← Kembali</button>
-              <span className={styles.formTitle}>Masuk Manual</span>
+              <span className={styles.formTitle}>Setup Baru</span>
             </div>
 
             {savedWebhooks.length > 0 && (
@@ -200,22 +309,10 @@ export default function LoginPage() {
                 <input 
                   type="text" className={styles.input} placeholder="https://discord.com/api/webhooks/..."
                   value={url} onChange={e => setUrl(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleManualConnect()}
                 />
                 {url && <button className={styles.clearBtn} onClick={() => setUrl('')}><X size={12} /></button>}
               </div>
-            </div>
-
-            <div className={styles.inputGroup}>
-              <label className={styles.label}>Link CDN Metadata</label>
-              <div className={styles.inputRow}>
-                <input 
-                  type="text" className={styles.input} placeholder="https://cdn.discordapp.com/attachments/..."
-                  value={metadataUrl} onChange={e => setMetadataUrl(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && handleManualConnect()}
-                />
-                {metadataUrl && <button className={styles.clearBtn} onClick={() => setMetadataUrl('')}><X size={12} /></button>}
-              </div>
-              <p className={styles.helpText}>Klik kanan file disbox_metadata.json di Discord &gt; Copy Link</p>
             </div>
 
             {error && <div className={styles.errorMsg} style={{ marginBottom: 15 }}><AlertCircle size={12} /> {error}</div>}
@@ -234,7 +331,7 @@ export default function LoginPage() {
       </div>
 
       <div className={styles.version}>
-        <div>Disbox v4.0.1 · Cloud Profile Edition</div>
+        <div>Disbox v4.0.1 · Database Auth Edition</div>
       </div>
     </div>
   );
