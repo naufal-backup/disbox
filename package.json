@@ -1,6 +1,6 @@
 {
   "name": "disbox-linux",
-  "version": "4.3.5",
+  "version": "4.3.6",
   "description": "Disbox v4 - Discord Cloud Storage - High Performance with Multi-Account & App Lock",
   "author": {
     "name": "naufal-backup",
@@ -32,7 +32,7 @@
         "portable",
         "zip"
       ],
-      "icon": "build/icon.png",
+      "icon": "electron/icon.png",
       "artifactName": "Disbox-Windows.${ext}"
     },
     "nsis": {
@@ -55,7 +55,7 @@
       ],
       "maintainer": "naufal-backup <alamsyahnaufal453@gmail.com>",
       "category": "Network",
-      "icon": "build/icons",
+      "icon": "electron/icons",
       "executableName": "disbox",
       "artifactName": "${productName}-Linux-x64.${ext}",
       "desktop": {

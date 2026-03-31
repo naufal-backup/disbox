@@ -1,7 +1,6 @@
 node_modules/
 dist/
 release/
-build/
 .env
 *.log
 disbox.txt
