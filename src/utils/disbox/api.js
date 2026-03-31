@@ -302,23 +302,33 @@ export class DisboxAPI {
         let resolvedMsgId = forceId || null;
         const username = localStorage.getItem('dbx_username');
 
-        // ─── 1. Prioritas Utama: Vercel Cloud (Jika Login) ───
+        // ─── 1. Prioritas Utama: Supabase Cloud (Jika Login) ───
         if (!forceId && !metadataUrl && username) {
           try {
-            console.log('[sync] Checking Vercel Cloud for metadata...');
+            console.log('[sync] Checking Cloud for metadata...');
             const BASE_API_URL = 'https://disbox-web-weld.vercel.app';
             const cfgRes = await ipc.fetch(`${BASE_API_URL}/api/cloud/config?username=${username}`);
             if (cfgRes.ok) {
               const cfg = JSON.parse(cfgRes.body);
-              if (cfg.cloud_metadata_url) {
-                console.log('[sync] Found metadata on Vercel Cloud. Downloading...');
+              if (cfg.metadata_b64) {
+                console.log('[sync] Found metadata in Cloud Database. Decoding...');
+                const binary = atob(cfg.metadata_b64);
+                const bytes = new Uint8Array(binary.length);
+                for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+                
+                const decryptedBytes = await this.decrypt(bytes.buffer);
+                const jsonStr = new TextDecoder().decode(decryptedBytes);
+                data = JSON.parse(jsonStr);
+                resolvedMsgId = cfg.last_msg_id || null;
+                console.log('[sync] ✓ Metadata loaded from Cloud Database.');
+              } else if (cfg.cloud_metadata_url) {
+                // Fallback jika masih pakai link lama (Vercel Blob)
                 data = await this._downloadMetadataFromUrl(cfg.cloud_metadata_url);
                 resolvedMsgId = cfg.last_msg_id || null;
-                console.log('[sync] ✓ Metadata loaded from Vercel.');
               }
             }
           } catch (err) {
-            console.warn('[sync] Vercel Cloud check failed, falling back to Discord:', err.message);
+            console.warn('[sync] Cloud Database check failed, falling back to Discord:', err.message);
           }
         }
 
