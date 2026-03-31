@@ -433,18 +433,27 @@ export class DisboxAPI {
       } else {
         // ─── GUEST MODE: Tetap gunakan Discord Webhook ───
         console.log('[disbox] Saving to Discord (Guest Mode)...');
-        const res = await ipc.uploadChunk(this.webhookUrl, b64, 'disbox_metadata.json');
-        if (res.ok) {
-          const data = JSON.parse(res.body);
-          this.lastSyncedId = data.id;
-          localStorage.setItem(`dbx_last_sync_${this.hashedWebhook}`, data.id);
-          await ipc.saveMetadata(this.hashedWebhook, files, data.id);
-          
-          ipc.fetch(this.webhookUrl, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name: `dbx: ${data.id}` })
-          }).catch(() => {});
+        
+        try {
+          const res = await ipc.uploadChunk(this.webhookUrl, b64, 'disbox_metadata.json');
+          if (res.ok) {
+            const data = JSON.parse(res.body);
+            this.lastSyncedId = data.id;
+            localStorage.setItem(`dbx_last_sync_${this.hashedWebhook}`, data.id);
+            await ipc.saveMetadata(this.hashedWebhook, files, data.id);
+            
+            ipc.fetch(this.webhookUrl, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name: `dbx: ${data.id}` })
+            }).catch(() => {});
+            
+            console.log('[disbox] Guest metadata saved to Discord:', data.id);
+          } else {
+            console.error('[disbox] Failed to upload guest metadata:', res.status);
+          }
+        } catch (err) {
+          console.error('[disbox] Guest upload error:', err.message);
         }
       }
     } catch (e) {
