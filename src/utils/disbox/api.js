@@ -300,106 +300,75 @@ export class DisboxAPI {
       try {
         let data;
         let resolvedMsgId = forceId || null;
+        const username = localStorage.getItem('dbx_username');
 
-        if (metadataUrl) {
-          // Direct download from CDN link
+        // ─── 1. Prioritas Utama: Vercel Cloud (Jika Login) ───
+        if (!forceId && !metadataUrl && username) {
+          try {
+            console.log('[sync] Checking Vercel Cloud for metadata...');
+            const BASE_API_URL = 'https://disbox-web-weld.vercel.app';
+            const cfgRes = await ipc.fetch(`${BASE_API_URL}/api/cloud/config?username=${username}`);
+            if (cfgRes.ok) {
+              const cfg = JSON.parse(cfgRes.body);
+              if (cfg.cloud_metadata_url) {
+                console.log('[sync] Found metadata on Vercel Cloud. Downloading...');
+                data = await this._downloadMetadataFromUrl(cfg.cloud_metadata_url);
+                resolvedMsgId = cfg.last_msg_id || null;
+                console.log('[sync] ✓ Metadata loaded from Vercel.');
+              }
+            }
+          } catch (err) {
+            console.warn('[sync] Vercel Cloud check failed, falling back to Discord:', err.message);
+          }
+        }
+
+        // ─── 2. Prioritas Kedua: Metadata URL (Import Manual) ───
+        if (!data && metadataUrl) {
           data = await this._downloadMetadataFromUrl(metadataUrl);
           if (!resolvedMsgId && metadataUrl.includes('/attachments/')) {
             const parts = metadataUrl.split('/');
             resolvedMsgId = parts[parts.length - 2];
           }
-        } else {
-          // 1. Tentukan msgId tujuan
+        }
+
+        // ─── 3. Prioritas Ketiga: Discord Discovery (Untuk Guest atau Fallback) ───
+        if (!data) {
           let msgId = forceId;
-          let snapshotHistory = [];
-
-          // 2. Jika tidak ada forceId, atau jika kita ingin memastikan ID terbaru
-          if (!forceId) {
+          if (!msgId) {
             const discovery = await this._getMsgIdFromDiscovery();
-            if (!discovery) { console.log('[sync] Tidak ada msgId ditemukan, skip sync.'); return false; }
-            msgId = discovery.best;
-            snapshotHistory = discovery.snapshotHistory;
+            if (discovery) msgId = discovery.best;
           }
 
-          // Force bypass check: Jika force=true, tetap download meskipun ID sama
-          if (!force && !forceId && msgId === this.lastSyncedId) {
-            const local = await ipc.loadMetadata(this.hashedWebhook);
-            if (Array.isArray(local) && local.length > 0) {
-              console.log('[sync] Local up-to-date, skip download. msgId:', msgId);
-              return true;
-            }
-          }
-
-          console.log('[sync] Downloading metadata dari Discord, msgId:', msgId);
-          
-          try {
-            data = await this._downloadMetadataFromMsg(msgId);
-            resolvedMsgId = msgId;
-          } catch (e) {
-            console.warn('[sync] ID utama gagal (mungkin 404):', msgId, e.message);
-            
-            // 1. JIKA forceId GAGAL, coba lakukan Discovery aktif sebagai cadangan!
-            const discovery = await this._getMsgIdFromDiscovery();
-            if (discovery && discovery.best && discovery.best !== msgId) {
-              try {
-                console.log('[sync] Mencoba recovery dengan ID hasil discovery:', discovery.best);
+          if (msgId) {
+            console.log('[sync] Downloading metadata from Discord, msgId:', msgId);
+            try {
+              data = await this._downloadMetadataFromMsg(msgId);
+              resolvedMsgId = msgId;
+            } catch (e) {
+              console.warn('[sync] Discord download failed, final fallback search...');
+              // Last attempt: active discovery
+              const discovery = await this._getMsgIdFromDiscovery();
+              if (discovery && discovery.best && discovery.best !== msgId) {
                 data = await this._downloadMetadataFromMsg(discovery.best);
                 resolvedMsgId = discovery.best;
-                console.log('[sync] ✓ Berhasil pulih menggunakan ID hasil discovery:', resolvedMsgId);
-              } catch (err) {
-                console.error('[sync] Recovery discovery juga gagal:', err.message);
               }
-            }
-
-            // 2. JIKA Discovery masih belum memberikan data, coba Cloud Backup (Vercel Blob)
-            if (!data) {
-              const username = localStorage.getItem('dbx_username');
-              if (username) {
-                try {
-                  console.log('[sync] Mencoba recovery dari Cloud Backup (Vercel Blob)...');
-                  const BASE_API_URL = 'https://disbox-web-weld.vercel.app';
-                  const cfgRes = await ipc.fetch(`${BASE_API_URL}/api/cloud/config?username=${username}`);
-                  if (cfgRes.ok) {
-                    const cfg = JSON.parse(cfgRes.body);
-                    if (cfg.cloud_metadata_url) {
-                      console.log('[sync] Mengunduh metadata dari Cloud Backup:', cfg.cloud_metadata_url);
-                      data = await this._downloadMetadataFromUrl(cfg.cloud_metadata_url);
-                      if (cfg.last_msg_id) resolvedMsgId = cfg.last_msg_id;
-                      console.log('[sync] ✓ Berhasil pulih menggunakan Cloud Backup!');
-                    }
-                  }
-                } catch (err) {
-                  console.error('[sync] Recovery Cloud Backup gagal:', err.message);
-                }
-              }
-            }
-
-            if (!data) {
-              // Jika semua upaya recovery gagal
-              if (e.message.includes('404')) {
-                throw new Error(`Pesan metadata (${msgId}) tidak ditemukan atau tidak bisa diakses oleh Webhook. Pastikan Webhook memiliki akses ke channel penyimpanan.`);
-              }
-              throw e; 
             }
           }
+        }
+
+        if (!data) {
+          console.log('[sync] No metadata found anywhere (New Drive).');
+          return false;
         }
 
         await ipc.saveMetadata(this.hashedWebhook, data, resolvedMsgId);
         this.lastSyncedId = resolvedMsgId;
-        localStorage.setItem(`dbx_last_sync_${this.hashedWebhook}`, this.lastSyncedId);
-        
-        // Update Cloud Profile jika ID berubah
-        const username = localStorage.getItem('dbx_username');
-        if (username && resolvedMsgId !== forceId) {
-          ipc.fetch('https://disbox-web-weld.vercel.app/api/cloud/sync', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username, last_msg_id: resolvedMsgId })
-          }).catch(() => {});
+        if (resolvedMsgId) {
+          localStorage.setItem(`dbx_last_sync_${this.hashedWebhook}`, resolvedMsgId);
         }
 
         const itemCount = Array.isArray(data) ? data.length : (data.files?.length || 0);
-        console.log('[sync] ✓ Berhasil sync. msgId:', this.lastSyncedId, '| items:', itemCount);
+        console.log('[sync] ✓ Berhasil sync. Items:', itemCount);
         return true;
       } catch (e) {
         console.error('[sync] Fatal error:', e.message);
@@ -411,20 +380,15 @@ export class DisboxAPI {
     });
   }
 
-  async uploadMetadataToDiscord(files) {
+  async persistMetadata(files) {
     if (!this.webhookUrl) return;
     try {
-      console.log('[disbox] Uploading metadata to Discord...');
+      console.log('[disbox] Persisting metadata...');
 
       let pinRow = null;
-      try {
-        pinRow = await ipc.getPinHash?.(this.hashedWebhook);
-      } catch {}
-
+      try { pinRow = await ipc.getPinHash?.(this.hashedWebhook); } catch {}
       let shareLinks = [];
-      try {
-        shareLinks = await ipc.shareGetLinks?.(this.hashedWebhook) || [];
-      } catch {}
+      try { shareLinks = await ipc.shareGetLinks?.(this.hashedWebhook) || []; } catch {}
 
       const container = { files, pinHash: pinRow || null, shareLinks, updatedAt: Date.now() };
       const jsonStr = JSON.stringify(container);
@@ -432,87 +396,54 @@ export class DisboxAPI {
       const encryptedBytes = await this.encrypt(jsonBytes.buffer);
       const b64 = await _bufferToBase64(encryptedBytes);
       
-      const res = await ipc.uploadChunk(this.webhookUrl, b64, 'disbox_metadata.json');
-      if (res.ok) {
-        const data = JSON.parse(res.body);
-        this.lastSyncedId = data.id;
-        localStorage.setItem(`dbx_last_sync_${this.hashedWebhook}`, data.id);
-        
-        // Update SQLite/Local Metadata dengan MsgID terbaru agar sync selanjutnya valid
-        await ipc.saveMetadata(this.hashedWebhook, files, data.id);
-        
-        console.log('[disbox] Metadata synced to Discord. ID:', data.id);
+      const username = localStorage.getItem('dbx_username');
+      const userId = sessionStorage.getItem('dbx_user_id') || localStorage.getItem('dbx_user_id');
 
-        // ─── CLOUD SYNC: Update Cloud Profile jika login ───
-        const userId = sessionStorage.getItem('dbx_user_id') || localStorage.getItem('dbx_user_id');
-        const username = localStorage.getItem('dbx_username');
-        
-        if (userId || username) {
-          // Use net-fetch to call remote API
-          await ipc.fetch('https://disbox-web-weld.vercel.app/api/cloud/sync', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              user_id: userId,
-              username: username,
-              webhook_url: this.webhookUrl,
-              last_msg_id: data.id,
-              metadata_b64: b64
-            })
-          }).catch(e => console.warn('[cloud] Sync failed:', e.message));
-        }
-
-        // Best effort update webhook name
-        await ipc.fetch(this.webhookUrl, {
-          method: 'PATCH',
+      if (username || userId) {
+        // ─── PURE VERCEL MODE: Hanya simpan ke Vercel (Cepat & Efisien) ───
+        console.log('[disbox] Saving to Pure Vercel Cloud...');
+        await ipc.fetch('https://disbox-web-weld.vercel.app/api/cloud/sync', {
+          method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: `dbx: ${data.id}` })
-        }).catch(() => {});
-      }
-    } catch (e) {
-      console.error('[disbox] Failed to upload metadata:', e);
-    }
-  }
-
-  async validateWebhook() {
-    try {
-      const res = await ipc.fetch(this.webhookUrl);
-      if (!res.ok) return false;
-      const data = JSON.parse(res.body);
-      return !!data?.id;
-    } catch (e) { return false; }
-  }
-
-  async getFileSystem() {
-    try {
-      let data = await ipc.loadMetadata(this.hashedWebhook);
-      if (!Array.isArray(data) || data.length === 0) {
-        console.log('[disbox] Local kosong, mencoba download dari Discord...');
-        await this.syncMetadata();
-        data = await ipc.loadMetadata(this.hashedWebhook);
-        if (!Array.isArray(data) || data.length === 0) {
-          console.log('[disbox] Tidak ada metadata, opening as empty drive');
-          data = [];
+          body: JSON.stringify({
+            user_id: userId,
+            username: username,
+            webhook_url: this.webhookUrl,
+            metadata_b64: b64
+          })
+        });
+        
+        // Tetap simpan ke local SQLite/IndexedDB
+        await ipc.saveMetadata(this.hashedWebhook, files, this.lastSyncedId);
+      } else {
+        // ─── GUEST MODE: Tetap gunakan Discord Webhook ───
+        console.log('[disbox] Saving to Discord (Guest Mode)...');
+        const res = await ipc.uploadChunk(this.webhookUrl, b64, 'disbox_metadata.json');
+        if (res.ok) {
+          const data = JSON.parse(res.body);
+          this.lastSyncedId = data.id;
+          localStorage.setItem(`dbx_last_sync_${this.hashedWebhook}`, data.id);
+          await ipc.saveMetadata(this.hashedWebhook, files, data.id);
+          
+          // Best effort update webhook name
+          await ipc.fetch(this.webhookUrl, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: `dbx: ${data.id}` })
+          }).catch(() => {});
         }
       }
-      let files = Array.isArray(data) ? data : (data?.files || []);
-      let changed = false;
-      files = files.map(f => {
-        if (!f.id) { changed = true; return { ...f, id: crypto.randomUUID() }; }
-        return f;
-      });
-      if (changed) await ipc.saveMetadata(this.hashedWebhook, files);
-      return files;
+      console.log('[disbox] ✓ Metadata persisted successfully.');
     } catch (e) {
-      console.error('[disbox] getFileSystem error:', e.message);
-      return [];
+      console.error('[disbox] Failed to persist metadata:', e);
+      throw e;
     }
   }
 
   async _saveFileSystem(files) {
     if (!files || !Array.isArray(files)) return;
     await ipc.saveMetadata(this.hashedWebhook, files);
-    await this.uploadMetadataToDiscord(files);
+    await this.persistMetadata(files);
   }
 
   async createFile(filePath, messageIds, size = 0, id = null, thumbnailMsgId = null) {
