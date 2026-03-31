@@ -142,12 +142,12 @@ export class DisboxAPI {
 
   async decrypt(data) {
     if (this.encryptionKeys.length === 0) {
-      console.log('[crypto] No encryption keys available, returning raw data');
+      console.warn('[crypto] No encryption keys available, returning raw data');
       return data;
     }
+    
     const uint8 = new Uint8Array(data);
     if (uint8.length < this.MAGIC_HEADER.length) {
-      console.log('[crypto] Data too short for magic header, returning raw');
       return data;
     }
 
@@ -160,11 +160,10 @@ export class DisboxAPI {
     }
 
     if (!hasMagic) {
-      console.log('[crypto] No magic header found, returning raw data');
       return data;
     }
 
-    console.log('[crypto] Magic header found, attempting decryption...');
+    console.log('[crypto] Magic header found, attempting decryption with', this.encryptionKeys.length, 'key variants...');
     const iv = uint8.slice(this.MAGIC_HEADER.length, this.MAGIC_HEADER.length + 12);
     const ciphertext = uint8.slice(this.MAGIC_HEADER.length + 12);
 
@@ -176,15 +175,15 @@ export class DisboxAPI {
           this.encryptionKeys[i],
           ciphertext
         );
-        console.log(`[crypto] Decryption success with key #${i}`);
+        console.log(`[crypto] Decryption success with key variant #${i}`);
         return decrypted;
       } catch (e) {
         lastError = e;
       }
     }
 
-    console.error('[crypto] Decryption failed with all available keys. Last error:', lastError?.message || lastError);
-    return data;
+    console.error('[crypto] Decryption failed! Webhook URL might be different from the one used to encrypt this metadata.');
+    throw new Error('Gagal mendekripsi metadata. Pastikan Webhook URL benar dan sesuai dengan data drive.');
   }
 
   async _getMsgIdFromDiscovery() {
