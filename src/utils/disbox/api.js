@@ -212,8 +212,8 @@ export class DisboxAPI {
         console.log('[sync] Searching for latest metadata message in channel:', channelId);
         const accessToken = sessionStorage.getItem('dbx_oauth_token');
         const discUrl = accessToken 
-          ? `https://disbox.naufal.dev/api/discord/discover?channel_id=${channelId}&access_token=${accessToken}`
-          : `https://disbox.naufal.dev/api/discord/discover?channel_id=${channelId}`;
+          ? `https://disbox-web-weld.vercel.app/api/discord/discover?channel_id=${channelId}&access_token=${accessToken}`
+          : `https://disbox-web-weld.vercel.app/api/discord/discover?channel_id=${channelId}`;
 
         const discRes = await ipc.fetch(discUrl);
         const discData = JSON.parse(discRes.body);
@@ -381,7 +381,7 @@ export class DisboxAPI {
         // Update Cloud Profile jika ID berubah
         const username = localStorage.getItem('dbx_username');
         if (username && resolvedMsgId !== forceId) {
-          ipc.fetch('https://disbox.naufal.dev/api/cloud/sync', {
+          ipc.fetch('https://disbox-web-weld.vercel.app/api/cloud/sync', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ username, last_msg_id: resolvedMsgId })
@@ -439,7 +439,7 @@ export class DisboxAPI {
         
         if (userId || username) {
           // Use net-fetch to call remote API
-          await ipc.fetch('https://disbox.naufal.dev/api/cloud/sync', {
+          await ipc.fetch('https://disbox-web-weld.vercel.app/api/cloud/sync', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({

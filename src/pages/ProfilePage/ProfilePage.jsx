@@ -9,7 +9,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { ipc } from '@/utils/ipc';
 
 const DISCORD_WEBHOOK_REGEX = /^https:\/\/discord(app)?\.com\/api\/webhooks\/\d+\/.+$/;
-const BASE_API_URL = 'https://disbox.naufal.dev';
+const BASE_API_URL = 'https://disbox-web-weld.vercel.app';
 
 export default function ProfilePage() {
   const { savedWebhooks, updateWebhookLabel, removeWebhook, addWebhook, t, animationsEnabled, files, connect } = useApp();
