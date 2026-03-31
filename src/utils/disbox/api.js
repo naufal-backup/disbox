@@ -55,7 +55,7 @@ export class DisboxAPI {
 
     const found = await this.syncMetadata({ forceId, metadataUrl });
     if (!found) {
-      console.log('[init] Drive Baru: Menginisialisasi metadata kosong di Database...');
+      console.log('[init] New drive detected. Initializing local database.');
       await ipc.saveMetadata(this.hashedWebhook, []);
     }
     return this.hashedWebhook;
@@ -79,57 +79,55 @@ export class DisboxAPI {
     for (const key of this.encryptionKeys) {
       try { return await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ct); } catch {}
     }
-    throw new Error('Gagal dekripsi. Webhook tidak cocok.');
+    throw new Error('Gagal dekripsi metadata. Webhook tidak cocok.');
   }
 
   async syncMetadata(options = {}) {
     const { forceId, metadataUrl } = options;
-    return this._enqueue(async () => {
-      if (this._syncing) return false;
-      this._syncing = true;
+    if (this._syncing) return false;
+    this._syncing = true;
+    try {
+      const username = localStorage.getItem('dbx_username');
+      const identifier = username || this.hashedWebhook;
+      const BASE_API = 'https://disbox-web-weld.vercel.app';
+
+      console.log(`[sync] Fetching from Database (${identifier})...`);
+      const res = await ipc.fetch(`${BASE_API}/api/files/list?identifier=${identifier}`);
+      const result = JSON.parse(res.body);
+
+      if (res.ok && result.files && result.files.length > 0) {
+        console.log(`[sync] ✓ Loaded ${result.files.length} items from database.`);
+        await ipc.saveMetadata(this.hashedWebhook, result.files);
+        return true;
+      }
+
+      console.log('[sync] Database is empty. Checking Discord/CDN for legacy metadata...');
+      let legacyData = null;
       try {
-        const username = localStorage.getItem('dbx_username');
-        const identifier = username || this.hashedWebhook;
-        const BASE_API = 'https://disbox-web-weld.vercel.app';
-
-        console.log(`[sync] Menarik struktur dari Supabase (${identifier})...`);
-        const res = await ipc.fetch(`${BASE_API}/api/files/list?identifier=${identifier}`);
-        const result = JSON.parse(res.body);
-
-        if (res.ok && result.files && result.files.length > 0) {
-          console.log(`[sync] ✓ Berhasil memuat ${result.files.length} baris dari database.`);
-          await ipc.saveMetadata(this.hashedWebhook, result.files);
-          return true;
+        if (metadataUrl && metadataUrl.startsWith('http')) {
+          legacyData = await this._downloadMetadataFromUrl(metadataUrl);
+        } else {
+          const discovery = await this._getMsgIdFromDiscovery();
+          const msgId = forceId || discovery?.best;
+          if (msgId) legacyData = await this._downloadMetadataFromMsg(msgId);
         }
+      } catch (err) { console.warn('[sync] Legacy fetch failed:', err.message); }
 
-        console.log('[sync] Database kosong, mencari sumber migrasi...');
-        let legacyData = null;
-        try {
-          if (metadataUrl && metadataUrl.startsWith('http')) {
-            legacyData = await this._downloadMetadataFromUrl(metadataUrl);
-          } else {
-            const discovery = await this._getMsgIdFromDiscovery();
-            const msgId = forceId || discovery?.best;
-            if (msgId) legacyData = await this._downloadMetadataFromMsg(msgId);
-          }
-        } catch (err) { console.warn('[sync] Gagal mengambil data migrasi:', err.message); }
-
-        if (legacyData) {
-          const files = Array.isArray(legacyData) ? legacyData : (legacyData.files || []);
-          console.log(`[sync] ✓ Menemukan ${files.length} item lama. Mengonversi ke baris database...`);
-          for (const f of files) {
-            await ipc.fetch(`${BASE_API}/api/files/upsert`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ identifier, file: f })
-            });
-          }
-          await ipc.saveMetadata(this.hashedWebhook, files);
-          return true;
+      if (legacyData) {
+        const files = Array.isArray(legacyData) ? legacyData : (legacyData.files || []);
+        console.log(`[sync] ✓ Found ${files.length} legacy items. Migrating...`);
+        for (const f of files) {
+          await ipc.fetch(`${BASE_API}/api/files/upsert`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ identifier, file: f })
+          });
         }
-        return false;
-      } finally { this._syncing = false; }
-    });
+        await ipc.saveMetadata(this.hashedWebhook, files);
+        return true;
+      }
+      return false;
+    } finally { this._syncing = false; }
   }
 
   async _downloadMetadataFromUrl(url) {
@@ -165,11 +163,11 @@ export class DisboxAPI {
 
   async getFileSystem() {
     const data = await ipc.loadMetadata(this.hashedWebhook);
-    if (data === null || data === undefined) {
-      await this.syncMetadata();
-      return await ipc.loadMetadata(this.hashedWebhook) || [];
+    if (data === null || data === undefined || (Array.isArray(data) && data.length === 0)) {
+      const found = await this.syncMetadata();
+      if (found) return await ipc.loadMetadata(this.hashedWebhook);
     }
-    return data;
+    return Array.isArray(data) ? data : (data?.files || []);
   }
 
   async uploadMetadataToDiscord(files) {
@@ -192,30 +190,49 @@ export class DisboxAPI {
     } catch (e) { console.error('[backup] sync failed:', e); }
   }
 
+  // --- INTERNAL CORE OPERATIONS ---
+
+  async _internalUpsert(identifier, file) {
+    const res = await ipc.fetch('https://disbox-web-weld.vercel.app/api/files/upsert', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ identifier, file })
+    });
+    if (!res.ok) throw new Error(`Failed to upsert ${file.path}`);
+  }
+
+  async _internalDelete(identifier, path) {
+    const res = await ipc.fetch('https://disbox-web-weld.vercel.app/api/files/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ identifier, path })
+    });
+    if (!res.ok) throw new Error(`Failed to delete ${path}`);
+  }
+
+  // --- PUBLIC API ---
+
   async createFile(path, messageIds, size, id, thumbnailMsgId = null) {
     return this._enqueue(async () => {
       const username = localStorage.getItem('dbx_username');
       const identifier = username || this.hashedWebhook;
-      const file = { path, messageIds, size, createdAt: Date.now(), id: id || crypto.randomUUID(), thumbnailMsgId };
+      const fileId = id || crypto.randomUUID();
+      const entry = { path, messageIds, size, createdAt: Date.now(), id: fileId, thumbnailMsgId };
 
-      const res = await ipc.fetch('https://disbox-web-weld.vercel.app/api/files/upsert', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ identifier, file })
-      });
-
-      if (!res.ok) throw new Error('Gagal simpan ke database.');
+      await this._internalUpsert(identifier, entry);
 
       const files = await this.getFileSystem();
       const idx = files.findIndex(f => f.path === path);
-      if (idx >= 0) files[idx] = file; else files.push(file);
+      if (idx >= 0) files[idx] = entry; else files.push(entry);
       await ipc.saveMetadata(this.hashedWebhook, files);
-      return file;
+      return entry;
     });
   }
 
-  async createFolder(path) {
-    return await this.createFile(path, [], 0, crypto.randomUUID());
+  async createFolder(folderName, currentPath = '/') {
+    const dirPath = currentPath === '/' ? '' : currentPath.replace(/^\/+/, '');
+    const fullPath = dirPath ? `${dirPath}/${folderName}/.keep` : `${folderName}/.keep`;
+    return await this.createFile(fullPath, [], 0);
   }
 
   async deletePath(targetPath) {
@@ -223,13 +240,7 @@ export class DisboxAPI {
       const username = localStorage.getItem('dbx_username');
       const identifier = username || this.hashedWebhook;
 
-      const res = await ipc.fetch('https://disbox-web-weld.vercel.app/api/files/delete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ identifier, path: targetPath })
-      });
-
-      if (!res.ok) throw new Error('Gagal hapus dari database.');
+      await this._internalDelete(identifier, targetPath);
 
       const files = await this.getFileSystem();
       const filtered = files.filter(f => f.path !== targetPath && !f.path.startsWith(targetPath + '/'));
@@ -239,13 +250,76 @@ export class DisboxAPI {
 
   async renamePath(oldPath, newPath) {
     return this._enqueue(async () => {
+      const username = localStorage.getItem('dbx_username');
+      const identifier = username || this.hashedWebhook;
       const files = await this.getFileSystem();
       const toUpdate = files.filter(f => f.path === oldPath || f.path.startsWith(oldPath + '/'));
+      const newFiles = [...files];
+
       for (const f of toUpdate) {
         const newFilePath = f.path.replace(oldPath, newPath);
-        await this.deletePath(f.path);
-        await this.createFile(newFilePath, f.messageIds, f.size, f.id, f.thumbnailMsgId);
+        await this._internalDelete(identifier, f.path);
+        const updatedEntry = { ...f, path: newFilePath, updatedAt: Date.now() };
+        await this._internalUpsert(identifier, updatedEntry);
+        const idx = newFiles.findIndex(x => x.id === f.id);
+        if (idx >= 0) newFiles[idx] = updatedEntry;
       }
+      await ipc.saveMetadata(this.hashedWebhook, newFiles);
     });
   }
+}
+
+export function buildTree(files) {
+  const root = { name: '/', children: {}, files: [] };
+  for (const file of files) {
+    const parts = file.path.split('/').filter(Boolean);
+    if (parts.length === 0) continue;
+    const fileName = parts.pop();
+    let node = root;
+    for (const part of parts) {
+      if (!node.children[part]) node.children[part] = { name: part, children: {}, files: [] };
+      node = node.children[part];
+    }
+    node.files.push({ ...file, name: fileName });
+  }
+  return root;
+}
+
+export function formatSize(bytes) {
+  if (!bytes || bytes === 0) return '—';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(1024));
+  return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${units[i]}`;
+}
+
+export function getFileIcon(name) {
+  const ext = name?.split('.').pop()?.toLowerCase();
+  const map = {
+    pdf: '📄', mp4: '🎬', mov: '🎬', avi: '🎬', mkv: '🎬',
+    mp3: '🎵', wav: '🎵', flac: '🎵', ogg: '🎵',
+    jpg: '🖼', jpeg: '🖼', png: '🖼', gif: '🖼', webp: '🖼', svg: '🖼',
+    zip: '📦', rar: '📦', tar: '📦', gz: '📦', '7z': '📦',
+    js: '⚙️', ts: '⚙️', jsx: '⚙️', tsx: '⚙️', py: '⚙️', rs: '⚙️',
+    html: '🌐', css: '🎨', json: '📋',
+    doc: '📝', docx: '📝', txt: '📝', md: '📝',
+    xls: '📊', xlsx: '📊', csv: '📊',
+  };
+  return map[ext] || '📄';
+}
+
+export function getMimeType(name) {
+  const ext = name?.split('.').pop()?.toLowerCase();
+  const map = {
+    pdf: 'application/pdf',
+    mp4: 'video/mp4', mov: 'video/quicktime', avi: 'video/x-msvideo',
+    mp3: 'audio/mpeg', wav: 'audio/wav', flac: 'audio/flac',
+    jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
+    gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml',
+    txt: 'text/plain', html: 'text/html', css: 'text/css',
+    json: 'application/json', js: 'text/javascript', ts: 'text/typescript',
+    py: 'text/x-python', rs: 'text/rust', md: 'text/markdown',
+    yml: 'text/yaml', yaml: 'text/yaml', xml: 'text/xml',
+    zip: 'application/zip',
+  };
+  return map[ext] || 'application/octet-stream';
 }

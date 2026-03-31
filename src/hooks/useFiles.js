@@ -8,9 +8,11 @@ export function useFiles(api, refresh) {
 
   const createFolder = useCallback(async (folderName) => {
     if (!api || !folderName.trim()) return false;
-    const dirPath = currentPath === '/' ? '' : currentPath.slice(1);
-    const folderPath = dirPath ? `${dirPath}/${folderName.trim()}/.keep` : `${folderName.trim()}/.keep`;
-    try { await api.createFile(folderPath, [], 0); await refresh(); return true; }
+    try { 
+      await api.createFolder(folderName.trim(), currentPath); 
+      await refresh(); 
+      return true; 
+    }
     catch (e) { console.error('Create folder failed:', e); return false; }
   }, [api, currentPath, refresh]);
 
