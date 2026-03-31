@@ -115,8 +115,11 @@ export class DisboxAPI {
     }
 
     try {
-      // Sangat Penting: Pastikan metadataUrl diteruskan ke syncMetadata
-      await this.syncMetadata({ forceId, metadataUrl });
+      const found = await this.syncMetadata({ forceId, metadataUrl });
+      if (!found) {
+        console.log('[init] No metadata found, initializing new drive metadata...');
+        await this.uploadMetadataToDiscord([]);
+      }
     } catch (e) {
       console.error('[init] Metadata sync failed during init:', e);
       throw e;
