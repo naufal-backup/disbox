@@ -1,5 +1,7 @@
 // ─── Disbox API — Tidy JSONB Edition ─────────────────────────────────────────
 
+export const BASE_API = 'https://disbox-web-weld.vercel.app';
+
 const CHUNK_SIZE = 7.5 * 1024 * 1024;
 
 function throwIfAborted(signal) {
@@ -100,7 +102,6 @@ export class DisboxAPI {
     try {
       const username = localStorage.getItem('dbx_username');
       const identifier = username || this.hashedWebhook;
-      const BASE_API = 'https://disbox-web-weld.vercel.app';
 
       // 1. Ambil dari Tabel Files (JSONB)
       console.log(`[sync] Pulling structure for ${identifier}...`);
@@ -163,8 +164,8 @@ export class DisboxAPI {
     } catch {}
     if (!channelId) return null;
     try {
-      const dRes = await fetch(`https://disbox-web-weld.vercel.app/api/discord/discover?channel_id=${channelId}`);
-      const dData = await dRes.json();
+      const dRes = await window.electron.fetch(`${BASE_API}/api/discord/discover?channel_id=${channelId}`);
+      const dData = JSON.parse(dRes.body);
       return dData.ok && dData.found ? { best: dData.message_id } : null;
     } catch { return null; }
   }
@@ -181,7 +182,7 @@ export class DisboxAPI {
   async persistCloud(files) {
     const username = localStorage.getItem('dbx_username');
     const identifier = username || this.hashedWebhook;
-    return fetch('https://disbox-web-weld.vercel.app/api/files/sync-all', {
+    return fetch(`${BASE_API}/api/files/sync-all`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ identifier, files })
@@ -212,7 +213,7 @@ export class DisboxAPI {
         
         const username = localStorage.getItem('dbx_username');
         if (username) {
-          fetch('https://disbox-web-weld.vercel.app/api/cloud/sync', {
+          fetch(`${BASE_API}/api/cloud/sync`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ username, last_msg_id: data.id })
@@ -351,13 +352,20 @@ export class DisboxAPI {
     });
   }
 
-  async uploadFile(file, virtualPath, onProgress, signal) {
+  async uploadFile(file, virtualPath, onProgress, signal, transferId) {
     const fileName = file.name;
-    const buffer = file.buffer || await file.arrayBuffer();
     const fileId = crypto.randomUUID();
-    const messageIds = [];
+    let messageIds = [];
     let uploadedSize = 0;
 
+    if (file.nativePath) {
+      if (signal) signal.addEventListener('abort', () => window.electron.cancelUpload(transferId));
+      const res = await window.electron.uploadFileFromPath(this.webhookUrl, file.nativePath, `${fileId}_${fileName}`, (p) => { if (!signal?.aborted) onProgress?.(p); }, transferId, this.chunkSize);
+      if (!res.ok) throw new Error('Gagal upload file');
+      return await this.createFile(virtualPath, res.messageIds, res.size, fileId);
+    }
+
+    const buffer = file.buffer || await file.arrayBuffer();
     for (let offset = 0; offset < buffer.byteLength; offset += this.chunkSize) {
       throwIfAborted(signal);
       const chunk = buffer.slice(offset, offset + this.chunkSize);

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Cloud, User, AlertCircle, Loader2, Key, X, Sparkles, Info, UserPlus, Zap } from 'lucide-react';
 import { useApp } from '../context/useAppHook.js';
+import { BASE_API } from '../utils/disbox.js';
 import styles from './LoginPage.module.css';
 import toast from 'react-hot-toast';
 
@@ -42,7 +43,7 @@ export default function LoginPage() {
     }
 
     try {
-      const res = await fetch('/api/auth/login', {
+      const res = await fetch(`${BASE_API}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: username.trim(), password })
@@ -80,7 +81,7 @@ export default function LoginPage() {
     }
 
     try {
-      const res = await fetch('/api/auth/register', {
+      const res = await fetch(`${BASE_API}/api/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 

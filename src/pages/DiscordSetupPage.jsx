@@ -5,6 +5,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { Search, ChevronRight, X, PartyPopper, Hexagon, AlertTriangle, Crown, Shield } from 'lucide-react';
 import { useApp } from '../context/useAppHook.js';
+import { BASE_API } from '../utils/disbox.js';
 import styles from './DiscordSetupPage.module.css';
 import GuildIcon from './DiscordSetupPage/GuildIcon.jsx';
 import StepList from './DiscordSetupPage/StepList.jsx';
@@ -90,7 +91,7 @@ export default function DiscordSetupPage({ onBack }) {
 
         window._dbx_exchanging_code = true;
         try {
-          const cbRes  = await fetch(`/api/discord/callback?code=${encodeURIComponent(code)}`);
+          const cbRes  = await fetch(`${BASE_API}/api/discord/callback?code=${encodeURIComponent(code)}`);
           const cbData = await cbRes.json();
           if (!cbData.ok) throw new Error(cbData.error || 'Autentikasi Discord gagal.');
 
@@ -120,7 +121,7 @@ export default function DiscordSetupPage({ onBack }) {
             if (cbData.webhook.channel_id) {
               try {
                 console.log('[setup] Attempting to discover existing metadata in channel:', cbData.webhook.channel_id);
-                const discRes = await fetch(`/api/discord/discover?channel_id=${cbData.webhook.channel_id}&access_token=${accessToken}`);
+                const discRes = await fetch(`${BASE_API}/api/discord/discover?channel_id=${cbData.webhook.channel_id}&access_token=${accessToken}`);
                 const discData = await discRes.json();
                 
                 if (discData.ok && discData.found) {
@@ -142,7 +143,7 @@ export default function DiscordSetupPage({ onBack }) {
 
               // ─── CLOUD SYNC: Simpan config awal ke KV ───
               if (cbData.user_id || cbData.username) {
-                fetch('/api/cloud/sync', {
+                fetch(`${BASE_API}/api/cloud/sync`, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({
@@ -206,7 +207,6 @@ export default function DiscordSetupPage({ onBack }) {
       const webhookUrl = `https://discord.com/api/webhooks/${webhook.id}/${webhook.token}`;
 
       // Connect
-      setStep('connect');
       const result = await connect(webhookUrl);
       if (!result.ok) throw new Error('Gagal connect: ' + (result.message || result.reason));
 
