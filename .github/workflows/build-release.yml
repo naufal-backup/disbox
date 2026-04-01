@@ -100,29 +100,23 @@ jobs:
           name: windows-artifacts
           path: release
 
+      - name: Prepare Release Notes
+        id: release-notes
+        run: |
+          if [ -f release-notes.md ]; then
+            echo "body<<EOF" >> $GITHUB_OUTPUT
+            cat release-notes.md >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          else
+            echo "body=No release notes provided." >> $GITHUB_OUTPUT
+          fi
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
         with:
-          name: Disbox v4.0.0
-          body: |
-            ## 🚀 Disbox v4.0.0 - Major Release
-            
-            Disbox v4 hadir dengan peningkatan performa signifikan dan fitur keamanan baru.
-            
-            ### ✨ Fitur Baru & Perbaikan:
-            - **⚡ Fix Deadlock & Performance:** Perbaikan sistem antrean tugas yang mencegah aplikasi hang saat operasi file besar.
-            - **🔒 Smart Sync:** Penanganan konflik metadata yang lebih cerdas untuk sinkronisasi antar perangkat.
-            - **🛠 Network Reliability:** Penambahan timeout pada request jaringan untuk stabilitas lebih baik.
-            - **📁 Operasi Bulk:** Optimasi pemindahan dan penyalinan file dalam jumlah banyak.
-            
-            ### 📦 Artifacts Terlampir:
-            1. **Disbox-Linux-x64.AppImage** (Portable Linux)
-            2. **Disbox-Linux-x64.deb** (Debian/Ubuntu)
-            3. **Disbox-Linux-x64.pacman** (Arch Linux)
-            4. **Disbox-Windows-Setup.exe** (Windows Installer)
-            5. **Disbox-Windows-Portable.exe** (Windows Portable)
-            6. **Disbox-Windows.zip** (Windows Archive)
+          name: Disbox ${{ github.ref_name }}
+          body: ${{ steps.release-notes.outputs.body }}
           files: |
             release/Disbox-Linux-x64.AppImage
             release/Disbox-Linux-x64.deb
