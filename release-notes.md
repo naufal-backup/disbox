@@ -7,6 +7,8 @@
 * Unified desktop and web user experience for browsing and listening to your cloud-synced media files.
 * Automated the CI/CD pipeline and desktop binary publishing via new GitHub Actions workflow.
 
-## v4.5.7 (2026-04-01)
+## v4.5.8 (2026-04-01)
 
-* [Fix] Fixed audio/video preview errors in desktop app by using direct file download instead of streaming endpoint.
+* [Improvement] Progressive loading for audio/video previews - now starts playback after downloading first 3-5 chunks instead of waiting for full file.
+* [Fix] Fixed ERR_FILE_NOT_FOUND and chunk errors in audio/video previews.
+* [Performance] Faster preview startup, especially for large media files.
