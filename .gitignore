@@ -1,7 +1,9 @@
 node_modules/
 dist/
 release/
-.env
+.env*
+*.local
 *.log
 disbox.txt
 CONTEXT_SUMMARY.txt
+*_b64.txt
