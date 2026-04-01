@@ -38,7 +38,7 @@ export const translations = {
     rename: 'Ubah Nama',
     lock: 'Kunci',
     unlock: 'Buka Kunci',
-    star: 'Beri Bintang',
+    star: 'Berikan Bintang',
     unstar: 'Hapus Bintang',
     delete: 'Hapus',
     refresh: 'Segarkan',

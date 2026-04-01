@@ -139,14 +139,7 @@ export function AppProvider({ children }) {
     if (!api) return;
     if (!silent) setLoading(true);
     try {
-      // 1. Ambil data lokal dulu agar instant
-      const fsLocal = await window.electron.loadMetadata(api.hashedWebhook);
-      if (fsLocal) {
-        setFiles(fsLocal);
-        setFileTree(buildTree(fsLocal));
-      }
-
-      // 2. Sync background untuk memastikan data terbaru dari server
+      // Background sync from server
       const container = await api.syncMetadata({ force: true });
       const fsSync = container?.files || await api.getFileSystem();
       if (container?.pinHash) {
