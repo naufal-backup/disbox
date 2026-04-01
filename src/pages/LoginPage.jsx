@@ -43,30 +43,27 @@ export default function LoginPage() {
     }
 
     try {
-      // Menjiplak alur fetch web tapi dengan window.electron.fetch
       const res = await window.electron.fetch(`${BASE_API}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: username.trim(), password })
       });
-      
       const data = JSON.parse(res.body);
-      
-      if (!res.ok || !data.ok) {
+
+      if (!data.ok) {
         setError(data.error || 'Login gagal');
         return;
       }
 
       localStorage.setItem('dbx_username', data.username);
-      
-      const result = await connect(data.webhook_url, { 
+
+      const result = await connect(data.webhook_url, {
         forceId: data.last_msg_id,
-        metadataUrl: data.cloud_metadata_url 
+        metadataUrl: data.cloud_metadata_url
       });
       if (!result.ok) setError(result.message || 'Gagal menghubungkan drive.');
-      
+
     } catch (e) {
-      console.error('[Login] Error:', e);
       setError('Terjadi kesalahan server.');
     }
   };
@@ -87,17 +84,16 @@ export default function LoginPage() {
       const res = await window.electron.fetch(`${BASE_API}/api/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          username: username.trim(), 
-          password, 
+        body: JSON.stringify({
+          username: username.trim(),
+          password,
           webhook_url: url.trim(),
           metadata_url: metadataUrl.trim() || null
         })
       });
-      
       const data = JSON.parse(res.body);
-      
-      if (!res.ok || !data.ok) {
+
+      if (!data.ok) {
         setError(data.error || 'Registrasi gagal');
         return;
       }
@@ -107,7 +103,6 @@ export default function LoginPage() {
       setLoginMode('account');
       setPassword('');
     } catch (e) {
-      console.error('[Register] Error:', e);
       setError('Terjadi kesalahan server saat registrasi.');
     }
   };
@@ -291,7 +286,7 @@ export default function LoginPage() {
       </div>
 
       <div className={styles.version}>
-        <div>Disbox v4.5.4 · Web Aligned Edition</div>
+        <div>Disbox v4.5.5 · Web Aligned Edition</div>
       </div>
     </div>
   );

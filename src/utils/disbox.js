@@ -108,7 +108,7 @@ export class DisboxAPI {
       const res = await window.electron.fetch(`${BASE_API}/api/files/list?identifier=${identifier}`);
       const result = JSON.parse(res.body);
 
-      if (res.ok && result.files && result.files.length > 0) {
+      if (result.ok && result.files && result.files.length > 0) {
         console.log(`[sync] ✓ Loaded ${result.files.length} items from database.`);
         await window.electron.saveMetadata(this.hashedWebhook, result.files);
         return true;
