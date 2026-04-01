@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { Cloud, User, AlertCircle, Loader2, Key, X, Sparkles, Info, UserPlus, Zap } from 'lucide-react';
 import { useApp } from '../context/useAppHook.js';
-import { BASE_API } from '../utils/disbox.js';
 import styles from './LoginPage.module.css';
 import toast from 'react-hot-toast';
 
+const BASE_API = 'https://disbox-web-weld.vercel.app';
 const DISCORD_WEBHOOK_REGEX = /^https:\/\/discord(app)?\.com\/api\/webhooks\/\d+\/.+$/;
 
 export default function LoginPage() {
@@ -43,14 +43,16 @@ export default function LoginPage() {
     }
 
     try {
-      const res = await fetch(`${BASE_API}/api/auth/login`, {
+      // Gunakan window.electron.fetch untuk bypass CORS dan menghindari ERR_FILE_NOT_FOUND
+      const res = await window.electron.fetch(`${BASE_API}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: username.trim(), password })
       });
-      const data = await res.json();
       
-      if (!data.ok) {
+      const data = JSON.parse(res.body);
+      
+      if (!res.ok || !data.ok) {
         setError(data.error || 'Login gagal');
         return;
       }
@@ -64,6 +66,7 @@ export default function LoginPage() {
       if (!result.ok) setError(result.message || 'Gagal menghubungkan drive.');
       
     } catch (e) {
+      console.error('[Login] Error:', e);
       setError('Terjadi kesalahan server.');
     }
   };
@@ -81,7 +84,7 @@ export default function LoginPage() {
     }
 
     try {
-      const res = await fetch(`${BASE_API}/api/auth/register`, {
+      const res = await window.electron.fetch(`${BASE_API}/api/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -91,9 +94,10 @@ export default function LoginPage() {
           metadata_url: metadataUrl.trim() || null
         })
       });
-      const data = await res.json();
       
-      if (!data.ok) {
+      const data = JSON.parse(res.body);
+      
+      if (!res.ok || !data.ok) {
         setError(data.error || 'Registrasi gagal');
         return;
       }
@@ -103,6 +107,7 @@ export default function LoginPage() {
       setLoginMode('account');
       setPassword('');
     } catch (e) {
+      console.error('[Register] Error:', e);
       setError('Terjadi kesalahan server saat registrasi.');
     }
   };

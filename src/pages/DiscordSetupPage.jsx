@@ -15,7 +15,7 @@ const PERM_MANAGE_WEBHOOKS = 0x20n;
 const PERM_ADMINISTRATOR   = 0x8n;
 
 async function discordFetch(path, token, options = {}) {
-  const res = await fetch(`${DISCORD_API}${path}`, {
+  const res = await window.electron.fetch(`${DISCORD_API}${path}`, {
     ...options,
     headers: {
       'Authorization': `Bearer ${token}`,
@@ -24,7 +24,7 @@ async function discordFetch(path, token, options = {}) {
     },
   });
   
-  const data = await res.json();
+  const data = JSON.parse(res.body);
   if (!res.ok) {
     if (res.status === 401) {
       console.error('[discord] 401 Unauthorized for path:', path);
@@ -91,9 +91,9 @@ export default function DiscordSetupPage({ onBack }) {
 
         window._dbx_exchanging_code = true;
         try {
-          const cbRes  = await fetch(`${BASE_API}/api/discord/callback?code=${encodeURIComponent(code)}`);
-          const cbData = await cbRes.json();
-          if (!cbData.ok) throw new Error(cbData.error || 'Autentikasi Discord gagal.');
+          const cbRes  = await window.electron.fetch(`${BASE_API}/api/discord/callback?code=${encodeURIComponent(code)}`);
+          const cbData = JSON.parse(cbRes.body);
+          if (!cbRes.ok || !cbData.ok) throw new Error(cbData.error || 'Autentikasi Discord gagal.');
 
           accessToken = cbData.access_token;
           sessionStorage.setItem('dbx_oauth_token', accessToken);
@@ -121,10 +121,10 @@ export default function DiscordSetupPage({ onBack }) {
             if (cbData.webhook.channel_id) {
               try {
                 console.log('[setup] Attempting to discover existing metadata in channel:', cbData.webhook.channel_id);
-                const discRes = await fetch(`${BASE_API}/api/discord/discover?channel_id=${cbData.webhook.channel_id}&access_token=${accessToken}`);
-                const discData = await discRes.json();
+                const discRes = await window.electron.fetch(`${BASE_API}/api/discord/discover?channel_id=${cbData.webhook.channel_id}&access_token=${accessToken}`);
+                const discData = JSON.parse(discRes.body);
                 
-                if (discData.ok && discData.found) {
+                if (discRes.ok && discData.found) {
                   console.log('[setup] Discovery SUCCESS:', discData.filename, discData.metadata_url);
                   connectOptions.metadataUrl = discData.metadata_url;
                 } else {
@@ -143,7 +143,7 @@ export default function DiscordSetupPage({ onBack }) {
 
               // ─── CLOUD SYNC: Simpan config awal ke KV ───
               if (cbData.user_id || cbData.username) {
-                fetch(`${BASE_API}/api/cloud/sync`, {
+                window.electron.fetch(`${BASE_API}/api/cloud/sync`, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({

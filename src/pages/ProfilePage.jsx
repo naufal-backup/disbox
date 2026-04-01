@@ -19,7 +19,7 @@ export default function ProfilePage() {
     try {
       const currentId = api?.lastSyncedId || localStorage.getItem("dbx_last_sync_" + api?.hashedWebhook);
       
-      const res = await fetch(`${BASE_API}/api/auth/register`, {
+      const res = await window.electron.fetch(`${BASE_API}/api/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -29,8 +29,10 @@ export default function ProfilePage() {
           last_msg_id: currentId
         })
       });
-      const data = await res.json();
-      if (data.ok) {
+      
+      const data = JSON.parse(res.body);
+      
+      if (res.ok && data.ok) {
         setStatus({ type: 'success', msg: 'Akun terdaftar!' });
         localStorage.setItem('dbx_username', username.trim().toLowerCase());
         
@@ -40,9 +42,10 @@ export default function ProfilePage() {
           await api.uploadMetadataToDiscord(files);
         }
       } else {
-        setStatus({ type: 'error', msg: data.error });
+        setStatus({ type: 'error', msg: data.error || 'Gagal mendaftar.' });
       }
     } catch (e) {
+      console.error('[Profile] Register error:', e);
       setStatus({ type: 'error', msg: 'Gagal menghubungi server.' });
     } finally { setBusy(false); }
   };
@@ -51,7 +54,7 @@ export default function ProfilePage() {
     e.preventDefault();
     setBusy(true); setStatus(null);
     try {
-      const res = await fetch(`${BASE_API}/api/auth/update`, {
+      const res = await window.electron.fetch(`${BASE_API}/api/auth/update`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -60,15 +63,18 @@ export default function ProfilePage() {
           new_password: password || null
         })
       });
-      const data = await res.json();
-      if (data.ok) {
+      
+      const data = JSON.parse(res.body);
+      
+      if (res.ok && data.ok) {
         setStatus({ type: 'success', msg: 'Akun berhasil diperbarui!' });
         localStorage.setItem('dbx_username', data.username);
         setTimeout(() => { setIsEditing(false); setStatus(null); }, 2000);
       } else {
-        setStatus({ type: 'error', msg: data.error });
+        setStatus({ type: 'error', msg: data.error || 'Gagal memperbarui profil.' });
       }
     } catch (e) {
+      console.error('[Profile] Update error:', e);
       setStatus({ type: 'error', msg: 'Gagal menghubungi server.' });
     } finally { setBusy(false); }
   };
