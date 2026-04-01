@@ -136,21 +136,24 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
         starredFolders.add(folderPath);
       }
       const matchesSearch = !q || name.toLowerCase().includes(q);
-      let shouldIncludeFile = false;
-      if (isStarredView) {
-        if (item.isStarred && !item.isLocked && name !== '.keep') shouldIncludeFile = true;
+      let includeBasedOnView = false;
+      if (isLockedView) {
+        includeBasedOnView = item.isLocked;
+      } else if (isStarredView) {
+        includeBasedOnView = item.isStarred;
       } else if (isRecentView) {
         const isRecent = (Date.now() - (item.createdAt || 0)) < (7 * 24 * 60 * 60 * 1000);
-        if (isRecent && !item.isLocked && name !== '.keep') shouldIncludeFile = true;
-      } else if (isLockedView) {
-        if (item.isLocked && name !== '.keep') shouldIncludeFile = true;
+        includeBasedOnView = isRecent;
       } else {
-        if (!item.isLocked && name !== '.keep') shouldIncludeFile = true;
+        includeBasedOnView = !item.isLocked;
       }
-      if (shouldIncludeFile && matchesSearch) {
+
+      if (includeBasedOnView && matchesSearch && name !== '.keep') {
         const fileDirStr = parts.slice(0, -1).join('/');
         const isDirectChild = fileDirStr === dirPath;
-        if (q || isDirectChild || isStarredView || isRecentView) fileList.push(item);
+        if (q || isStarredView || isRecentView || isLockedView || isDirectChild) {
+          fileList.push(item);
+        }
       }
       let currentAcc = '';
       for (let i = 0; i < parts.length - 1; i++) {
@@ -161,15 +164,20 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
         const l = locks.get(currentAcc);
         const folderIsLocked = l && l.count > 0 && l.lockedCount === l.count;
         const folderIsStarred = starredFolders.has(currentAcc);
-        let shouldIncludeDir = false;
-        if (isStarredView) { if (folderIsStarred) shouldIncludeDir = true; }
-        else if (isRecentView) { shouldIncludeDir = false; }
-        else if (isLockedView) { if (folderIsLocked) shouldIncludeDir = true; }
-        else { if (!folderIsLocked) shouldIncludeDir = true; }
-        if (shouldIncludeDir) {
-          if (q) { if (dirName.toLowerCase().includes(q)) dirsMap.set(currentAcc, dirName); }
-          else if (isStarredView) dirsMap.set(currentAcc, dirName);
-          else if (isChildOfCurrent) dirsMap.set(currentAcc, dirName);
+        
+        let includeDirBasedOnView = false;
+        if (isLockedView) {
+          includeDirBasedOnView = folderIsLocked;
+        } else if (isStarredView) {
+          includeDirBasedOnView = folderIsStarred;
+        } else if (isRecentView) {
+          includeDirBasedOnView = false;
+        } else {
+          includeDirBasedOnView = !folderIsLocked;
+        }
+
+        if (includeDirBasedOnView && (q ? dirName.toLowerCase().includes(q) : (isStarredView || isLockedView || isChildOfCurrent))) {
+          dirsMap.set(currentAcc, dirName);
         }
       }
     });
