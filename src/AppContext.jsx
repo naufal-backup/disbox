@@ -374,16 +374,22 @@ export function AppProvider({ children }) {  // ─── 1. States & Refs ─�
       const target = files.find(f => f.id === id);
       if (target) {
         await window.electron.setLocked(id, hash, isLocked);
+        // Optimistic UI update
+        setFiles(prev => prev.map(f => f.id === id ? { ...f, isLocked } : f));
       } else {
         const folderPath = id;
         const affectedFiles = files.filter(f => f.path === folderPath || f.path.startsWith(folderPath + '/'));
         for (const f of affectedFiles) {
           await window.electron.setLocked(f.id, hash, isLocked);
         }
+        // Optimistic UI update for all affected files
+        setFiles(prev => prev.map(f =>
+          (f.path === folderPath || f.path.startsWith(folderPath + '/')) ? { ...f, isLocked } : f
+        ));
       }
-      await refresh(); return true;
+      return true;
     } catch (e) { console.error('Set locked failed:', e); return false; }
-  }, [api, files, refresh]);
+  }, [api, files, setFiles]);
 
   const setStarred = useCallback(async (id, isStarred) => {
     if (!api) return false;
@@ -392,13 +398,19 @@ export function AppProvider({ children }) {  // ─── 1. States & Refs ─�
       const target = files.find(f => f.id === id);
       if (target) {
         await window.electron.setStarred(id, hash, isStarred);
+        // Optimistic UI update
+        setFiles(prev => prev.map(f => f.id === id ? { ...f, isStarred } : f));
       } else {
         const keepFile = files.find(f => f.path === (id ? `${id}/.keep` : '.keep'));
-        if (keepFile) await window.electron.setStarred(keepFile.id, hash, isStarred);
+        if (keepFile) {
+          await window.electron.setStarred(keepFile.id, hash, isStarred);
+          // Update the .keep file's starred status
+          setFiles(prev => prev.map(f => f.id === keepFile.id ? { ...f, isStarred } : f));
+        }
       }
-      await refresh(); return true;
+      return true;
     } catch (e) { console.error('Set starred failed:', e); return false; }
-  }, [api, files, refresh]);
+  }, [api, files, setFiles]);
 
   const verifyPin = useCallback(async (pin) => {
     if (!api) return false;
