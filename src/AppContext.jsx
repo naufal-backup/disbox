@@ -481,11 +481,8 @@ export function AppProvider({ children }) {  // ─── 1. States & Refs ─�
     });
   }, []);
 
-  useEffect(() => {
-    if (!isConnected || !api) return;
-    const interval = setInterval(() => { refresh(true); }, 5000);
-    return () => clearInterval(interval);
-  }, [isConnected, api, refresh]);
+  // Removed automatic polling interval - sync now only happens on manual refresh
+  // or when triggered by onMetadataChange event from Electron main process
 
   useEffect(() => {
     if (!api || !webhookUrl) return;
@@ -494,7 +491,11 @@ export function AppProvider({ children }) {  // ─── 1. States & Refs ─�
 
   useEffect(() => {
     if (!window.electron?.onMetadataChange || !api) return;
-    const cleanup = window.electron.onMetadataChange((hash) => { if (api.hashedWebhook === hash) refresh(); });
+    const cleanup = window.electron.onMetadataChange((hash) => {
+      if (api.hashedWebhook === hash) {
+        refresh();
+      }
+    });
     return cleanup;
   }, [api, refresh]);
 
