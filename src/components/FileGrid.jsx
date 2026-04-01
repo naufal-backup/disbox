@@ -689,6 +689,7 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
                 <button onClick={() => { setMoveModal({ id: isFolder ? null : fileId, path: itemPath, mode: 'move' }); setContextMenu(null); }}><Move size={13} /> {t('move')}</button>
                 <button onClick={() => { setMoveModal({ id: isFolder ? null : fileId, path: itemPath, mode: 'copy' }); setContextMenu(null); }}><Copy size={13} /> {t('copy')}</button>
                 <button onClick={() => startRename(itemPath, isFolder, isFolder ? null : fileId)}><Edit3 size={13} /> {t('rename')}</button>
+                {shareEnabled && !isFolder && (<button onClick={() => { setShareDialog({ path: itemPath, file: contextMenu.file }); setContextMenu(null); }}><Link2 size={13} /> Share</button>)}
                 <button onClick={() => handleToggleLock(itemPath, fileId, !liveIsLocked)}>{liveIsLocked ? <Unlock size={13} /> : <Lock size={13} />} {liveIsLocked ? t('unlock') : t('lock')}</button>
                 <button onClick={() => handleToggleStar(itemPath, fileId, !liveIsStarred)}>{liveIsStarred ? <Star size={13} fill="currentColor" /> : <Star size={13} />} {liveIsStarred ? t('unstar') : t('star')}</button>
                 <div className={styles.contextDivider} />

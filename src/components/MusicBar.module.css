@@ -11,7 +11,7 @@
   color: var(--text-primary);
   z-index: 900;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 -1px 0 rgba(255,255,255,0.04), 0 -8px 32px rgba(0,0,0,0.5);
+  box-shadow: 0 -1px 0 rgba(255,255,255,0.04), 0 -8px 24px -8px rgba(0,0,0,0.6);
 }
 
 @media (min-width: 769px) {
