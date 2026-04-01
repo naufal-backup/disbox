@@ -37,7 +37,7 @@ export function AppProvider({ children }) {
 
       // 2. Sync background untuk memastikan data terbaru dari server
       const updated = await api.syncMetadata({ force: silent ? false : true });
-      if (updated || !fsLocal) {
+      if (updated || !fsLocal || (files.files && files.files.length === 0)) {
         const fsSync = await api.getFileSystem();
         setFilesRef.current?.(fsSync);
         setFileTreeRef.current?.(buildTree(fsSync));

@@ -128,25 +128,18 @@ export class DisboxAPI {
       const res = await ipc.fetch(`${BASE_API}/api/files/list?identifier=${identifier}`);
       const result = JSON.parse(res.body);
 
-      if (res.ok && result.files) {
-        if (result.files.length > 0) {
-          console.log(`[sync] ✓ Loaded ${result.files.length} items from database.`);
-          await ipc.saveMetadata(this.hashedWebhook, result.files);
-          
-          if (this._pendingSyncInfo) {
-            localStorage.setItem(`dbx_sync_${this.hashedWebhook}`, this._pendingSyncInfo);
-            this._pendingSyncInfo = null;
-          }
-          return true;
-        } else if (result.files.length === 0 && !forceId && !metadataUrl) {
-           // Empty but successful
-           await ipc.saveMetadata(this.hashedWebhook, []);
-           if (this._pendingSyncInfo) {
-             localStorage.setItem(`dbx_sync_${this.hashedWebhook}`, this._pendingSyncInfo);
-             this._pendingSyncInfo = null;
-           }
-           return true;
+      if (res.ok && result.files && result.files.length > 0) {
+        console.log(`[sync] ✓ Loaded ${result.files.length} items from database.`);
+        await ipc.saveMetadata(this.hashedWebhook, result.files);
+        
+        if (this._pendingSyncInfo) {
+          localStorage.setItem(`dbx_sync_${this.hashedWebhook}`, this._pendingSyncInfo);
+          this._pendingSyncInfo = null;
+        } else {
+          // If forced or no check happened, at least we know what we have
+          // (Though check is better for accurate timestamp)
         }
+        return true;
       }
 
       let legacyData = null;
@@ -173,6 +166,17 @@ export class DisboxAPI {
         await ipc.saveMetadata(this.hashedWebhook, files);
         return true;
       }
+
+      // Final fallback: if no server files and no legacy data found, it truly is empty
+      if (res.ok && result.files && result.files.length === 0 && !forceId && !metadataUrl) {
+         await ipc.saveMetadata(this.hashedWebhook, []);
+         if (this._pendingSyncInfo) {
+           localStorage.setItem(`dbx_sync_${this.hashedWebhook}`, this._pendingSyncInfo);
+           this._pendingSyncInfo = null;
+         }
+         return true;
+      }
+
       return false;
     } finally { this._syncing = false; }
   }
