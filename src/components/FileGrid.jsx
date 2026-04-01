@@ -151,7 +151,21 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
       if (includeBasedOnView && matchesSearch && name !== '.keep') {
         const fileDirStr = parts.slice(0, -1).join('/');
         const isDirectChild = fileDirStr === dirPath;
-        if (q || isStarredView || isRecentView || isLockedView || isDirectChild) {
+        
+        let shouldHideBecauseParentLocked = false;
+        if (isLockedView) {
+          let parentAcc = '';
+          for (let i = 0; i < parts.length - 1; i++) {
+            parentAcc = parentAcc ? `${parentAcc}/${parts[i]}` : parts[i];
+            const pl = locks.get(parentAcc);
+            if (pl && pl.count > 0 && pl.lockedCount === pl.count) {
+              shouldHideBecauseParentLocked = true;
+              break;
+            }
+          }
+        }
+
+        if (!shouldHideBecauseParentLocked && (q || isStarredView || isRecentView || isLockedView || isDirectChild)) {
           fileList.push(item);
         }
       }
@@ -176,7 +190,21 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
           includeDirBasedOnView = !folderIsLocked;
         }
 
-        if (includeDirBasedOnView && (q ? dirName.toLowerCase().includes(q) : (isStarredView || isLockedView || isChildOfCurrent))) {
+        let shouldHideDirBecauseParentLocked = false;
+        if (isLockedView && includeDirBasedOnView) {
+          let pAcc = '';
+          const dirParts = currentAcc.split('/');
+          for (let j = 0; j < dirParts.length - 1; j++) {
+            pAcc = pAcc ? `${pAcc}/${dirParts[j]}` : dirParts[j];
+            const pl = locks.get(pAcc);
+            if (pl && pl.count > 0 && pl.lockedCount === pl.count) {
+              shouldHideDirBecauseParentLocked = true;
+              break;
+            }
+          }
+        }
+
+        if (includeDirBasedOnView && !shouldHideDirBecauseParentLocked && (q ? dirName.toLowerCase().includes(q) : (isStarredView || isLockedView || isChildOfCurrent))) {
           dirsMap.set(currentAcc, dirName);
         }
       }
