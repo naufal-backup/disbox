@@ -418,7 +418,6 @@ export function AppProvider({ children }) {  // ─── 1. States & Refs ─�
       return false;
     }
   }, [api, files]);
-  }, [api]);
 
   const verifyPin = useCallback(async (pin) => {
     if (!api) return false;
