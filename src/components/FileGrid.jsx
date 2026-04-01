@@ -515,7 +515,7 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
                     </div>
                     <div className={styles.cardPreview}><div className={styles.cardPreviewInner}><Folder size={72} style={{ color: 'var(--amber)' }} strokeWidth={1.5} /></div></div>
                     <div className={styles.cardFooter}>{_pending?.type === 'upload' ? (<div className={styles.ghostProgressBar}><div className={styles.ghostProgressFill} style={{ width: `${(_pending.progress * 100).toFixed(0)}%` }} /></div>) : (<div className={styles.cardFooterText}>Folder • {formatSize(folderSize)}</div>)}</div>
-                  </div>
+                  </motion.div>
                 );
               })}
               {processedFiles.map((file) => {
@@ -552,7 +552,7 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
                     </div>
                     <div className={styles.cardPreview}><div className={styles.cardPreviewInner}><FileThumbnail file={file} size={48} /></div></div>
                     <div className={styles.cardFooter}>{_pending?.type === 'upload' ? (<div className={styles.ghostProgressBar}><div className={styles.ghostProgressFill} style={{ width: `${(_pending.progress * 100).toFixed(0)}%` }} /></div>) : (<div className={styles.cardFooterText}>{formatItemDate(file.createdAt)} • {formatSize(file.size || 0)}</div>)}</div>
-                  </div>
+                  </motion.div>
                 );
               })}
             </motion.div>
