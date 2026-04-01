@@ -267,6 +267,46 @@ export const webElectronShim = {
     document.cookie = `dbx_active_hash=${hash}; path=/; SameSite=Lax`;
   },
 
+  setLocked: async (id, hash, isLocked) => {
+    try {
+      const db = await getDB();
+      const meta = await new Promise((resolve) => {
+        const tx = db.transaction(STORE_NAME, 'readonly');
+        const req = tx.objectStore(STORE_NAME).get(hash);
+        req.onsuccess = () => resolve(req.result || []);
+        req.onerror = () => resolve([]);
+      });
+      const updated = meta.map(f => f.id === id ? { ...f, isLocked } : f);
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_NAME, 'readwrite');
+        const req = tx.objectStore(STORE_NAME).put(updated, hash);
+        req.onsuccess = () => resolve();
+        req.onerror = () => reject(req.error);
+      });
+      return true;
+    } catch (e) { console.error('[web-shim] setLocked failed:', e.message); return false; }
+  },
+
+  setStarred: async (id, hash, isStarred) => {
+    try {
+      const db = await getDB();
+      const meta = await new Promise((resolve) => {
+        const tx = db.transaction(STORE_NAME, 'readonly');
+        const req = tx.objectStore(STORE_NAME).get(hash);
+        req.onsuccess = () => resolve(req.result || []);
+        req.onerror = () => resolve([]);
+      });
+      const updated = meta.map(f => f.id === id ? { ...f, isStarred } : f);
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_NAME, 'readwrite');
+        const req = tx.objectStore(STORE_NAME).put(updated, hash);
+        req.onsuccess = () => resolve();
+        req.onerror = () => reject(req.error);
+      });
+      return true;
+    } catch (e) { console.error('[web-shim] setStarred failed:', e.message); return false; }
+  },
+
   setPin: async (hash, pin) => {
     const data       = new TextEncoder().encode(pin);
     const hashBuffer = await crypto.subtle.digest('SHA-256', data);
