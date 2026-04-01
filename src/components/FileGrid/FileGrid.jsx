@@ -5,6 +5,7 @@ import styles from './FileGrid.module.css';
 import { CreateFolderModal, MoveModal, ConfirmModal } from '@/components/FolderModal/FolderModal.jsx';
 import ShareDialog from '@/components/ShareDialog/ShareDialog.jsx';
 import FilePreview from '@/components/FilePreview/FilePreview.jsx';
+import FileThumbnail from './Thumbnail.jsx';
 import PinPromptModal from './PinPrompt.jsx';
 import ContextMenu from './ContextMenu.jsx';
 import GridItem from './GridItem.jsx';

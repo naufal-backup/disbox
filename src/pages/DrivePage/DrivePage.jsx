@@ -13,7 +13,11 @@ import LockedGateway from './LockedGateway.jsx';
 import SettingsPanel from './SettingsPanel.jsx';
 
 export default function DrivePage({ activePage, onNavigate }) {
-  const { isVerified, setIsVerified, setCurrentPath, t, animationsEnabled, isSidebarOpen, setIsSidebarOpen } = useApp();
+  const { 
+    isVerified, setIsVerified, setCurrentPath, t, 
+    animationsEnabled, isSidebarOpen, setIsSidebarOpen,
+    currentTrack
+  } = useApp();
 
   const handleNavigate = (page) => {
     if (page !== activePage) setCurrentPath('/');
@@ -43,7 +47,7 @@ export default function DrivePage({ activePage, onNavigate }) {
 
       <Sidebar activePage={activePage} onNavigate={handleNavigate} />
 
-      <main className={styles.main}>
+      <main className={`${styles.main} ${currentTrack ? styles.hasMusicBar : ''}`}>
         <header className={styles.mobileHeader}>
           <button className={styles.menuBtn} onClick={() => setIsSidebarOpen(true)}>
             <Menu size={20} />

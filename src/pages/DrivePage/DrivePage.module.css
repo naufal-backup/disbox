@@ -13,6 +13,10 @@
   background: var(--bg-base);
 }
 
+.hasMusicBar {
+  padding-bottom: 72px;
+}
+
 .mobileHeader {
   display: none;
   height: 56px;
