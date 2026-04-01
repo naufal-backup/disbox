@@ -377,22 +377,23 @@ export function AppProvider({ children }) {  // ─── 1. States & Refs ─�
   const setLocked = useCallback(async (id, isLocked) => {
     if (!api) return false;
     const oldFiles = [...files];
-    // Optimistic update
-    setFiles(prev => prev.map(f => {
+    const updatedFiles = files.map(f => {
       if (f.id === id || f.path === id) return { ...f, isLocked };
       if (typeof id === 'string' && f.path.startsWith(id + '/')) return { ...f, isLocked };
       return f;
-    }));
+    });
+
+    // Instant update
+    setFiles(updatedFiles);
+    setFileTree(buildTree(updatedFiles));
 
     try {
       await api.setLocked(id, isLocked);
-      const fs = await api.getFileSystem();
-      setFiles(fs);
-      setFileTree(buildTree(fs));
       return true;
     } catch (e) {
       console.error('Failed to set lock:', e);
       setFiles(oldFiles);
+      setFileTree(buildTree(oldFiles));
       return false;
     }
   }, [api, files]);
@@ -400,21 +401,22 @@ export function AppProvider({ children }) {  // ─── 1. States & Refs ─�
   const setStarred = useCallback(async (id, isStarred) => {
     if (!api) return false;
     const oldFiles = [...files];
-    // Optimistic update
-    setFiles(prev => prev.map(f => {
+    const updatedFiles = files.map(f => {
       if (f.id === id || f.path === id) return { ...f, isStarred };
       return f;
-    }));
+    });
+
+    // Instant update
+    setFiles(updatedFiles);
+    setFileTree(buildTree(updatedFiles));
 
     try {
       await api.setStarred(id, isStarred);
-      const fs = await api.getFileSystem();
-      setFiles(fs);
-      setFileTree(buildTree(fs));
       return true;
     } catch (e) {
       console.error('Failed to set starred:', e);
       setFiles(oldFiles);
+      setFileTree(buildTree(oldFiles));
       return false;
     }
   }, [api, files]);
