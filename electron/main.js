@@ -1918,8 +1918,8 @@ ipcMain.handle('save-metadata', async (_, hash, data, msgId = null) => {
                          f.size || 0,
                          f.createdAt || Date.now(),
                          JSON.stringify(f.messageIds || []),
-                         f.isLocked ? 1 : 0,
-                         f.isStarred ? 1 : 0
+                         !!f.isLocked ? 1 : 0,
+                         !!f.isStarred ? 1 : 0
           );
         }
 
@@ -1996,8 +1996,8 @@ ipcMain.handle('save-metadata', async (_, hash, data, msgId = null) => {
             f.size || 0,
             f.createdAt || Date.now(),
                          JSON.stringify(f.messageIds || []),
-                         f.isLocked ? 1 : 0,
-                         f.isStarred ? 1 : 0
+                         !!f.isLocked ? 1 : 0,
+                         !!f.isStarred ? 1 : 0
           );
         }
 

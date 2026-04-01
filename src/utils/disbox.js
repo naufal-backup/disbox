@@ -135,7 +135,13 @@ export class DisboxAPI {
       }
 
       if (legacyData) {
-        const files = Array.isArray(legacyData) ? legacyData : (legacyData.files || []);
+        const rawFiles = Array.isArray(legacyData) ? legacyData : (legacyData.files || []);
+        const files = rawFiles.map(f => ({
+          ...f,
+          isLocked: !!f.isLocked,
+          isStarred: !!f.isStarred
+        }));
+
         console.log(`[sync] ✓ Migrating ${files.length} items to Supabase Files table...`);
         await fetch(`${BASE_API}/api/files/sync-all`, {
           method: 'POST',
@@ -193,11 +199,19 @@ export class DisboxAPI {
   async persistCloud(files) {
     const username = localStorage.getItem('dbx_username');
     const identifier = username || this.hashedWebhook;
+    
+    // Normalize properties to booleans for JSONB storage
+    const normalizedFiles = files.map(f => ({
+      ...f,
+      isLocked: !!f.isLocked,
+      isStarred: !!f.isStarred
+    }));
+
     return fetch(`${BASE_API}/api/files/sync-all`, {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ identifier, files })
+      body: JSON.stringify({ identifier, files: normalizedFiles })
     }).catch(console.error);
   }
 
