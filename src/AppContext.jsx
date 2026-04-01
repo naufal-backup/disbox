@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'react-hot-toast';
 import { DisboxAPI, buildTree } from './utils/disbox.js';
 import { translations } from './utils/i18n.js';
@@ -9,13 +10,18 @@ import {
 } from './utils/webhookHelpers.js';
 
 export function AppProvider({ children }) {
+  const queryClient = useQueryClient();
+
   // ─── 1. States & Refs ──────────────────────────────────────────────────────
   const [api, setApi] = useState(null);
   const [webhookUrl, setWebhookUrl] = useState(() => localStorage.getItem('disbox_webhook') || '');
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
+  
+  // Local state for optimistic UI and immediate display
   const [files, setFiles] = useState([]);
   const [fileTree, setFileTree] = useState(null);
+  
   const [currentPath, setCurrentPath] = useState('/');
   const [loading, setLoading] = useState(false);
   const [transfers, setTransfers] = useState([]);
@@ -66,6 +72,37 @@ export function AppProvider({ children }) {
   const mutationQueueRef = useRef(Promise.resolve());
   const isMutatingRef = useRef(false);
 
+  // ─── 2. React Query Configuration ──────────────────────────────────────────
+  const { data: serverContainer, isLoading: isQueryLoading } = useQuery({
+    queryKey: ['files', api?.hashedWebhook],
+    queryFn: async () => {
+      if (!api) return null;
+      console.log('[query] Fetching metadata from cloud...');
+      return await api.syncMetadata({ force: true });
+    },
+    enabled: !!api && isConnected,
+    refetchInterval: (query) => {
+      // Pause polling if mutating or just mutated
+      if (isMutatingRef.current || Date.now() - lastMutationRef.current < 8000) return false;
+      return 10000; // Poll every 10 seconds
+    },
+  });
+
+  // Sync server data to local state when query returns
+  useEffect(() => {
+    if (serverContainer && !isMutatingRef.current && Date.now() - lastMutationRef.current > 2000) {
+      const fs = serverContainer.files || [];
+      setFiles(fs);
+      setFileTree(buildTree(fs));
+      if (serverContainer.pinHash) {
+        setPinHash(serverContainer.pinHash);
+        setPinExists(true);
+      }
+      if (serverContainer.shareLinks) setShareLinks(serverContainer.shareLinks);
+      setMetadataStatus({ status: 'synced', items: fs.length });
+    }
+  }, [serverContainer]);
+
   const hashPin = async (pin) => {
     const encoder = new TextEncoder();
     const data = encoder.encode(pin + 'disbox_salt');
@@ -87,7 +124,7 @@ export function AppProvider({ children }) {
     return mutationQueueRef.current;
   };
 
-  // ─── 2. Leaf Callbacks (No dependencies on other callbacks) ────────────────
+  // ─── 3. Leaf Callbacks (No dependencies on other callbacks) ────────────────
   const t = useCallback((key, params = null) => {
     let text = translations[language]?.[key] || translations['en']?.[key] || key;
     if (params) { Object.keys(params).forEach(k => { text = text.replace(`{${k}}`, params[k]); }); }
@@ -151,35 +188,17 @@ export function AppProvider({ children }) {
     if (window.electron?.setPrefs) window.electron.setPrefs(prefs);
   }, []);
 
-  // ─── 3. Intermediate Callbacks (Depend on leaf callbacks) ───────────────────
+  // ─── 4. Intermediate Callbacks (Depend on leaf callbacks) ───────────────────
   const refresh = useCallback(async (silent = false) => {
     if (!api) return;
-    // Agresif: Jangan refresh jika sedang ada mutasi atau baru saja ada mutasi
-    if (silent && (isMutatingRef.current || Date.now() - lastMutationRef.current < 8000)) return;
-    
-    if (!silent) setLoading(true);
-    try {
-      const container = await api.syncMetadata({ force: true });
-      const fsSync = container?.files || await api.getFileSystem();
-      
-      // Jika silent, pastikan tidak menimpa data yang sedang dimutasi
-      if (silent && (isMutatingRef.current || Date.now() - lastMutationRef.current < 8000)) return;
-
-      if (container?.pinHash) {
-        setPinHash(container.pinHash);
-        setPinExists(true);
-      }
-      if (container?.shareLinks) setShareLinks(container.shareLinks);
-
-      setFiles(fsSync);
-      setFileTree(buildTree(fsSync));
-      setMetadataStatus({ status: 'synced', items: fsSync.length });
-    } catch (e) {
-      console.error('Refresh failed:', e);
-    } finally {
-      if (!silent) setLoading(false);
+    if (!silent) {
+      setLoading(true);
+      await queryClient.invalidateQueries({ queryKey: ['files', api.hashedWebhook] });
+      setLoading(false);
+    } else {
+      queryClient.refetchQueries({ queryKey: ['files', api.hashedWebhook] });
     }
-  }, [api]);
+  }, [api, queryClient]);
 
   const loadShareLinks = useCallback(async () => {
     if (!api) return;
@@ -212,7 +231,7 @@ export function AppProvider({ children }) {
     return await window.electron.shareDeployWorker({ apiToken });
   }, []);
 
-  // ─── 4. High-level Callbacks (Business logic) ───────────────────────────────
+  // ─── 5. High-level Callbacks (Business logic) ───────────────────────────────
   const connect = useCallback(async (url, options = {}) => {
     setIsConnecting(true);
     setLoading(true);
@@ -245,16 +264,18 @@ export function AppProvider({ children }) {
       }
       
       await instance.init(options);
-      const container = await instance.syncMetadata(options);
-      const fs = container?.files || [];
-      if (container?.pinHash) {
-        setPinHash(container.pinHash);
-        setPinExists(true);
-      } else {
-        setPinHash(null);
-        setPinExists(false);
+      
+      // Load initial local data for desktop
+      if (window.electron) {
+        const fsLocal = await window.electron.loadMetadata(instance.hashedWebhook);
+        if (fsLocal) {
+          setFiles(fsLocal);
+          setFileTree(buildTree(fsLocal));
+        }
       }
-      if (container?.shareLinks) setShareLinks(container.shareLinks);
+
+      setApi(instance);
+      setIsConnected(true);
 
       const normalizedUrl = instance.webhookUrl;
       localStorage.setItem('disbox_webhook', normalizedUrl);
@@ -265,42 +286,17 @@ export function AppProvider({ children }) {
       }
 
       window.electron?.setActiveWebhook(normalizedUrl, instance.hashedWebhook);
-
       setWebhookUrl(normalizedUrl);
-      setApi(instance);
-      setFiles(fs);
-      setFileTree(buildTree(fs));
-      setIsConnected(true);
 
+      // Handle share settings
       try {
         const shareSettings = await window.electron.shareGetSettings(instance.hashedWebhook);
         if (shareSettings) {
           setShareEnabled(!!shareSettings.enabled);
           setShareMode(shareSettings.mode || 'public');
           setCfWorkerUrl(shareSettings.cf_worker_url || '');
-          
-          await window.electron.shareSaveSettings(instance.hashedWebhook, {
-            enabled: shareSettings.enabled,
-            mode: shareSettings.mode || 'public',
-            cf_worker_url: shareSettings.cf_worker_url || '',
-            webhook_url: normalizedUrl
-          });
-        } else {
-          await window.electron.shareSaveSettings(instance.hashedWebhook, {
-            enabled: 1,
-            mode: 'public',
-            cf_worker_url: '',
-            webhook_url: normalizedUrl
-          });
-          setShareEnabled(true);
-          setShareMode('public');
-          setCfWorkerUrl('');
         }
-        const links = await window.electron.shareGetLinks(instance.hashedWebhook);
-        setShareLinks(links || []);
-      } catch (e) {
-        console.warn('[share] Failed to load share settings:', e.message);
-      }
+      } catch (e) { console.warn('[share] Failed to load share settings:', e.message); }
 
       return { ok: true, instance };
     } catch (e) {
@@ -329,7 +325,8 @@ export function AppProvider({ children }) {
     setCurrentPath('/');
     setTransfers([]);
     setShareLinks([]);
-  }, []);
+    queryClient.clear();
+  }, [queryClient]);
 
   const createFolder = useCallback(async (folderName) => {
     if (!api || !folderName.trim()) return false;
@@ -581,14 +578,8 @@ export function AppProvider({ children }) {
     return abortControllersRef.current.get(id)?.signal ?? null;
   }, []);
 
-  // ─── 5. Effects ─────────────────────────────────────────────────────────────
+  // ─── 6. Effects ─────────────────────────────────────────────────────────────
   useEffect(() => { localStorage.setItem('disbox_animations_enabled', animationsEnabled.toString()); }, [animationsEnabled]);
-
-  useEffect(() => {
-    if (!isConnected || !api) return;
-    const interval = setInterval(() => { refresh(true); }, 5000);
-    return () => clearInterval(interval);
-  }, [isConnected, api, refresh]);
 
   useEffect(() => { document.documentElement.setAttribute('data-theme', theme); localStorage.setItem('disbox_theme', theme); }, [theme]);
   useEffect(() => { localStorage.setItem('disbox_lang', language); }, [language]);
@@ -610,7 +601,7 @@ export function AppProvider({ children }) {
       currentPath, setCurrentPath,
       currentTrack, setCurrentTrack,
       playlist, setPlaylist,
-      loading, transfers, savedWebhooks,
+      loading: loading || isQueryLoading, transfers, savedWebhooks,
       language, setLanguage, t,
       theme, toggleTheme, setTheme,
       uiScale, setUiScale,

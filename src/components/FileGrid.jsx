@@ -305,27 +305,23 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
 
   const handleToggleStar = async (itemPath, id, isStarred) => {
     const ok = await setStarred(id || itemPath, isStarred);
-    if (ok) { toast.success(isStarred ? 'Ditambahkan ke Starred' : 'Dihapus dari Starred'); }
+    if (ok) { toast.success(isStarred ? t('starred') : t('unstarred')); }
     else toast.error('Gagal mengubah status star');
   };
 
   const handleDelete = async (targetPath, id = null) => {
     const name = targetPath.split('/').pop();
     setConfirmAction({
-      title: 'Hapus Item',
-      message: `Apakah Anda yakin ingin menghapus "${name}"? Semua isi di dalamnya akan ikut terhapus.`,
+      title: t('confirm_delete'),
+      message: t('confirm_delete_msg', { name }),
       danger: true,
       onConfirm: async () => {
         setConfirmAction(null);
         try {
-          const foldersToMark = [];
-          files.forEach(f => { if (f.path.startsWith(targetPath + '/')) foldersToMark.push(f.path); });
-          [targetPath, ...foldersToMark].forEach(p => addPendingItem(p, null, 'delete'));
           await deletePath(targetPath, id);
           setContextMenu(null);
           toast.success('Dihapus');
         } catch (e) { toast.error('Gagal hapus: ' + e.message); }
-        finally { unmarkPending(targetPath); }
       }
     });
   };
@@ -335,18 +331,16 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
   const handleBulkDelete = async () => {
     if (selectedFiles.size === 0) return;
     setConfirmAction({
-      title: 'Hapus Beberapa Item',
-      message: `Apakah Anda yakin ingin menghapus ${selectedFiles.size} item terpilih?`,
+      title: t('confirm_delete'),
+      message: t('confirm_delete_msg', { name: `${selectedFiles.size} item` }),
       danger: true,
       onConfirm: async () => {
+        setConfirmAction(null);
         try {
-          const items = [...selectedFiles];
-          items.forEach(p => addPendingItem(p, null, 'delete'));
-          await bulkDelete(items);
+          await bulkDelete([...selectedFiles]);
           clearSelection();
-          toast.success(`${items.length} item dihapus`);
+          toast.success('Item dihapus');
         } catch (e) { toast.error('Gagal hapus: ' + e.message); }
-        finally { selectedFiles.forEach(p => unmarkPending(p)); }
       }
     });
   };
@@ -374,7 +368,7 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
       }
       return false;
     });
-    if (exists) { toast.error('Nama sudah digunakan di folder ini'); return; }
+    if (exists) { toast.error(t('error_duplicate')); return; }
     try { await api.renamePath(oldPath, newPath, renameTarget.id); refresh(); }
     catch (e) { toast.error('Gagal rename: ' + e.message); }
     setRenameTarget(null);
@@ -698,7 +692,7 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
                 <button onClick={() => handleToggleLock(itemPath, fileId, !liveIsLocked)}>{liveIsLocked ? <Unlock size={13} /> : <Lock size={13} />} {liveIsLocked ? t('unlock') : t('lock')}</button>
                 <button onClick={() => handleToggleStar(itemPath, fileId, !liveIsStarred)}>{liveIsStarred ? <Star size={13} fill="currentColor" /> : <Star size={13} />} {liveIsStarred ? t('unstar') : t('star')}</button>
                 <div className={styles.contextDivider} />
-                <button className={styles.dangerItem} onClick={() => { setConfirmAction({ title: t('confirm_delete'), message: t('confirm_delete_msg', { name: itemPath.split('/').pop() }), danger: true, onConfirm: () => { deletePath(itemPath, fileId); setContextMenu(null); } }); }}><Trash2 size={13} /> {t('delete')}</button>
+                <button className={styles.dangerItem} onClick={() => { setConfirmAction({ title: t('confirm_delete'), message: t('confirm_delete_msg', { name: itemPath.split('/').pop() }), danger: true, onConfirm: async () => { setConfirmAction(null); try { await deletePath(itemPath, fileId); setContextMenu(null); toast.success('Dihapus'); } catch (e) { toast.error('Gagal hapus: ' + e.message); } } }); }}><Trash2 size={13} /> {t('delete')}</button>
               </>
             );
           })()}
