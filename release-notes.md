@@ -1,3 +1,5 @@
+## v4.6.1 (2026-04-01)
+
 * [Security] Added JWT session authentication for Vercel API endpoints
 * [Security] Fixed CORS to allow Electron file:// protocol
 * [Fix] Settings toggles now persist correctly across sessions
