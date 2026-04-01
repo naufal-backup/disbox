@@ -191,17 +191,24 @@ export function AppProvider({ children }) {  // ─── 1. States & Refs ─�
 
     try {
       const instance = new DisboxAPI(url);
-      // Create session with Vercel API (required for files/cloud endpoints)
-      const authRes = await fetch('https://disbox-web-weld.vercel.app/api/auth/webhook', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ webhook_url: url.trim() })
-      });
-      if (!authRes.ok) {
-        const err = await authRes.json();
-        throw new Error(err.error || 'Gagal membuat sesi API');
+      
+      const isCloudAccount = !!localStorage.getItem('dbx_username');
+
+      // Only create manual webhook session if not logged in with Cloud Account
+      // Cloud account session is already created via /api/auth/login
+      if (!isCloudAccount) {
+        const authRes = await fetch('https://disbox-web-weld.vercel.app/api/auth/webhook', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ webhook_url: url.trim() })
+        });
+        if (!authRes.ok) {
+          const err = await authRes.json();
+          throw new Error(err.error || 'Gagal membuat sesi API');
+        }
       }
+      
       await instance.init(options);
       const fs = await instance.getFileSystem();
 
@@ -371,22 +378,31 @@ export function AppProvider({ children }) {  // ─── 1. States & Refs ─�
     if (!api) return false;
     try {
       const hash = api.hashedWebhook;
+      let newFiles;
+      
       const target = files.find(f => f.id === id);
       if (target) {
         await window.electron.setLocked(id, hash, isLocked);
-        // Optimistic UI update
-        setFiles(prev => prev.map(f => f.id === id ? { ...f, isLocked } : f));
+        newFiles = files.map(f => f.id === id ? { ...f, isLocked } : f);
       } else {
         const folderPath = id;
         const affectedFiles = files.filter(f => f.path === folderPath || f.path.startsWith(folderPath + '/'));
         for (const f of affectedFiles) {
           await window.electron.setLocked(f.id, hash, isLocked);
         }
-        // Optimistic UI update for all affected files
-        setFiles(prev => prev.map(f =>
+        newFiles = files.map(f =>
           (f.path === folderPath || f.path.startsWith(folderPath + '/')) ? { ...f, isLocked } : f
-        ));
+        );
       }
+      
+      setFiles(newFiles);
+      setFileTree(buildTree(newFiles));
+      
+      // Persist to cloud if in cloud mode
+      if (localStorage.getItem('dbx_username')) {
+        await api.persistCloud(newFiles);
+      }
+      
       return true;
     } catch (e) { console.error('Set locked failed:', e); return false; }
   }, [api, files, setFiles]);
@@ -395,19 +411,30 @@ export function AppProvider({ children }) {  // ─── 1. States & Refs ─�
     if (!api) return false;
     try {
       const hash = api.hashedWebhook;
+      let newFiles;
+      
       const target = files.find(f => f.id === id);
       if (target) {
         await window.electron.setStarred(id, hash, isStarred);
-        // Optimistic UI update
-        setFiles(prev => prev.map(f => f.id === id ? { ...f, isStarred } : f));
+        newFiles = files.map(f => f.id === id ? { ...f, isStarred } : f);
       } else {
         const keepFile = files.find(f => f.path === (id ? `${id}/.keep` : '.keep'));
         if (keepFile) {
           await window.electron.setStarred(keepFile.id, hash, isStarred);
-          // Update the .keep file's starred status
-          setFiles(prev => prev.map(f => f.id === keepFile.id ? { ...f, isStarred } : f));
+          newFiles = files.map(f => f.id === keepFile.id ? { ...f, isStarred } : f);
+        } else {
+          return false;
         }
       }
+      
+      setFiles(newFiles);
+      setFileTree(buildTree(newFiles));
+      
+      // Persist to cloud if in cloud mode
+      if (localStorage.getItem('dbx_username')) {
+        await api.persistCloud(newFiles);
+      }
+      
       return true;
     } catch (e) { console.error('Set starred failed:', e); return false; }
   }, [api, files, setFiles]);

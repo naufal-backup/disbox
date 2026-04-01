@@ -108,6 +108,14 @@ export class DisboxAPI {
       const res = await fetch(`${BASE_API}/api/files/list?identifier=${identifier}`, {
         credentials: 'include'
       });
+
+      if (res.status === 401) throw new Error('Sesi API berakhir. Silakan login kembali.');
+      if (res.status === 403) throw new Error('Akses ditolak. Identitas tidak sesuai.');
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `Server error (${res.status})`);
+      }
+
       const result = await res.json();
 
       if (result.ok && result.files && result.files.length > 0) {
