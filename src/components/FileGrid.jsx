@@ -476,7 +476,7 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
           ) : processedFiles.length === 0 && processedDirs.length === 0 ? (
             <motion.div key="empty" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className={styles.empty}><div className={styles.emptyIcon}>📂</div><p className={styles.emptyTitle}>{t('empty_folder')}</p><p className={styles.emptyHint}>{t('empty_hint')}</p></motion.div>
           ) : viewMode === 'grid' ? (
-            <motion.div key={`grid-${currentPath}-${isLockedView}-${isStarredView}-${isRecentView}`} initial={animationsEnabled ? { opacity: 0, y: 5 } : false} animate={{ opacity: 1, y: 0 }} exit={animationsEnabled ? { opacity: 0, y: -5 } : false} transition={{ duration: 0.15 }} className={styles.grid}>
+            <motion.div layout key={`grid-${currentPath}-${isLockedView}-${isStarredView}-${isRecentView}`} initial={animationsEnabled ? { opacity: 0, y: 5 } : false} animate={{ opacity: 1, y: 0 }} exit={animationsEnabled ? { opacity: 0, y: -5 } : false} transition={{ duration: 0.15 }} className={styles.grid}>
               {processedDirs.map(({ name: dir, fullPath, _pending }) => {
                 const folderSize = folderSizes.get(fullPath) || 0;
                 const l = folderLocks.get(fullPath);
@@ -485,9 +485,29 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
                 const isPartOfSelection = selectedFiles.has(fullPath);
                 const canBeDropTarget = dragSource?.bulk ? !isPartOfSelection : (dragSource && fullPath !== dragSource && !fullPath.startsWith(dragSource + '/'));
                 return (
-                  <div key={fullPath} data-item-id={fullPath} className={`${styles.card} ${isPartOfSelection ? styles.selected : ''} ${dragOverTarget === fullPath ? styles.isDragTarget : ''} ${_pending ? styles.pending : ''}`} draggable={!_pending} onDragStart={(e) => handleDragStart(e, fullPath)} onDragEnd={() => setDragSource(null)} onDragOver={(e) => { const types = Array.from(e.dataTransfer.types); if (canBeDropTarget || types.includes('Files')) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dragOverTarget !== fullPath) setDragOverTarget(fullPath); } }} onDragLeave={(e) => { const rect = e.currentTarget.getBoundingClientRect(); if (e.clientX < rect.left || e.clientX >= rect.right || e.clientY < rect.top || e.clientY >= rect.bottom) setDragOverTarget(null); }} onDrop={(e) => { setDragOverTarget(null); handleDropMove(e, fullPath); }} onDoubleClick={() => !_pending && handleFolderClick(fullPath)} onClick={(e) => toggleSelect(fullPath, e)} onContextMenu={(e) => { if (_pending) return; e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX / uiScale, y: e.clientY / uiScale, path: fullPath, isFolder: true }); }}>
-                    {isLocked && <div className={styles.lockOverlay}><Lock size={12} /></div>}
-                    {isStarred && <div className={styles.starOverlay}><Star size={12} fill="currentColor" /></div>}
+                  <motion.div layout key={fullPath} data-item-id={fullPath} className={`${styles.card} ${isPartOfSelection ? styles.selected : ''} ${dragOverTarget === fullPath ? styles.isDragTarget : ''} ${_pending ? styles.pending : ''}`} draggable={!_pending} onDragStart={(e) => handleDragStart(e, fullPath)} onDragEnd={() => setDragSource(null)} onDragOver={(e) => { const types = Array.from(e.dataTransfer.types); if (canBeDropTarget || types.includes('Files')) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dragOverTarget !== fullPath) setDragOverTarget(fullPath); } }} onDragLeave={(e) => { const rect = e.currentTarget.getBoundingClientRect(); if (e.clientX < rect.left || e.clientX >= rect.right || e.clientY < rect.top || e.clientY >= rect.bottom) setDragOverTarget(null); }} onDrop={(e) => { setDragOverTarget(null); handleDropMove(e, fullPath); }} onDoubleClick={() => !_pending && handleFolderClick(fullPath)} onClick={(e) => toggleSelect(fullPath, e)} onContextMenu={(e) => { if (_pending) return; e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX / uiScale, y: e.clientY / uiScale, path: fullPath, isFolder: true }); }}>
+                    <AnimatePresence>
+                      {isLocked && (
+                        <motion.div 
+                          initial={{ opacity: 0, scale: 0.8 }} 
+                          animate={{ opacity: 1, scale: 1 }} 
+                          exit={{ opacity: 0, scale: 0.8 }}
+                          className={styles.lockOverlay}
+                        >
+                          <Lock size={12} />
+                        </motion.div>
+                      )}
+                      {isStarred && (
+                        <motion.div 
+                          initial={{ opacity: 0, scale: 0.8 }} 
+                          animate={{ opacity: 1, scale: 1 }} 
+                          exit={{ opacity: 0, scale: 0.8 }}
+                          className={styles.starOverlay}
+                        >
+                          <Star size={12} fill="currentColor" />
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
                     <div className={styles.cardHeader}>
                       <div className={styles.cardIconWrapper}><Folder size={18} style={{ color: 'var(--text-secondary)' }} strokeWidth={2} /></div>
                       <div className={styles.cardTitleWrapper} title={dir}>{renameTarget?.path === fullPath ? <input className={styles.renameInput} value={renameValue} onChange={e => setRenameValue(e.target.value)} onBlur={commitRename} onKeyDown={e => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setRenameTarget(null); }} autoFocus onClick={e => e.stopPropagation()} /> : <span className={styles.cardTitleText}>{dir}</span>}</div>
@@ -502,9 +522,29 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
                 const name = file.path.split('/').pop();
                 const _pending = file._pending;
                 return (
-                  <div key={file.id || file.path} data-item-id={file.id} className={`${styles.card} ${selectedFiles.has(file.id) ? styles.selected : ''} ${_pending ? styles.pending : ''}`} draggable={!_pending} onDragStart={(e) => handleDragStart(e, file.path, file.id)} onDragEnd={() => setDragSource(null)} onClick={(e) => toggleSelect(file.id, e)} onContextMenu={(e) => { if (_pending) return; e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX / uiScale, y: e.clientY / uiScale, path: file.path, file, isFolder: false }); }} onDoubleClick={() => !_pending && handleFileClick(file)}>
-                    {file.isLocked && <div className={styles.lockOverlay}><Lock size={12} /></div>}
-                    {file.isStarred && <div className={styles.starOverlay}><Star size={12} fill="currentColor" /></div>}
+                  <motion.div layout key={file.id || file.path} data-item-id={file.id} className={`${styles.card} ${selectedFiles.has(file.id) ? styles.selected : ''} ${_pending ? styles.pending : ''}`} draggable={!_pending} onDragStart={(e) => handleDragStart(e, file.path, file.id)} onDragEnd={() => setDragSource(null)} onClick={(e) => toggleSelect(file.id, e)} onContextMenu={(e) => { if (_pending) return; e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX / uiScale, y: e.clientY / uiScale, path: file.path, file, isFolder: false }); }} onDoubleClick={() => !_pending && handleFileClick(file)}>
+                    <AnimatePresence>
+                      {file.isLocked && (
+                        <motion.div 
+                          initial={{ opacity: 0, scale: 0.8 }} 
+                          animate={{ opacity: 1, scale: 1 }} 
+                          exit={{ opacity: 0, scale: 0.8 }}
+                          className={styles.lockOverlay}
+                        >
+                          <Lock size={12} />
+                        </motion.div>
+                      )}
+                      {file.isStarred && (
+                        <motion.div 
+                          initial={{ opacity: 0, scale: 0.8 }} 
+                          animate={{ opacity: 1, scale: 1 }} 
+                          exit={{ opacity: 0, scale: 0.8 }}
+                          className={styles.starOverlay}
+                        >
+                          <Star size={12} fill="currentColor" />
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
                     <div className={styles.cardHeader}>
                       <div className={styles.cardIconWrapper}>{renderFileIcon(name)}</div>
                       <div className={styles.cardTitleWrapper} title={name}>{renameTarget?.path === file.path && renameTarget?.id === file.id ? <input className={styles.renameInput} value={renameValue} onChange={e => setRenameValue(e.target.value)} onBlur={commitRename} onKeyDown={e => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setRenameTarget(null); }} autoFocus onClick={e => e.stopPropagation()} /> : <span className={styles.cardTitleText}>{name}</span>}</div>

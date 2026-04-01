@@ -117,3 +117,12 @@ jobs:
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Delete Older Releases
+        uses: dev-drprad/delete-older-releases@v0.3.3
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          keep_latest: 3
+          delete_tags: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
