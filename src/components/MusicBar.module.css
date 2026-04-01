@@ -16,7 +16,18 @@
 
 @media (min-width: 769px) {
   .musicBar {
+    padding-left: 220px;
+  }
+  
+  .container::before {
+    content: '';
+    position: absolute;
     left: 220px;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: var(--border);
+    opacity: 0.8;
   }
 }
 
@@ -29,6 +40,7 @@
   justify-content: space-between;
   padding: 0 24px;
   gap: 20px;
+  position: relative;
 }
 
 /* ── Track Info ───────────────────────────────────────────── */
