@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
+import { toast } from 'react-hot-toast';
 import { DisboxAPI, buildTree } from './utils/disbox.js';
 import { translations } from './utils/i18n.js';
 import { clearThumbCache } from './utils/thumbnailCache.js';
@@ -376,51 +377,39 @@ export function AppProvider({ children }) {  // ─── 1. States & Refs ─�
 
   const setLocked = useCallback(async (id, isLocked) => {
     if (!api) return false;
-    try {
-      // 1. Optimistic UI Update
-      const target = files.find(f => f.id === id);
-      let newFiles;
-      if (target) {
-        newFiles = files.map(f => f.id === id ? { ...f, isLocked } : f);
-      } else {
-        const folderPath = id;
-        newFiles = files.map(f =>
-          (f.path === folderPath || f.path.startsWith(folderPath + '/')) ? { ...f, isLocked } : f
-        );
+    return toast.promise(
+      (async () => {
+        await api.setLocked(id, isLocked);
+        const fs = await api.getFileSystem();
+        setFiles(fs);
+        setFileTree(buildTree(fs));
+        return true;
+      })(),
+      {
+        loading: isLocked ? 'Locking item...' : 'Unlocking item...',
+        success: isLocked ? 'Item locked' : 'Item unlocked',
+        error: (err) => `Failed: ${err.message}`
       }
-      setFiles(newFiles);
-      setFileTree(buildTree(newFiles));
-
-      // 2. Full Sync (Local DB -> Supabase -> Discord)
-      await api.setLocked(id, isLocked);
-      return true;
-    } catch (e) { console.error('Set locked failed:', e); await refresh(true); return false; }
-  }, [api, files, setFiles, refresh]);
+    );
+  }, [api]);
 
   const setStarred = useCallback(async (id, isStarred) => {
     if (!api) return false;
-    try {
-      // 1. Optimistic UI Update
-      const target = files.find(f => f.id === id);
-      let newFiles;
-      if (target) {
-        newFiles = files.map(f => f.id === id ? { ...f, isStarred } : f);
-      } else {
-        const keepFile = files.find(f => f.path === (id ? `${id}/.keep` : '.keep'));
-        if (keepFile) {
-          newFiles = files.map(f => f.id === keepFile.id ? { ...f, isStarred } : f);
-        } else {
-          return false;
-        }
+    return toast.promise(
+      (async () => {
+        await api.setStarred(id, isStarred);
+        const fs = await api.getFileSystem();
+        setFiles(fs);
+        setFileTree(buildTree(fs));
+        return true;
+      })(),
+      {
+        loading: isStarred ? 'Adding to starred...' : 'Removing from starred...',
+        success: isStarred ? 'Added to starred' : 'Removed from starred',
+        error: (err) => `Failed: ${err.message}`
       }
-      setFiles(newFiles);
-      setFileTree(buildTree(newFiles));
-
-      // 2. Full Sync (Local DB -> Supabase -> Discord)
-      await api.setStarred(id, isStarred);
-      return true;
-    } catch (e) { console.error('Set starred failed:', e); await refresh(true); return false; }
-  }, [api, files, setFiles, refresh]);
+    );
+  }, [api]);
 
   const verifyPin = useCallback(async (pin) => {
     if (!api) return false;
