@@ -102,17 +102,8 @@ export default function FilePreview({ file, allFiles = [], onFileChange, onClose
         const isVideo = ['mp4', 'webm', 'ogg', 'mov', 'mkv', 'avi'].includes(ext);
         const isAudio = ['mp3', 'wav', 'flac', 'ogg', 'm4a', 'aac'].includes(ext);
 
-        if (isVideo || isAudio) {
-          const messagesStr = encodeURIComponent(JSON.stringify(file.messageIds));
-          const streamUrl = `${BASE_API}/api/stream?webhook=${encodeURIComponent(api.webhookUrl)}&mime=${encodeURIComponent(mime)}&size=${file.size}&chunkSize=${api.chunkSize}&messages=${messagesStr}&_t=${Date.now()}`;
-          const result = { type: isVideo ? 'video' : 'audio', url: streamUrl, isStream: true };
-          
-          globalPreviewCache.set(file.id, result);
-          setContent(result);
-          setLoading(false);
-          return;
-        }
-
+        // For desktop/electron, download file first for audio/video preview
+        // Streaming via BASE_API requires server endpoint that may not be available
         const signal = addTransfer({
           id: transferId, name: `Preview: ${name}`,
           progress: 0, type: 'download', status: 'active', hidden: true
