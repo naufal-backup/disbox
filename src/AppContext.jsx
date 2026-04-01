@@ -420,7 +420,9 @@ export function AppProvider({ children }) {
     if (!api) return false;
     const oldFiles = [...files];
     const updatedFiles = files.map(f => {
-      if (f.id === id || f.path === id) return { ...f, isStarred };
+      if (f.id === id) return { ...f, isStarred };
+      // Folder logic: starred if its .keep file is starred
+      if (f.path === (id ? `${id}/.keep` : '.keep')) return { ...f, isStarred };
       return f;
     });
 

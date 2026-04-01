@@ -20,6 +20,8 @@ import './FileGrid.rubberband.patch.css';
 import { motion, AnimatePresence } from 'framer-motion';
 import useRubberBand from '../hooks/useRubberBand.js';
 
+const StarOff = Star;
+
 export default function FileGrid({ isLockedView = false, isStarredView = false, isRecentView = false, onNavigate }) {
   const {
     api, files, currentPath, setCurrentPath,
@@ -297,13 +299,13 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
       setContextMenu(null); return;
     }
     const ok = await setLocked(id || itemPath, isLocked);
-    if (ok) { toast.success(isLocked ? 'Item dikunci' : 'Kunci dibuka'); setContextMenu(null); }
+    if (ok) { toast.success(isLocked ? 'Item dikunci' : 'Kunci dibuka'); }
     else toast.error('Gagal mengubah status kunci');
   };
 
   const handleToggleStar = async (itemPath, id, isStarred) => {
     const ok = await setStarred(id || itemPath, isStarred);
-    if (ok) { toast.success(isStarred ? 'Ditambahkan ke Starred' : 'Dihapus dari Starred'); setContextMenu(null); }
+    if (ok) { toast.success(isStarred ? 'Ditambahkan ke Starred' : 'Dihapus dari Starred'); }
     else toast.error('Gagal mengubah status star');
   };
 
@@ -652,7 +654,53 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
       {contextMenu && <div className={styles.contextMenuBackdrop} onClick={() => setContextMenu(null)} onContextMenu={(e) => { e.preventDefault(); setContextMenu(null); }} />}
       {contextMenu && (
         <div ref={contextMenuRef} className={styles.contextMenu} style={{ top: contextMenu.y, left: contextMenu.x }} onClick={e => e.stopPropagation()}>
-          {contextMenu.type === 'empty' ? (<><button onClick={() => { setShowCreateFolder(true); setContextMenu(null); }}><FolderPlus size={13} /> {t('new_folder')}</button><button onClick={() => { handlePickFiles(); setContextMenu(null); }}><Upload size={13} /> {t('upload')} File</button><div className={styles.contextDivider} /><button onClick={() => { refresh(); setContextMenu(null); }}><RefreshCw size={13} /> {t('refresh')}</button></>) : selectedFiles.size > 1 && selectedFiles.has(contextMenu.isFolder ? contextMenu.path : contextMenu.file?.id) ? (<><button onClick={() => { handleBulkMove('move'); setContextMenu(null); }}><Move size={13} /> {t('pindah_item', { count: selectedFiles.size })}</button><button onClick={() => { handleBulkMove('copy'); setContextMenu(null); }}><Copy size={13} /> {t('salin_item', { count: selectedFiles.size })}</button><div className={styles.contextDivider} /><button className={styles.dangerItem} onClick={() => { handleBulkDelete(); setContextMenu(null); }}><Trash2 size={13} /> {t('hapus_item', { count: selectedFiles.size })}</button></>) : (<>{!contextMenu.isFolder && (<button onClick={() => { downloadFile(contextMenu.file); setContextMenu(null); }}><Download size={13} /> {t('download')}</button>)}<button onClick={() => { setMoveModal({ id: contextMenu.isFolder ? null : contextMenu.file?.id, path: contextMenu.path, mode: 'move' }); setContextMenu(null); }}><Move size={13} /> {t('move')}</button><button onClick={() => { setMoveModal({ id: contextMenu.isFolder ? null : contextMenu.file?.id, path: contextMenu.path, mode: 'copy' }); setContextMenu(null); }}><Copy size={13} /> {t('copy')}</button><button onClick={() => startRename(contextMenu.path, contextMenu.isFolder, contextMenu.isFolder ? null : contextMenu.file?.id)}><Edit3 size={13} /> {t('rename')}</button>{contextMenu.isFolder ? (() => { const l = folderLocks.get(contextMenu.path); const isLocked = l && l.count > 0 && l.lockedCount === l.count; return <button onClick={() => handleToggleLock(contextMenu.path, null, !isLocked)}>{isLocked ? <><Unlock size={13} /> {t('unlock')}</> : <><Lock size={13} /> {t('lock')}</>}</button>; })() : <button onClick={() => handleToggleLock(contextMenu.path, contextMenu.file?.id, !contextMenu.file?.isLocked)}>{contextMenu.file?.isLocked ? <><Unlock size={13} /> {t('unlock')}</> : <><Lock size={13} /> {t('lock')}</>}</button>}{contextMenu.isFolder ? (() => { const isStarred = folderStars.has(contextMenu.path); return <button onClick={() => handleToggleStar(contextMenu.path, null, !isStarred)}>{isStarred ? <><Star size={13} fill="currentColor" /> {t('unstar')}</> : <><Star size={13} /> {t('star')}</>}</button>; })() : <button onClick={() => handleToggleStar(contextMenu.path, contextMenu.file?.id, !contextMenu.file?.isStarred)}>{contextMenu.file?.isStarred ? <><Star size={13} fill="currentColor" /> {t('unstar')}</> : <><Star size={13} /> {t('star')}</>}</button>}<div className={styles.contextDivider} />{shareEnabled && !contextMenu.isFolder && <button onClick={() => { setShareDialog({ path: contextMenu.path, file: contextMenu.file }); setContextMenu(null); }}><Link2 size={13} /> Share</button>}<div className={styles.contextDivider} /><button className={styles.dangerItem} onClick={() => { handleDelete(contextMenu.path, contextMenu.isFolder ? null : contextMenu.file?.id); setContextMenu(null); }}><Trash2 size={13} /> {t('delete')}</button></>)}
+          {contextMenu.type === 'empty' ? (
+            <>
+              <button onClick={() => { setShowCreateFolder(true); setContextMenu(null); }}><FolderPlus size={13} /> {t('new_folder')}</button>
+              <button onClick={() => { handlePickFiles(); setContextMenu(null); }}><Upload size={13} /> {t('upload')} File</button>
+              <div className={styles.contextDivider} />
+              <button onClick={() => { refresh(); setContextMenu(null); }}><RefreshCw size={13} /> {t('refresh')}</button>
+            </>
+          ) : selectedFiles.size > 1 && selectedFiles.has(contextMenu.isFolder ? contextMenu.path : contextMenu.file?.id) ? (
+            <>
+              <button onClick={() => { handleBulkMove('move'); setContextMenu(null); }}><Move size={13} /> {t('pindah_item', { count: selectedFiles.size })}</button>
+              <button onClick={() => { handleBulkMove('copy'); setContextMenu(null); }}><Copy size={13} /> {t('salin_item', { count: selectedFiles.size })}</button>
+              <div className={styles.contextDivider} />
+              <button className={styles.dangerItem} onClick={() => { handleBulkDelete(); setContextMenu(null); }}><Trash2 size={13} /> {t('hapus_item', { count: selectedFiles.size })}</button>
+            </>
+          ) : (() => {
+            const isFolder = contextMenu.isFolder;
+            const itemPath = contextMenu.path;
+            const fileId = contextMenu.file?.id;
+            
+            let liveIsLocked = false;
+            let liveIsStarred = false;
+            
+            if (isFolder) {
+              const l = folderLocks.get(itemPath);
+              liveIsLocked = l && l.count > 0 && l.lockedCount === l.count;
+              liveIsStarred = folderStars.has(itemPath);
+            } else {
+              const liveFile = processedFiles.find(f => f.id === fileId);
+              if (liveFile) {
+                liveIsLocked = liveFile.isLocked;
+                liveIsStarred = liveFile.isStarred;
+              }
+            }
+
+            return (
+              <>
+                {!isFolder && (<button onClick={() => { downloadFile(contextMenu.file); setContextMenu(null); }}><Download size={13} /> {t('download')}</button>)}
+                <button onClick={() => { setMoveModal({ id: isFolder ? null : fileId, path: itemPath, mode: 'move' }); setContextMenu(null); }}><Move size={13} /> {t('move')}</button>
+                <button onClick={() => { setMoveModal({ id: isFolder ? null : fileId, path: itemPath, mode: 'copy' }); setContextMenu(null); }}><Copy size={13} /> {t('copy')}</button>
+                <button onClick={() => startRename(itemPath, isFolder, isFolder ? null : fileId)}><Edit3 size={13} /> {t('rename')}</button>
+                <button onClick={() => handleToggleLock(itemPath, fileId, !liveIsLocked)}>{liveIsLocked ? <Unlock size={13} /> : <Lock size={13} />} {liveIsLocked ? t('unlock') : t('lock')}</button>
+                <button onClick={() => handleToggleStar(itemPath, fileId, !liveIsStarred)}>{liveIsStarred ? <Star size={13} fill="currentColor" /> : <Star size={13} />} {liveIsStarred ? t('unstar') : t('star')}</button>
+                <div className={styles.contextDivider} />
+                <button className={styles.dangerItem} onClick={() => { setConfirmAction({ title: t('confirm_delete'), message: t('confirm_delete_msg', { name: itemPath.split('/').pop() }), danger: true, onConfirm: () => { deletePath(itemPath, fileId); setContextMenu(null); } }); }}><Trash2 size={13} /> {t('delete')}</button>
+              </>
+            );
+          })()}
         </div>
       )}
       {isDragOver && <div className={styles.dropOverlay}><Upload size={40} /><p>Drop untuk upload</p></div>}
