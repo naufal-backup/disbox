@@ -66,8 +66,8 @@ export class DisboxAPI {
       try { this.encryptionKeys.push(await this.deriveKey(v)); } catch {}
     }
 
-    const found = await this.syncMetadata({ forceId, metadataUrl });
-    if (!found) {
+    const container = await this.syncMetadata({ forceId, metadataUrl });
+    if (!container) {
       console.log('[init] New drive. Initializing empty structure.');
       await window.electron.saveMetadata(this.hashedWebhook, []);
     }
@@ -97,7 +97,7 @@ export class DisboxAPI {
 
   async syncMetadata(options = {}) {
     const { forceId, metadataUrl, force } = options;
-    if (this._syncing) return false;
+    if (this._syncing) return null;
     this._syncing = true;
     try {
       const username = localStorage.getItem('dbx_username');
@@ -121,38 +121,24 @@ export class DisboxAPI {
       if (result.ok && result.files && result.files.length > 0) {
         console.log(`[sync] ✓ Loaded ${result.files.length} items from database.`);
         await window.electron.saveMetadata(this.hashedWebhook, result.files);
-        return true;
       }
 
-      // 2. Migrasi Legacy
-      let legacyData = null;
-      if (metadataUrl && metadataUrl.startsWith('http')) {
-        legacyData = await this._downloadMetadataFromUrl(metadataUrl);
-      } else {
-        const discovery = await this._getMsgIdFromDiscovery();
-        const msgId = forceId || discovery?.best;
-        if (msgId) legacyData = await this._downloadMetadataFromMsg(msgId);
-      }
+      // 2. Load from Discord for full container (including pinHash, shareLinks)
+      const discovery = await this._getMsgIdFromDiscovery();
+      const msgId = forceId || discovery?.best;
+      let fullContainer = null;
+      if (msgId) fullContainer = await this._downloadMetadataFromMsg(msgId);
+      
+      if (fullContainer && !Array.isArray(fullContainer)) {
+        const files = fullContainer.files || [];
+        const pinHash = fullContainer.pinHash || null;
+        const shareLinks = fullContainer.shareLinks || [];
 
-      if (legacyData) {
-        const rawFiles = Array.isArray(legacyData) ? legacyData : (legacyData.files || []);
-        const files = rawFiles.map(f => ({
-          ...f,
-          isLocked: !!f.isLocked,
-          isStarred: !!f.isStarred
-        }));
-
-        console.log(`[sync] ✓ Migrating ${files.length} items to Supabase Files table...`);
-        await fetch(`${BASE_API}/api/files/sync-all`, {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ identifier, files })
-        });
         await window.electron.saveMetadata(this.hashedWebhook, files);
-        return true;
+        return { files, pinHash, shareLinks };
       }
-      return false;
+      
+      return result.files ? { files: result.files } : null;
     } finally { this._syncing = false; }
   }
 
@@ -190,8 +176,8 @@ export class DisboxAPI {
   async getFileSystem() {
     const data = await window.electron.loadMetadata(this.hashedWebhook);
     if (!data || data.length === 0) {
-      await this.syncMetadata();
-      return await window.electron.loadMetadata(this.hashedWebhook) || [];
+      const container = await this.syncMetadata();
+      return container?.files || [];
     }
     return data;
   }
@@ -215,14 +201,18 @@ export class DisboxAPI {
     }).catch(console.error);
   }
 
-  async uploadMetadataToDiscord(files) {
+  async uploadMetadataToDiscord(files, extra = {}) {
     if (!this.webhookUrl) return;
     try {
       console.log('[disbox] Uploading metadata to Discord...');
-      let pinHash = null;
-      try { pinHash = await window.electron.getPinHash?.(this.hashedWebhook); } catch {}
-      let shareLinks = [];
-      try { shareLinks = await window.electron.shareGetLinks?.(this.hashedWebhook) || []; } catch {}
+      let pinHash = extra.pinHash !== undefined ? extra.pinHash : null;
+      if (pinHash === null) {
+        try { pinHash = await window.electron.getPinHash?.(this.hashedWebhook); } catch {}
+      }
+      let shareLinks = extra.shareLinks || [];
+      if (!shareLinks.length) {
+        try { shareLinks = await window.electron.shareGetLinks?.(this.hashedWebhook) || []; } catch {}
+      }
 
       const container = { files, pinHash, shareLinks, updatedAt: Date.now() };
       const jsonStr = JSON.stringify(container);

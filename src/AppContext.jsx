@@ -4,12 +4,12 @@ import { DisboxAPI, buildTree } from './utils/disbox.js';
 import { translations } from './utils/i18n.js';
 import { clearThumbCache } from './utils/thumbnailCache.js';
 import { AppContext } from './context/AppContextBase.jsx';
-import {
-  getSavedWebhooks, saveWebhookToList, updateWebhookLabel, removeWebhook
+import { 
+  getSavedWebhooks, saveWebhookToList, updateWebhookLabel, removeWebhook 
 } from './utils/webhookHelpers.js';
-import { useCloudSave } from './hooks/useCloudSave.js';
 
-export function AppProvider({ children }) {  // ─── 1. States & Refs ──────────────────────────────────────────────────────
+export function AppProvider({ children }) {
+  // ─── 1. States & Refs ──────────────────────────────────────────────────────
   const [api, setApi] = useState(null);
   const [webhookUrl, setWebhookUrl] = useState(() => localStorage.getItem('disbox_webhook') || '');
   const [isConnected, setIsConnected] = useState(false);
@@ -55,12 +55,20 @@ export function AppProvider({ children }) {  // ─── 1. States & Refs ─�
   const [shareMode, setShareMode] = useState(() => localStorage.getItem('disbox_share_mode') || 'public');
   const [shareLinks, setShareLinks] = useState([]);
   const [cfWorkerUrl, setCfWorkerUrl] = useState('');
+  const [pinHash, setPinHash] = useState(null);
 
   const [currentTrack, setCurrentTrack] = useState(null);
   const [playlist, setPlaylist] = useState([]);
   const [pendingOperations, setPendingOperations] = useState({}); // { [path]: { type, progress, tempItem? } }
 
   const abortControllersRef = useRef(new Map());
+
+  const hashPin = async (pin) => {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(pin + 'disbox_salt');
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+  };
 
   // ─── 2. Leaf Callbacks (No dependencies on other callbacks) ────────────────
   const t = useCallback((key, params = null) => {
@@ -117,6 +125,12 @@ export function AppProvider({ children }) {  // ─── 1. States & Refs ─�
     if (prefs.closeToTray !== undefined) setCloseToTray(prefs.closeToTray);
     if (prefs.startMinimized !== undefined) setStartMinimized(prefs.startMinimized);
     if (prefs.chunksPerMessage !== undefined) setChunksPerMessage(prefs.chunksPerMessage);
+    if (prefs.showPreviews !== undefined) setShowPreviews(prefs.showPreviews);
+    if (prefs.showImagePreviews !== undefined) setShowImagePreviews(prefs.showImagePreviews);
+    if (prefs.showVideoPreviews !== undefined) setShowVideoPreviews(prefs.showVideoPreviews);
+    if (prefs.showAudioPreviews !== undefined) setShowAudioPreviews(prefs.showAudioPreviews);
+    if (prefs.autoCloseTransfers !== undefined) setAutoCloseTransfers(prefs.autoCloseTransfers);
+    if (prefs.showRecent !== undefined) setShowRecent(prefs.showRecent);
     if (window.electron?.setPrefs) window.electron.setPrefs(prefs);
   }, []);
 
@@ -125,7 +139,7 @@ export function AppProvider({ children }) {  // ─── 1. States & Refs ─�
     if (!api) return;
     if (!silent) setLoading(true);
     try {
-      // 1. Ambil data lokal dulu agar instant (setelah local operation seperti create/delete)
+      // 1. Ambil data lokal dulu agar instant
       const fsLocal = await window.electron.loadMetadata(api.hashedWebhook);
       if (fsLocal) {
         setFiles(fsLocal);
@@ -133,10 +147,17 @@ export function AppProvider({ children }) {  // ─── 1. States & Refs ─�
       }
 
       // 2. Sync background untuk memastikan data terbaru dari server
-      await api.syncMetadata({ force: true });
-      const fsSync = await api.getFileSystem();
+      const container = await api.syncMetadata({ force: true });
+      const fsSync = container?.files || await api.getFileSystem();
+      if (container?.pinHash) {
+        setPinHash(container.pinHash);
+        setPinExists(true);
+      }
+      if (container?.shareLinks) setShareLinks(container.shareLinks);
+
       setFiles(fsSync);
       setFileTree(buildTree(fsSync));
+      setMetadataStatus({ status: 'synced', items: fsSync.length });
     } catch (e) {
       console.error('Refresh failed:', e);
     } finally {
@@ -191,12 +212,9 @@ export function AppProvider({ children }) {  // ─── 1. States & Refs ─�
     abortControllersRef.current.clear();
 
     try {
+      const isCloudAccount = !!localStorage.getItem('dbx_username');
       const instance = new DisboxAPI(url);
       
-      const isCloudAccount = !!localStorage.getItem('dbx_username');
-
-      // Only create manual webhook session if not logged in with Cloud Account
-      // Cloud account session is already created via /api/auth/login
       if (!isCloudAccount) {
         const authRes = await fetch('https://disbox-web-weld.vercel.app/api/auth/webhook', {
           method: 'POST',
@@ -211,10 +229,18 @@ export function AppProvider({ children }) {  // ─── 1. States & Refs ─�
       }
       
       await instance.init(options);
-      const fs = await instance.getFileSystem();
+      const container = await instance.syncMetadata(options);
+      const fs = container?.files || [];
+      if (container?.pinHash) {
+        setPinHash(container.pinHash);
+        setPinExists(true);
+      } else {
+        setPinHash(null);
+        setPinExists(false);
+      }
+      if (container?.shareLinks) setShareLinks(container.shareLinks);
 
       const normalizedUrl = instance.webhookUrl;
-
       localStorage.setItem('disbox_webhook', normalizedUrl);
       
       if (!isCloudAccount) {
@@ -383,7 +409,6 @@ export function AppProvider({ children }) {  // ─── 1. States & Refs ─�
       return f;
     });
 
-    // Instant update
     setFiles(updatedFiles);
     setFileTree(buildTree(updatedFiles));
 
@@ -406,7 +431,6 @@ export function AppProvider({ children }) {  // ─── 1. States & Refs ─�
       return f;
     });
 
-    // Instant update
     setFiles(updatedFiles);
     setFileTree(buildTree(updatedFiles));
 
@@ -423,33 +447,39 @@ export function AppProvider({ children }) {  // ─── 1. States & Refs ─�
 
   const verifyPin = useCallback(async (pin) => {
     if (!api) return false;
-    const ok = await window.electron.verifyPin(api.hashedWebhook, pin);
+    const h = await hashPin(pin);
+    const ok = h === pinHash;
     if (ok) setIsVerified(true);
     return ok;
-  }, [api]);
+  }, [api, pinHash]);
 
   const setPin = useCallback(async (pin) => {
     if (!api) return false;
-    return await window.electron.setPin(api.hashedWebhook, pin);
-  }, [api]);
+    const h = await hashPin(pin);
+    setPinHash(h);
+    setPinExists(true);
+    if (api && files) await api.uploadMetadataToDiscord(files, { pinHash: h });
+    return true;
+  }, [api, files]);
 
   const hasPin = useCallback(async () => {
-    if (!api) return false;
-    const exists = await window.electron.hasPin(api.hashedWebhook);
+    const exists = !!pinHash;
     setPinExists(exists);
     return exists;
-  }, [api]);
+  }, [pinHash]);
 
   const removePin = useCallback(async (pin) => {
     if (!api) return false;
-    const ok = await window.electron.verifyPin(api.hashedWebhook, pin);
-    if (ok) {
-      await window.electron.removePin(api.hashedWebhook);
+    const h = await hashPin(pin);
+    if (h === pinHash) {
+      setPinHash(null);
+      setPinExists(false);
       setIsVerified(false);
+      if (api && files) await api.uploadMetadataToDiscord(files, { pinHash: null });
       return true;
     }
     return false;
-  }, [api]);
+  }, [api, files, pinHash]);
 
   const saveShareSettings = useCallback(async (settings) => {
     if (!api) return false;
@@ -507,48 +537,24 @@ export function AppProvider({ children }) {  // ─── 1. States & Refs ─�
   useEffect(() => { localStorage.setItem('disbox_animations_enabled', animationsEnabled.toString()); }, [animationsEnabled]);
 
   useEffect(() => {
-    if (!window.electron?.onMetadataStatus) return;
-    return window.electron.onMetadataStatus((data) => {
-      setMetadataStatus(data);
-    });
-  }, []);
-
-  // Removed automatic polling interval - sync now only happens on manual refresh
-  // or when triggered by onMetadataChange event from Electron main process
-
-  useEffect(() => {
-    if (!api || !webhookUrl) return;
-    window.electron?.setActiveWebhook(webhookUrl, api.hashedWebhook);
-  }, [api, webhookUrl]);
-
-  useEffect(() => {
-    if (!window.electron?.onMetadataChange || !api) return;
-    const cleanup = window.electron.onMetadataChange((hash) => {
-      if (api.hashedWebhook === hash) {
-        refresh();
-      }
-    });
-    return cleanup;
-  }, [api, refresh]);
+    if (!isConnected || !api) return;
+    const interval = setInterval(() => { refresh(true); }, 5000);
+    return () => clearInterval(interval);
+  }, [isConnected, api, refresh]);
 
   useEffect(() => { document.documentElement.setAttribute('data-theme', theme); localStorage.setItem('disbox_theme', theme); }, [theme]);
   useEffect(() => { localStorage.setItem('disbox_lang', language); }, [language]);
   useEffect(() => { document.body.style.zoom = uiScale; localStorage.setItem('disbox_ui_scale', uiScale.toString()); }, [uiScale]);
   useEffect(() => { localStorage.setItem('disbox_chunk_size', chunkSize.toString()); if (api) api.chunkSize = chunkSize; }, [chunkSize, api]);
   useEffect(() => { localStorage.setItem('disbox_show_previews', showPreviews.toString()); }, [showPreviews]);
-
-  useEffect(() => {
-    if (window.electron?.getPrefs) {
-      window.electron.getPrefs().then(p => {
-        if (p.closeToTray !== undefined) setCloseToTray(p.closeToTray);
-        if (p.startMinimized !== undefined) setStartMinimized(p.startMinimized);
-        if (p.chunksPerMessage !== undefined) setChunksPerMessage(p.chunksPerMessage);
-      });
-    }
-  }, []);
-
-  // ─── 8. Cloud Save Integration ──────────────────────────────────────────────
-  const cloudSave = useCloudSave(api, isConnected, webhookUrl, chunkSize);
+  useEffect(() => { localStorage.setItem('disbox_show_image_previews', showImagePreviews.toString()); }, [showImagePreviews]);
+  useEffect(() => { localStorage.setItem('disbox_show_video_previews', showVideoPreviews.toString()); }, [showVideoPreviews]);
+  useEffect(() => { localStorage.setItem('disbox_show_audio_previews', showAudioPreviews.toString()); }, [showAudioPreviews]);
+  useEffect(() => { localStorage.setItem('disbox_show_recent', showRecent.toString()); }, [showRecent]);
+  useEffect(() => { localStorage.setItem('disbox_auto_close_transfers', autoCloseTransfers.toString()); }, [autoCloseTransfers]);
+  useEffect(() => { localStorage.setItem('disbox_chunks_per_message', chunksPerMessage.toString()); }, [chunksPerMessage]);
+  useEffect(() => { localStorage.setItem('disbox_app_lock_enabled', appLockEnabled.toString()); }, [appLockEnabled]);
+  useEffect(() => { localStorage.setItem('disbox_app_lock_pin', appLockPin); }, [appLockPin]);
 
   return (
     <AppContext.Provider value={{
@@ -594,7 +600,6 @@ export function AppProvider({ children }) {  // ─── 1. States & Refs ─�
       updateWebhookLabel: handleUpdateLabel,
       removeWebhook: handleRemoveWebhook,
       addWebhook: handleAddWebhook,
-      ...cloudSave
     }}>
       {children}
     </AppContext.Provider>
