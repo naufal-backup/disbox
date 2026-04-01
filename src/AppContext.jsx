@@ -376,38 +376,48 @@ export function AppProvider({ children }) {  // ─── 1. States & Refs ─�
 
   const setLocked = useCallback(async (id, isLocked) => {
     if (!api) return false;
-    return toast.promise(
-      (async () => {
-        await api.setLocked(id, isLocked);
-        const fs = await api.getFileSystem();
-        setFiles(fs);
-        setFileTree(buildTree(fs));
-        return true;
-      })(),
-      {
-        loading: isLocked ? 'Locking item...' : 'Unlocking item...',
-        success: isLocked ? 'Item locked' : 'Item unlocked',
-        error: (err) => `Failed: ${err.message}`
-      }
-    );
-  }, [api]);
+    const oldFiles = [...files];
+    // Optimistic update
+    setFiles(prev => prev.map(f => {
+      if (f.id === id || f.path === id) return { ...f, isLocked };
+      if (typeof id === 'string' && f.path.startsWith(id + '/')) return { ...f, isLocked };
+      return f;
+    }));
+
+    try {
+      await api.setLocked(id, isLocked);
+      const fs = await api.getFileSystem();
+      setFiles(fs);
+      setFileTree(buildTree(fs));
+      return true;
+    } catch (e) {
+      console.error('Failed to set lock:', e);
+      setFiles(oldFiles);
+      return false;
+    }
+  }, [api, files]);
 
   const setStarred = useCallback(async (id, isStarred) => {
     if (!api) return false;
-    return toast.promise(
-      (async () => {
-        await api.setStarred(id, isStarred);
-        const fs = await api.getFileSystem();
-        setFiles(fs);
-        setFileTree(buildTree(fs));
-        return true;
-      })(),
-      {
-        loading: isStarred ? 'Adding to starred...' : 'Removing from starred...',
-        success: isStarred ? 'Added to starred' : 'Removed from starred',
-        error: (err) => `Failed: ${err.message}`
-      }
-    );
+    const oldFiles = [...files];
+    // Optimistic update
+    setFiles(prev => prev.map(f => {
+      if (f.id === id || f.path === id) return { ...f, isStarred };
+      return f;
+    }));
+
+    try {
+      await api.setStarred(id, isStarred);
+      const fs = await api.getFileSystem();
+      setFiles(fs);
+      setFileTree(buildTree(fs));
+      return true;
+    } catch (e) {
+      console.error('Failed to set starred:', e);
+      setFiles(oldFiles);
+      return false;
+    }
+  }, [api, files]);
   }, [api]);
 
   const verifyPin = useCallback(async (pin) => {
