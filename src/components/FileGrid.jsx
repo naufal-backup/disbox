@@ -316,6 +316,7 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
       message: `Apakah Anda yakin ingin menghapus "${name}"? Semua isi di dalamnya akan ikut terhapus.`,
       danger: true,
       onConfirm: async () => {
+        setConfirmAction(null);
         try {
           const foldersToMark = [];
           files.forEach(f => { if (f.path.startsWith(targetPath + '/')) foldersToMark.push(f.path); });
