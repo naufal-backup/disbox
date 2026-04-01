@@ -276,7 +276,11 @@ export const webElectronShim = {
         req.onsuccess = () => resolve(req.result || []);
         req.onerror = () => resolve([]);
       });
-      const updated = meta.map(f => f.id === id ? { ...f, isLocked } : f);
+      const updated = meta.map(f => {
+        if (f.id === id) return { ...f, isLocked };
+        if (f.path === id || f.path.startsWith(id + '/')) return { ...f, isLocked };
+        return f;
+      });
       await new Promise((resolve, reject) => {
         const tx = db.transaction(STORE_NAME, 'readwrite');
         const req = tx.objectStore(STORE_NAME).put(updated, hash);
@@ -296,7 +300,11 @@ export const webElectronShim = {
         req.onsuccess = () => resolve(req.result || []);
         req.onerror = () => resolve([]);
       });
-      const updated = meta.map(f => f.id === id ? { ...f, isStarred } : f);
+      const updated = meta.map(f => {
+        if (f.id === id) return { ...f, isStarred };
+        if (f.path === (id ? `${id}/.keep` : '.keep')) return { ...f, isStarred };
+        return f;
+      });
       await new Promise((resolve, reject) => {
         const tx = db.transaction(STORE_NAME, 'readwrite');
         const req = tx.objectStore(STORE_NAME).put(updated, hash);

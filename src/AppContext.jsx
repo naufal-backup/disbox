@@ -377,67 +377,50 @@ export function AppProvider({ children }) {  // ─── 1. States & Refs ─�
   const setLocked = useCallback(async (id, isLocked) => {
     if (!api) return false;
     try {
-      const hash = api.hashedWebhook;
-      let newFiles;
-      
+      // 1. Optimistic UI Update
       const target = files.find(f => f.id === id);
+      let newFiles;
       if (target) {
-        await window.electron.setLocked(id, hash, isLocked);
         newFiles = files.map(f => f.id === id ? { ...f, isLocked } : f);
       } else {
         const folderPath = id;
-        const affectedFiles = files.filter(f => f.path === folderPath || f.path.startsWith(folderPath + '/'));
-        for (const f of affectedFiles) {
-          await window.electron.setLocked(f.id, hash, isLocked);
-        }
         newFiles = files.map(f =>
           (f.path === folderPath || f.path.startsWith(folderPath + '/')) ? { ...f, isLocked } : f
         );
       }
-      
       setFiles(newFiles);
       setFileTree(buildTree(newFiles));
-      
-      // Persist to cloud if in cloud mode
-      if (localStorage.getItem('dbx_username')) {
-        await api.persistCloud(newFiles);
-      }
-      
+
+      // 2. Full Sync (Local DB -> Supabase -> Discord)
+      await api.setLocked(id, isLocked);
       return true;
-    } catch (e) { console.error('Set locked failed:', e); return false; }
-  }, [api, files, setFiles]);
+    } catch (e) { console.error('Set locked failed:', e); await refresh(true); return false; }
+  }, [api, files, setFiles, refresh]);
 
   const setStarred = useCallback(async (id, isStarred) => {
     if (!api) return false;
     try {
-      const hash = api.hashedWebhook;
-      let newFiles;
-      
+      // 1. Optimistic UI Update
       const target = files.find(f => f.id === id);
+      let newFiles;
       if (target) {
-        await window.electron.setStarred(id, hash, isStarred);
         newFiles = files.map(f => f.id === id ? { ...f, isStarred } : f);
       } else {
         const keepFile = files.find(f => f.path === (id ? `${id}/.keep` : '.keep'));
         if (keepFile) {
-          await window.electron.setStarred(keepFile.id, hash, isStarred);
           newFiles = files.map(f => f.id === keepFile.id ? { ...f, isStarred } : f);
         } else {
           return false;
         }
       }
-      
       setFiles(newFiles);
       setFileTree(buildTree(newFiles));
-      
-      // Persist to cloud if in cloud mode
-      if (localStorage.getItem('dbx_username')) {
-        await api.persistCloud(newFiles);
-      }
-      
+
+      // 2. Full Sync (Local DB -> Supabase -> Discord)
+      await api.setStarred(id, isStarred);
       return true;
-    } catch (e) { console.error('Set starred failed:', e); return false; }
-  }, [api, files, setFiles]);
+    } catch (e) { console.error('Set starred failed:', e); await refresh(true); return false; }
+  }, [api, files, setFiles, refresh]);
 
   const verifyPin = useCallback(async (pin) => {
     if (!api) return false;

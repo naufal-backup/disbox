@@ -365,6 +365,35 @@ export class DisboxAPI {
     });
   }
 
+  async setLocked(id, isLocked) {
+    return this._enqueue(async () => {
+      const files = await this.getFileSystem();
+      const updated = files.map(f => {
+        if (f.id === id) return { ...f, isLocked };
+        if (f.path === id || f.path.startsWith(id + '/')) return { ...f, isLocked };
+        return f;
+      });
+      await window.electron.saveMetadata(this.hashedWebhook, updated);
+      await this.persistCloud(updated);
+      await this.uploadMetadataToDiscord(updated);
+    });
+  }
+
+  async setStarred(id, isStarred) {
+    return this._enqueue(async () => {
+      const files = await this.getFileSystem();
+      const updated = files.map(f => {
+        if (f.id === id) return { ...f, isStarred };
+        // Folder logic: starred if its .keep file is starred
+        if (f.path === (id ? `${id}/.keep` : '.keep')) return { ...f, isStarred };
+        return f;
+      });
+      await window.electron.saveMetadata(this.hashedWebhook, updated);
+      await this.persistCloud(updated);
+      await this.uploadMetadataToDiscord(updated);
+    });
+  }
+
   async uploadFile(file, virtualPath, onProgress, signal, transferId) {
     const fileName = file.name;
     const fileId = crypto.randomUUID();
