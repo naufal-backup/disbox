@@ -503,7 +503,10 @@ export function AppProvider({ children }) {
     const h = await hashPin(pin);
     setPinHash(h);
     setPinExists(true);
-    if (api && files) await api.uploadMetadataToDiscord(files, { pinHash: h });
+    if (api && files) {
+      await api.persistCloud(files, { pinHash: h });
+      await api.uploadMetadataToDiscord(files, { pinHash: h });
+    }
     return true;
   }, [api, files]);
 
@@ -520,7 +523,10 @@ export function AppProvider({ children }) {
       setPinHash(null);
       setPinExists(false);
       setIsVerified(false);
-      if (api && files) await api.uploadMetadataToDiscord(files, { pinHash: null });
+      if (api && files) {
+        await api.persistCloud(files, { pinHash: null });
+        await api.uploadMetadataToDiscord(files, { pinHash: null });
+      }
       return true;
     }
     return false;
@@ -533,9 +539,16 @@ export function AppProvider({ children }) {
       if (settings.enabled !== undefined) setShareEnabled(!!settings.enabled);
       if (settings.mode) setShareMode(settings.mode);
       if (settings.cf_worker_url !== undefined) setCfWorkerUrl(settings.cf_worker_url || '');
+      
+      // Update cloud sync with latest share links
+      const currentLinks = await window.electron.shareGetLinks(api.hashedWebhook);
+      if (currentLinks) {
+        setShareLinks(currentLinks);
+        await api.persistCloud(files, { shareLinks: currentLinks });
+      }
     }
     return ok;
-  }, [api, webhookUrl]);
+  }, [api, webhookUrl, files]);
 
   const getAllDirs = useCallback(() => {
     const dirs = new Set(['/']);
