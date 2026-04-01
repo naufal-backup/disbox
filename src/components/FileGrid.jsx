@@ -597,21 +597,21 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
                 const l = folderLocks.get(fullPath);
                 const isLocked = l && l.count > 0 && l.lockedCount === l.count;
                 const isStarred = folderStars.has(fullPath);
-                const iconSize = Math.max(20, 22 * zoom);
+                const iconSize = Math.max(20, 24 * zoom);
                 return (
                   <div key={fullPath} data-item-id={fullPath} className={`${styles.listRow} ${selectedFiles.has(fullPath) ? styles.selected : ''} ${dragOverTarget === fullPath ? styles.isDragTarget : ''} ${_pending ? styles.pending : ''}`} draggable={!_pending} onDragStart={(e) => handleDragStart(e, fullPath)} onDragEnd={() => setDragSource(null)} onDragOver={(e) => { if (_pending) return; const types = Array.from(e.dataTransfer.types); if (types.includes('Files')) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dragOverTarget !== fullPath) setDragOverTarget(fullPath); } }} onDragLeave={() => setDragOverTarget(null)} onDrop={(e) => { setDragOverTarget(null); handleDropMove(e, fullPath); }} onDoubleClick={() => handleFolderClick(fullPath)} onClick={(e) => toggleSelect(fullPath, e)} onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX / uiScale, y: e.clientY / uiScale, path: fullPath, isFolder: true }); }}>
-                    <div className={styles.listIcon} style={{ width: `calc(28px * var(--zoom))`, flexShrink: 0 }}>
+                    <div className={styles.listIcon} style={{ width: iconSize, height: iconSize, flexShrink: 0, marginRight: 4 }}>
                       {_pending?.type === 'create' ? (
                         <div className={`skeleton ${styles.ghostIconSkeleton}`} style={{ width: iconSize, height: iconSize, borderRadius: '4px' }} />
                       ) : isLocked ? (
-                        <Lock size={iconSize - 2} style={{ color: 'var(--accent-bright)' }} />
+                        <Lock size={iconSize - 4} style={{ color: 'var(--accent-bright)' }} />
                       ) : isStarred ? (
-                        <Star size={iconSize - 2} fill="var(--amber)" style={{ color: 'var(--amber)' }} />
+                        <Star size={iconSize - 4} fill="var(--amber)" style={{ color: 'var(--amber)' }} />
                       ) : (
                         <Folder size={iconSize} style={{ color: 'var(--amber)' }} />
                       )}
                     </div>
-                    <span className={`${styles.listName} truncate`} style={{ fontSize: `calc(12px * var(--zoom))`, lineHeight: 1.2 }}>{renameTarget?.path === fullPath ? <input className={styles.renameInput} value={renameValue} onChange={e => setRenameValue(e.target.value)} onBlur={commitRename} onKeyDown={e => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setRenameTarget(null); }} autoFocus onClick={e => e.stopPropagation()} /> : _pending?.type === 'create' ? (<div className={`skeleton ${styles.ghostTitleSkeleton}`} style={{ width: '120px', height: '12px' }} />) : dir}</span>
+                    <span className={`${styles.listName} truncate`} style={{ fontSize: `calc(13px * var(--zoom))`, lineHeight: 1.2 }}>{renameTarget?.path === fullPath ? <input className={styles.renameInput} value={renameValue} onChange={e => setRenameValue(e.target.value)} onBlur={commitRename} onKeyDown={e => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setRenameTarget(null); }} autoFocus onClick={e => e.stopPropagation()} /> : _pending?.type === 'create' ? (<div className={`skeleton ${styles.ghostTitleSkeleton}`} style={{ width: '120px', height: '12px' }} />) : dir}</span>
                     <span className={styles.listSize}>{_pending ? '...' : formatSize(folderSize)}</span>
                     <div className={styles.listActions} onClick={e => e.stopPropagation()}>{!_pending && (<><button className={styles.iconBtn} onClick={() => setMoveModal({ path: fullPath, mode: 'move' })} title="Pindah"><Move size={13} /></button><button className={styles.iconBtn} onClick={() => setMoveModal({ path: fullPath, mode: 'copy' })} title="Salin"><Copy size={13} /></button><button className={styles.iconBtn} onClick={() => startRename(fullPath, true)} title="Rename"><Edit3 size={13} /></button></>)}</div>
                     {_pending && <div className={styles.ghostProgressLine} style={{ width: _pending.type === 'create' ? '70%' : `${(_pending.progress * 100).toFixed(0)}%` }} />}
@@ -620,11 +620,11 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
               })}
               {processedFiles.map((file) => {
                 const name = file.path.split('/').pop();
-                const iconSize = Math.max(18, 20 * zoom);
+                const iconSize = Math.max(20, 24 * zoom);
                 const _pending = file._pending;
                 return (
                   <div key={file.id || file.path} data-item-id={file.id} className={`${styles.listRow} ${selectedFiles.has(file.id) ? styles.selected : ''} ${_pending ? styles.pending : ''}`} draggable={!_pending} onDragStart={(e) => handleDragStart(e, file.path, file.id)} onDragEnd={() => setDragSource(null)} onClick={(e) => toggleSelect(file.id, e)} onContextMenu={(e) => { if (_pending) return; e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX / uiScale, y: e.clientY / uiScale, path: file.path, file, isFolder: false }); }} onDoubleClick={() => !_pending && handleFileClick(file)}>
-                    <div className={styles.listIcon} style={{ width: `calc(28px * var(--zoom))`, height: `calc(28px * var(--zoom))`, display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: 4, flexShrink: 0 }}>
+                    <div className={styles.listIcon} style={{ width: iconSize, height: iconSize, display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: 4, flexShrink: 0 }}>
                       {_pending ? (
                         <div className={`skeleton ${styles.ghostIconSkeleton}`} style={{ width: iconSize, height: iconSize, borderRadius: '4px' }} />
                       ) : file.isLocked ? (
@@ -635,7 +635,7 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
                         <FileThumbnail file={file} size={iconSize} />
                       )}
                     </div>
-                    <span className={`${styles.listName} truncate`} style={{ fontSize: `calc(12px * var(--zoom))`, lineHeight: 1.2 }}>{renameTarget?.path === file.path && renameTarget?.id === file.id ? <input className={styles.renameInput} value={renameValue} onChange={e => setRenameValue(e.target.value)} onBlur={commitRename} onKeyDown={e => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setRenameTarget(null); }} autoFocus onClick={e => e.stopPropagation()} /> : _pending ? (<div className={`skeleton ${styles.ghostTitleSkeleton}`} style={{ width: '120px', height: '12px' }} />) : name}</span>
+                    <span className={`${styles.listName} truncate`} style={{ fontSize: `calc(13px * var(--zoom))`, lineHeight: 1.2 }}>{renameTarget?.path === file.path && renameTarget?.id === file.id ? <input className={styles.renameInput} value={renameValue} onChange={e => setRenameValue(e.target.value)} onBlur={commitRename} onKeyDown={e => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setRenameTarget(null); }} autoFocus onClick={e => e.stopPropagation()} /> : _pending ? (<div className={`skeleton ${styles.ghostTitleSkeleton}`} style={{ width: '120px', height: '12px' }} />) : name}</span>
                     <span className={styles.listSize}>{_pending ? '...' : formatSize(file.size || 0)}</span>
                     <div className={styles.listActions} onClick={e => e.stopPropagation()}>{!_pending && (<><button className={styles.iconBtn} onClick={() => handleDownloadClick(file)} title="Download"><Download size={13} /></button><button className={styles.iconBtn} onClick={() => setMoveModal({ id: file.id, path: file.path, mode: 'move' })} title="Pindah"><Move size={13} /></button><button className={styles.iconBtn} onClick={() => setMoveModal({ id: file.id, path: file.path, mode: 'copy' })} title="Salin"><Copy size={13} /></button><button className={styles.iconBtn} onClick={() => startRename(file.path, false, file.id)} title="Rename"><Edit3 size={13} /></button></>)}</div>
                     {_pending && <div className={styles.ghostProgressLine} style={{ width: `${(_pending.progress * 100).toFixed(0)}%` }} />}

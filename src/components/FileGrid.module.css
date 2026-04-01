@@ -291,8 +291,8 @@
   pointer-events: none;
 }
 
-.listIcon { width: 22px; text-align: center; flex-shrink: 0; font-size: 16px; display: flex; align-items: center; justify-content: center; }
-.listIcon svg { width: 16px !important; height: 16px !important; }
+.listIcon { text-align: center; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+.listIcon svg { width: 100% !important; height: 100% !important; }
 
 .listName { flex: 1; min-width: 0; font-size: 13px; color: var(--text-primary); }
 .listSize { width: 100px; text-align: right; color: var(--text-muted); flex-shrink: 0; font-family: var(--font-mono); font-size: 11px; }
