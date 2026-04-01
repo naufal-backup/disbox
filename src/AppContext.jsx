@@ -36,10 +36,12 @@ export function AppProvider({ children }) {
       }
 
       // 2. Sync background untuk memastikan data terbaru dari server
-      await api.syncMetadata({ force: true });
-      const fsSync = await api.getFileSystem();
-      setFilesRef.current?.(fsSync);
-      setFileTreeRef.current?.(buildTree(fsSync));
+      const updated = await api.syncMetadata({ force: silent ? false : true });
+      if (updated || !fsLocal) {
+        const fsSync = await api.getFileSystem();
+        setFilesRef.current?.(fsSync);
+        setFileTreeRef.current?.(buildTree(fsSync));
+      }
     } catch (e) {
       console.error('Refresh failed:', e);
     } finally {

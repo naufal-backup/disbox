@@ -115,7 +115,7 @@ export class DisboxAPI {
             const lastSync = localStorage.getItem(`dbx_sync_${this.hashedWebhook}`);
             if (lastSync === `${check.updated_at}_${check.count}`) {
               // No changes, skip
-              return true;
+              return false;
             }
             this._pendingSyncInfo = `${check.updated_at}_${check.count}`;
           }
