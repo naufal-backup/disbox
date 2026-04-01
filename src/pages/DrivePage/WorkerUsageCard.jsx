@@ -20,15 +20,15 @@ export default function WorkerUsageCard({ t }) {
       const results = {};
       await Promise.all(PUBLIC_WORKERS.map(async (worker) => {
         try {
-          const res = await fetch(`${worker.url}/share/stats`);
+          const res = await window.electron.fetch(`${worker.url}/share/stats`);
           if (res.ok && isMounted) {
-            const data = await res.json();
+            const data = JSON.parse(res.body);
             results[worker.url] = data;
           }
         } catch (e) {
           if (isMounted) {
             try {
-              const ping = await fetch(worker.url);
+              const ping = await window.electron.fetch(worker.url);
               if (ping.status < 500) results[worker.url] = { status: 'Online' };
             } catch (_) {}
           }

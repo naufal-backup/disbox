@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { X, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useApp } from '../context/useAppHook.js';
-import { getMimeType } from '../utils/disbox.js';
+import { getMimeType, BASE_API } from '../utils/disbox.js';
 import { motion, AnimatePresence } from 'framer-motion';
 import styles from './FilePreview.module.css';
 
@@ -104,7 +104,7 @@ export default function FilePreview({ file, allFiles = [], onFileChange, onClose
 
         if (isVideo || isAudio) {
           const messagesStr = encodeURIComponent(JSON.stringify(file.messageIds));
-          const streamUrl = `/api/stream?webhook=${encodeURIComponent(api.webhookUrl)}&mime=${encodeURIComponent(mime)}&size=${file.size}&chunkSize=${api.chunkSize}&messages=${messagesStr}&_t=${Date.now()}`;
+          const streamUrl = `${BASE_API}/api/stream?webhook=${encodeURIComponent(api.webhookUrl)}&mime=${encodeURIComponent(mime)}&size=${file.size}&chunkSize=${api.chunkSize}&messages=${messagesStr}&_t=${Date.now()}`;
           const result = { type: isVideo ? 'video' : 'audio', url: streamUrl, isStream: true };
           
           globalPreviewCache.set(file.id, result);
@@ -129,7 +129,7 @@ export default function FilePreview({ file, allFiles = [], onFileChange, onClose
           }
         );
 
-        if (!isMounted || signal.aborted) return;
+        if (!isMounted || (signal && signal.aborted)) return;
 
         globalPreviewCache.set(file.id, result);
         setContent(result);
@@ -149,7 +149,7 @@ export default function FilePreview({ file, allFiles = [], onFileChange, onClose
 
     return () => {
       isMounted = false;
-      window.electron?.cancelUpload?.(transferId);
+      if (window.electron?.cancelUpload) window.electron.cancelUpload(transferId);
       removeTransfer(transferId);
     };
   }, [file.id]);
@@ -205,6 +205,7 @@ export default function FilePreview({ file, allFiles = [], onFileChange, onClose
     try {
       const cached = globalPreviewCache.get(file.id);
       if (cached?.url) {
+        // Native fetch is fine for blob: URLs
         const res = await fetch(cached.url);
         const buffer = await res.arrayBuffer();
         const blob = new Blob([buffer], { type: getMimeType(fileName) });
@@ -222,13 +223,13 @@ export default function FilePreview({ file, allFiles = [], onFileChange, onClose
       }
 
       const buffer = await api.downloadFile(file, (p) => {
-        if (!signal.aborted) {
+        if (signal && !signal.aborted) {
           const chunk = totalChunks ? Math.min(Math.floor(p * totalChunks), totalChunks - 1) : 0;
           updateTransfer(transferId, { progress: p, chunk });
         }
       }, signal, transferId);
 
-      if (signal.aborted) return;
+      if (signal && signal.aborted) return;
       const blob = new Blob([buffer], { type: getMimeType(fileName) });
       const url = URL.createObjectURL(blob);
       if (window.electron) {
@@ -241,7 +242,7 @@ export default function FilePreview({ file, allFiles = [], onFileChange, onClose
       updateTransfer(transferId, { status: 'done', progress: 1 });
       setTimeout(() => removeTransfer(transferId), 1000);
     } catch (e) {
-      if (e.name !== 'AbortError' && !signal.aborted)
+      if (e.name !== 'AbortError' && signal && !signal.aborted)
         updateTransfer(transferId, { status: 'error', error: e.message });
     }
   }, [file, api, addTransfer, updateTransfer, removeTransfer]);
