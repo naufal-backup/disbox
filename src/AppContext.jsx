@@ -310,82 +310,145 @@ export function AppProvider({ children }) {
 
   const createFolder = useCallback(async (folderName) => {
     if (!api || !folderName.trim()) return false;
-    const newFolderPath = (currentPath === '/' ? '' : currentPath.slice(1)) + folderName.trim();
-    const placeholder = { path: newFolderPath + '/.keep', name: '.keep', size: 0, createdAt: Date.now() };
+    const cleanName = folderName.trim();
+    const newFolderPath = (currentPath === '/' ? '' : currentPath.slice(1)) + cleanName;
+    const entry = { path: newFolderPath + '/.keep', name: '.keep', size: 0, createdAt: Date.now(), id: crypto.randomUUID() };
     
-    addPendingItem(newFolderPath, placeholder, 'create');
+    const oldFiles = [...files];
+    setFiles(prev => {
+      const newList = [...prev, entry];
+      setFileTree(buildTree(newList));
+      return newList;
+    });
     
     try {
-      const entry = await api.createFolder(folderName.trim(), currentPath);
-      if (entry) {
-        setFiles(prev => {
-          const exists = prev.some(f => f.path === entry.path);
-          if (exists) return prev;
-          const newList = [...prev, entry];
-          setFileTree(buildTree(newList));
-          return newList;
-        });
-      }
+      await api.createFolder(cleanName, currentPath);
       await refresh(true);
       return true;
     }
-    catch (e) { console.error('Create folder failed:', e); await refresh(); return false; }
-    finally { unmarkPending(newFolderPath); }
-  }, [api, currentPath, refresh, addPendingItem, unmarkPending]);
+    catch (e) { 
+      console.error('Create folder failed:', e); 
+      setFiles(oldFiles);
+      setFileTree(buildTree(oldFiles));
+      return false; 
+    }
+  }, [api, currentPath, files, refresh]);
 
   const movePath = useCallback(async (oldPath, destDir, id = null) => {
     if (!api) return false;
     const name = oldPath.split('/').pop();
     const newPath = destDir ? `${destDir}/${name}` : name;
+    const oldFiles = [...files];
+    
+    setFiles(prev => {
+      const next = prev.map(f => {
+        if ((id && f.id === id) || (!id && f.path === oldPath)) return { ...f, path: newPath };
+        if (f.path.startsWith(oldPath + '/')) return { ...f, path: f.path.replace(oldPath + '/', newPath + '/') };
+        return f;
+      });
+      setFileTree(buildTree(next));
+      return next;
+    });
+
     try { await api.renamePath(oldPath, newPath, id); await refresh(true); return true; }
-    catch (e) { console.error('Move failed:', e); await refresh(); return false; }
-  }, [api, refresh]);
+    catch (e) { 
+      console.error('Move failed:', e); 
+      setFiles(oldFiles);
+      setFileTree(buildTree(oldFiles));
+      return false; 
+    }
+  }, [api, files, refresh]);
 
   const copyPath = useCallback(async (oldPath, destDir, id = null) => {
     if (!api) return false;
-    const name = oldPath.split('/').pop();
-    const newPath = destDir ? `${destDir}/${name}` : name;
-    try { await api.copyPath(oldPath, newPath, id); await refresh(true); return true; }
+    try { await api.copyPath(oldPath, destDir, id); await refresh(true); return true; }
     catch (e) { console.error('Copy failed:', e); await refresh(); return false; }
   }, [api, refresh]);
 
   const deletePath = useCallback(async (path, id = null) => {
     if (!api) return false;
-    try { 
-      await api.deletePath(path, id); 
-      setFiles(prev => prev.filter(f => {
+    const oldFiles = [...files];
+    setFiles(prev => {
+      const next = prev.filter(f => {
         if (id) return f.id !== id;
         return f.path !== path && !f.path.startsWith(path + '/');
-      }));
+      });
+      setFileTree(buildTree(next));
+      return next;
+    });
+
+    try { 
+      await api.deletePath(path, id); 
       await refresh(true);
       return true; 
     }
-    catch (e) { console.error('Delete failed:', e); await refresh(); return false; }
-  }, [api, refresh]);
+    catch (e) { 
+      console.error('Delete failed:', e); 
+      setFiles(oldFiles);
+      setFileTree(buildTree(oldFiles));
+      return false; 
+    }
+  }, [api, files, refresh]);
 
   const bulkDelete = useCallback(async (paths) => {
     if (!api) return false;
-    try { 
-      await api.bulkDelete(paths); 
-      const pathSet = new Set(paths);
-      setFiles(prev => prev.filter(f => {
+    const oldFiles = [...files];
+    const pathSet = new Set(paths);
+    setFiles(prev => {
+      const next = prev.filter(f => {
         if (pathSet.has(f.id) || pathSet.has(f.path)) return false;
         for (const p of pathSet) {
           if (!p.includes('-') && f.path.startsWith(p + '/')) return false;
         }
         return true;
-      }));
+      });
+      setFileTree(buildTree(next));
+      return next;
+    });
+
+    try { 
+      await api.bulkDelete(paths); 
       await refresh(true);
       return true; 
     }
-    catch (e) { console.error('Bulk delete failed:', e); await refresh(); return false; }
-  }, [api, refresh]);
+    catch (e) { 
+      console.error('Bulk delete failed:', e); 
+      setFiles(oldFiles);
+      setFileTree(buildTree(oldFiles));
+      return false; 
+    }
+  }, [api, files, refresh]);
 
   const bulkMove = useCallback(async (paths, destDir) => {
     if (!api) return false;
+    const oldFiles = [...files];
+    setFiles(prev => {
+      const next = prev.map(f => {
+        for (const target of paths) {
+          if (f.id === target || f.path === target) {
+            const name = f.path.split('/').pop();
+            return { ...f, path: destDir ? `${destDir}/${name}` : name };
+          }
+          if (f.path.startsWith(target + '/')) {
+            const name = target.split('/').pop();
+            const newBase = destDir ? `${destDir}/${name}` : name;
+            return { ...f, path: f.path.replace(target + '/', newBase + '/') };
+          }
+        }
+        return f;
+      });
+      setFileTree(buildTree(next));
+      return next;
+    });
+
     try { await api.bulkMove(paths, destDir); await refresh(true); return true; }
-    catch (e) { console.error('Bulk move failed:', e); await refresh(); return false; }
-  }, [api, refresh]);
+    catch (e) { 
+      console.error('Bulk move failed:', e); 
+      setFiles(oldFiles);
+      setFileTree(buildTree(oldFiles));
+      return false; 
+    }
+  }, [api, files, refresh]);
 
   const bulkCopy = useCallback(async (paths, destDir) => {
     if (!api) return false;
@@ -397,8 +460,8 @@ export function AppProvider({ children }) {
     if (!api) return false;
     const oldFiles = [...files];
     const updatedFiles = files.map(f => {
-      if (f.id === id || f.path === id) return { ...f, isLocked };
-      if (typeof id === 'string' && f.path.startsWith(id + '/')) return { ...f, isLocked };
+      if (f.id === id) return { ...f, isLocked };
+      if (f.path === id || f.path.startsWith(id + '/')) return { ...f, isLocked };
       return f;
     });
 

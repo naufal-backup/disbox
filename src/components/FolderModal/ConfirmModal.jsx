@@ -29,7 +29,7 @@ export default function ConfirmModal({ title, message, onConfirm, onClose, dange
             onClick={() => { onConfirm(); onClose(); }}
             style={danger ? { background: 'var(--red)' } : {}}
           >
-            {t('confirm')}
+            {danger ? t('delete') : t('confirm')}
           </button>
         </div>
       </div>

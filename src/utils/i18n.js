@@ -56,8 +56,8 @@ export const translations = {
     error_duplicate: 'Nama sudah digunakan di folder ini',
     error_invalid: 'Nama mengandung karakter tidak valid',
     error_empty: 'Nama tidak boleh kosong',
-    // Settings
-    language: 'Bahasa',
+    confirm_delete: 'Hapus Item',
+    confirm_delete_msg: 'Apakah Anda yakin ingin menghapus "{name}"? Semua isi di dalamnya akan ikut terhapus.',
     theme: 'Tema',
     dark: 'Gelap',
     light: 'Terang',
