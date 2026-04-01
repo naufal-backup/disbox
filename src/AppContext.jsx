@@ -62,6 +62,7 @@ export function AppProvider({ children }) {
   const [pendingOperations, setPendingOperations] = useState({}); // { [path]: { type, progress, tempItem? } }
 
   const abortControllersRef = useRef(new Map());
+  const lastMutationRef = useRef(0);
 
   const hashPin = async (pin) => {
     const encoder = new TextEncoder();
@@ -137,6 +138,7 @@ export function AppProvider({ children }) {
   // ─── 3. Intermediate Callbacks (Depend on leaf callbacks) ───────────────────
   const refresh = useCallback(async (silent = false) => {
     if (!api) return;
+    if (silent && Date.now() - lastMutationRef.current < 3000) return;
     if (!silent) setLoading(true);
     try {
       // Background sync from server
@@ -314,6 +316,7 @@ export function AppProvider({ children }) {
     const newFolderPath = (currentPath === '/' ? '' : currentPath.slice(1)) + cleanName;
     const entry = { path: newFolderPath + '/.keep', name: '.keep', size: 0, createdAt: Date.now(), id: crypto.randomUUID() };
     
+    lastMutationRef.current = Date.now();
     const oldFiles = [...files];
     setFiles(prev => {
       const newList = [...prev, entry];
@@ -323,7 +326,6 @@ export function AppProvider({ children }) {
     
     try {
       await api.createFolder(cleanName, currentPath);
-      await refresh(true);
       return true;
     }
     catch (e) { 
@@ -332,14 +334,15 @@ export function AppProvider({ children }) {
       setFileTree(buildTree(oldFiles));
       return false; 
     }
-  }, [api, currentPath, files, refresh]);
+  }, [api, currentPath, files]);
 
   const movePath = useCallback(async (oldPath, destDir, id = null) => {
     if (!api) return false;
     const name = oldPath.split('/').pop();
     const newPath = destDir ? `${destDir}/${name}` : name;
-    const oldFiles = [...files];
     
+    lastMutationRef.current = Date.now();
+    const oldFiles = [...files];
     setFiles(prev => {
       const next = prev.map(f => {
         if ((id && f.id === id) || (!id && f.path === oldPath)) return { ...f, path: newPath };
@@ -350,23 +353,25 @@ export function AppProvider({ children }) {
       return next;
     });
 
-    try { await api.renamePath(oldPath, newPath, id); await refresh(true); return true; }
+    try { await api.renamePath(oldPath, newPath, id); return true; }
     catch (e) { 
       console.error('Move failed:', e); 
       setFiles(oldFiles);
       setFileTree(buildTree(oldFiles));
       return false; 
     }
-  }, [api, files, refresh]);
+  }, [api, files]);
 
   const copyPath = useCallback(async (oldPath, destDir, id = null) => {
     if (!api) return false;
-    try { await api.copyPath(oldPath, destDir, id); await refresh(true); return true; }
-    catch (e) { console.error('Copy failed:', e); await refresh(); return false; }
-  }, [api, refresh]);
+    try { await api.copyPath(oldPath, destDir, id); return true; }
+    catch (e) { console.error('Copy failed:', e); return false; }
+  }, [api]);
 
   const deletePath = useCallback(async (path, id = null) => {
     if (!api) return false;
+    
+    lastMutationRef.current = Date.now();
     const oldFiles = [...files];
     setFiles(prev => {
       const next = prev.filter(f => {
@@ -379,7 +384,6 @@ export function AppProvider({ children }) {
 
     try { 
       await api.deletePath(path, id); 
-      await refresh(true);
       return true; 
     }
     catch (e) { 
@@ -388,10 +392,12 @@ export function AppProvider({ children }) {
       setFileTree(buildTree(oldFiles));
       return false; 
     }
-  }, [api, files, refresh]);
+  }, [api, files]);
 
   const bulkDelete = useCallback(async (paths) => {
     if (!api) return false;
+    
+    lastMutationRef.current = Date.now();
     const oldFiles = [...files];
     const pathSet = new Set(paths);
     setFiles(prev => {
@@ -408,7 +414,6 @@ export function AppProvider({ children }) {
 
     try { 
       await api.bulkDelete(paths); 
-      await refresh(true);
       return true; 
     }
     catch (e) { 
@@ -417,10 +422,12 @@ export function AppProvider({ children }) {
       setFileTree(buildTree(oldFiles));
       return false; 
     }
-  }, [api, files, refresh]);
+  }, [api, files]);
 
   const bulkMove = useCallback(async (paths, destDir) => {
     if (!api) return false;
+    
+    lastMutationRef.current = Date.now();
     const oldFiles = [...files];
     setFiles(prev => {
       const next = prev.map(f => {
@@ -441,23 +448,25 @@ export function AppProvider({ children }) {
       return next;
     });
 
-    try { await api.bulkMove(paths, destDir); await refresh(true); return true; }
+    try { await api.bulkMove(paths, destDir); return true; }
     catch (e) { 
       console.error('Bulk move failed:', e); 
       setFiles(oldFiles);
       setFileTree(buildTree(oldFiles));
       return false; 
     }
-  }, [api, files, refresh]);
+  }, [api, files]);
 
   const bulkCopy = useCallback(async (paths, destDir) => {
     if (!api) return false;
-    try { await api.bulkCopy(paths, destDir); await refresh(true); return true; }
-    catch (e) { console.error('Bulk copy failed:', e); await refresh(); return false; }
-  }, [api, refresh]);
+    try { await api.bulkCopy(paths, destDir); return true; }
+    catch (e) { console.error('Bulk copy failed:', e); return false; }
+  }, [api]);
 
   const setLocked = useCallback(async (id, isLocked) => {
     if (!api) return false;
+    
+    lastMutationRef.current = Date.now();
     const oldFiles = [...files];
     const updatedFiles = files.map(f => {
       if (f.id === id) return { ...f, isLocked };
@@ -481,6 +490,8 @@ export function AppProvider({ children }) {
 
   const setStarred = useCallback(async (id, isStarred) => {
     if (!api) return false;
+    
+    lastMutationRef.current = Date.now();
     const oldFiles = [...files];
     const updatedFiles = files.map(f => {
       if (f.id === id) return { ...f, isStarred };
