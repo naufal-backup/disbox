@@ -100,23 +100,12 @@ jobs:
           name: windows-artifacts
           path: release
 
-      - name: Prepare Release Notes
-        id: release-notes
-        run: |
-          if [ -f release-notes.md ]; then
-            echo "body<<EOF" >> $GITHUB_OUTPUT
-            cat release-notes.md >> $GITHUB_OUTPUT
-            echo "EOF" >> $GITHUB_OUTPUT
-          else
-            echo "body=No release notes provided." >> $GITHUB_OUTPUT
-          fi
-
       - name: Create Release
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
         with:
           name: Disbox ${{ github.ref_name }}
-          body: ${{ steps.release-notes.outputs.body }}
+          body-file: release-notes.md
           files: |
             release/Disbox-Linux-x64.AppImage
             release/Disbox-Linux-x64.deb
