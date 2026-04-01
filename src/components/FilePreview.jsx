@@ -133,7 +133,7 @@ export default function FilePreview({ file, allFiles = [], onFileChange, onClose
               updateTransfer(transferId, { progress: p });
             }
           },
-          isVideo || isAudio // use progressive for video/audio
+          isVideo // use progressive only for video
         );
 
         if (!isMounted || (signal && signal.aborted)) return;

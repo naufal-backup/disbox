@@ -2,36 +2,17 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useApp } from '../context/useAppHook.js';
 import styles from './ProgressiveMediaPlayer.module.css';
 
-export default function ProgressiveMediaPlayer({ file, type }) {
+export default function ProgressiveMediaPlayer({ file }) {
   const { api, addTransfer, updateTransfer, removeTransfer } = useApp();
-  const mediaRef = useRef(null);
+  const videoRef = useRef(null);
+  const mediaSourceRef = useRef(null);
+  const sourceBufferRef = useRef(null);
   const [loading, setLoading] = useState(true);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState('');
   const [isPlaying, setIsPlaying] = useState(false);
 
-  const mimeMap = {
-    mp4: 'video/mp4',
-    webm: 'video/webm',
-    ogg: 'video/ogg',
-    mov: 'video/quicktime',
-    mkv: 'video/x-matroska',
-    avi: 'video/x-msvideo',
-    mp3: 'audio/mpeg',
-    wav: 'audio/wav',
-    flac: 'audio/flac',
-    ogg_audio: 'audio/ogg',
-    m4a: 'audio/mp4',
-    aac: 'audio/aac'
-  };
-
-  const getMimeType = useCallback((fileName) => {
-    const ext = fileName.split('.').pop().toLowerCase();
-    return mimeMap[ext] || (type === 'video' ? 'video/mp4' : 'audio/mpeg');
-  }, [type]);
-
   useEffect(() => {
-    const fileName = file.path.split('/').pop();
     const transferId = `progressive-${file.id}`;
     let isMounted = true;
 
@@ -41,11 +22,10 @@ export default function ProgressiveMediaPlayer({ file, type }) {
       setProgress(0);
 
       try {
-        // Download initial chunks
-        const initialChunks = type === 'video' ? 5 : 3;
+        // Download first 5 chunks for video
         const result = await api.downloadPartialChunks(
           file,
-          initialChunks,
+          5,
           undefined,
           (p) => {
             if (isMounted) setProgress(Math.round(p * 100));
@@ -54,31 +34,31 @@ export default function ProgressiveMediaPlayer({ file, type }) {
 
         if (!isMounted) return;
 
-        const mediaElement = mediaRef.current;
-        if (!mediaElement) return;
+        const video = videoRef.current;
+        if (!video) return;
 
         // Create blob from partial buffer
-        const blob = new Blob([result.buffer], { type: getMimeType(fileName) });
+        const blob = new Blob([result.buffer], { type: 'video/mp4' });
         const url = URL.createObjectURL(blob);
-        mediaElement.src = url;
-        mediaElement.load();
+        video.src = url;
+        video.load();
 
-        mediaElement.onloadedmetadata = () => {
+        video.onloadedmetadata = () => {
           if (isMounted) {
             setLoading(false);
-            mediaElement.play().catch(() => {});
+            video.play().catch(() => {});
             setIsPlaying(true);
           }
         };
 
-        mediaElement.onerror = () => {
+        video.onerror = () => {
           if (isMounted) {
-            setError('Gagal memutar ' + type);
+            setError('Gagal memutar video');
             setLoading(false);
           }
         };
 
-        // Continue downloading remaining chunks in background to cache
+        // Continue downloading remaining chunks in background (caching)
         if (!result.isComplete) {
           downloadRemainingChunks(file, result.downloadedChunks, (p) => {
             if (isMounted) setProgress(Math.round(p * 100));
@@ -123,45 +103,33 @@ export default function ProgressiveMediaPlayer({ file, type }) {
 
     return () => {
       isMounted = false;
-      if (mediaRef.current) {
-        const oldSrc = mediaRef.current.src;
+      if (videoRef.current) {
+        const oldSrc = videoRef.current.src;
         if (oldSrc && oldSrc.startsWith('blob:')) {
           URL.revokeObjectURL(oldSrc);
         }
-        mediaRef.current.src = '';
+        videoRef.current.src = '';
       }
       removeTransfer(`progressive-${file.id}`);
     };
-  }, [file, api, type, getMimeType, removeTransfer]);
+  }, [file, api, removeTransfer]);
 
   const togglePlay = () => {
-    const el = mediaRef.current;
-    if (!el) return;
-    if (isPlaying) el.pause();
-    else el.play();
+    const video = videoRef.current;
+    if (!video) return;
+    if (isPlaying) video.pause();
+    else video.play();
     setIsPlaying(!isPlaying);
   };
 
   return (
     <div className={styles.container}>
-      {type === 'video' ? (
-        <video
-          ref={mediaRef}
-          className={styles.mediaElement}
-          controls={false}
-          onClick={togglePlay}
-        />
-      ) : (
-        <div className={styles.audioWrapper} onClick={togglePlay}>
-          <audio ref={mediaRef} />
-          <div className={styles.audioPlayButton}>
-            {isPlaying ? '⏸' : '▶'}
-          </div>
-          <div className={styles.audioInfo}>
-            <span className={styles.fileName}>{file.path.split('/').pop()}</span>
-          </div>
-        </div>
-      )}
+      <video
+        ref={videoRef}
+        className={styles.mediaElement}
+        controls={false}
+        onClick={togglePlay}
+      />
 
       {loading && (
         <div className={styles.loader}>
