@@ -64,6 +64,7 @@ export function AppProvider({ children }) {
   const abortControllersRef = useRef(new Map());
   const lastMutationRef = useRef(0);
   const mutationQueueRef = useRef(Promise.resolve());
+  const isMutatingRef = useRef(false);
 
   const hashPin = async (pin) => {
     const encoder = new TextEncoder();
@@ -74,10 +75,14 @@ export function AppProvider({ children }) {
 
   const enqueueMutation = (mutationFn) => {
     lastMutationRef.current = Date.now();
+    isMutatingRef.current = true;
     mutationQueueRef.current = mutationQueueRef.current.then(async () => {
       try { await mutationFn(); }
       catch (e) { console.error('[mutation-queue] Mutation failed:', e); }
-      finally { lastMutationRef.current = Date.now(); }
+      finally { 
+        lastMutationRef.current = Date.now();
+        isMutatingRef.current = false;
+      }
     });
     return mutationQueueRef.current;
   };
@@ -149,11 +154,17 @@ export function AppProvider({ children }) {
   // ─── 3. Intermediate Callbacks (Depend on leaf callbacks) ───────────────────
   const refresh = useCallback(async (silent = false) => {
     if (!api) return;
-    if (silent && Date.now() - lastMutationRef.current < 3000) return;
+    // Agresif: Jangan refresh jika sedang ada mutasi atau baru saja ada mutasi
+    if (silent && (isMutatingRef.current || Date.now() - lastMutationRef.current < 8000)) return;
+    
     if (!silent) setLoading(true);
     try {
       const container = await api.syncMetadata({ force: true });
       const fsSync = container?.files || await api.getFileSystem();
+      
+      // Jika silent, pastikan tidak menimpa data yang sedang dimutasi
+      if (silent && (isMutatingRef.current || Date.now() - lastMutationRef.current < 8000)) return;
+
       if (container?.pinHash) {
         setPinHash(container.pinHash);
         setPinExists(true);
@@ -335,10 +346,9 @@ export function AppProvider({ children }) {
     
     enqueueMutation(async () => {
       await api.createFolder(cleanName, currentPath);
-      await refresh(true);
     });
     return true;
-  }, [api, currentPath, files, refresh]);
+  }, [api, currentPath, files]);
 
   const movePath = useCallback(async (oldPath, destDir, id = null) => {
     if (!api) return false;
@@ -358,19 +368,17 @@ export function AppProvider({ children }) {
 
     enqueueMutation(async () => {
       await api.renamePath(oldPath, newPath, id);
-      await refresh(true);
     });
     return true;
-  }, [api, files, refresh]);
+  }, [api, files]);
 
   const copyPath = useCallback(async (oldPath, destDir, id = null) => {
     if (!api) return false;
     enqueueMutation(async () => {
       await api.copyPath(oldPath, destDir, id);
-      await refresh(true);
     });
     return true;
-  }, [api, refresh]);
+  }, [api]);
 
   const deletePath = useCallback(async (path, id = null) => {
     if (!api) return false;
@@ -386,10 +394,9 @@ export function AppProvider({ children }) {
 
     enqueueMutation(async () => {
       await api.deletePath(path, id);
-      await refresh(true);
     });
     return true;
-  }, [api, files, refresh]);
+  }, [api, files]);
 
   const bulkDelete = useCallback(async (paths) => {
     if (!api) return false;
@@ -409,10 +416,9 @@ export function AppProvider({ children }) {
 
     enqueueMutation(async () => {
       await api.bulkDelete(paths);
-      await refresh(true);
     });
     return true;
-  }, [api, files, refresh]);
+  }, [api, files]);
 
   const bulkMove = useCallback(async (paths, destDir) => {
     if (!api) return false;
@@ -438,19 +444,17 @@ export function AppProvider({ children }) {
 
     enqueueMutation(async () => {
       await api.bulkMove(paths, destDir);
-      await refresh(true);
     });
     return true;
-  }, [api, files, refresh]);
+  }, [api, files]);
 
   const bulkCopy = useCallback(async (paths, destDir) => {
     if (!api) return false;
     enqueueMutation(async () => {
       await api.bulkCopy(paths, destDir);
-      await refresh(true);
     });
     return true;
-  }, [api, refresh]);
+  }, [api]);
 
   const setLocked = useCallback(async (id, isLocked) => {
     if (!api) return false;
@@ -466,8 +470,6 @@ export function AppProvider({ children }) {
 
     enqueueMutation(async () => {
       await api.setLocked(id, isLocked);
-      // Optional: final check to ensure sync
-      // await refresh(true); 
     });
     return true;
   }, [api, files]);
@@ -477,6 +479,7 @@ export function AppProvider({ children }) {
     const oldFiles = [...files];
     const updatedFiles = files.map(f => {
       if (f.id === id) return { ...f, isStarred };
+      // Folder logic: starred if its .keep file is starred
       if (f.path === (id ? `${id}/.keep` : '.keep')) return { ...f, isStarred };
       return f;
     });
