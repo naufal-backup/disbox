@@ -130,7 +130,7 @@ jobs:
             });
             const toDelete = releases.data
               .filter(r => !r.draft)
-              .slice(3); // Keep 3 latest
+              .slice(1); // Keep only 1 latest
             for (const release of toDelete) {
               await github.rest.repos.deleteRelease({
                 owner: context.repo.owner,
