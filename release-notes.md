@@ -1,11 +1,9 @@
-* [Optimization] Implemented sync-on-change mechanism to prevent redundant metadata polling.
-* [Feature] Added check-before-sync API to efficiently detect file structure updates.
-* Implemented built-in Music Player with comprehensive playback controls.
-* Added animated Music Bar interface perfectly matching the web app layout.
-* Integrated audio file ID3 tag metadata extraction (`jsmediatags`) to dynamically load and display album artwork.
-* Forced all audio file thumbnails to scale proportionally using a fixed 1:1 aspect ratio (CD jewel case format).
-* Unified desktop and web user experience for browsing and listening to your cloud-synced media files.
-* Automated the CI/CD pipeline and desktop binary publishing via new GitHub Actions workflow.
+* [Security] Added JWT session authentication for Vercel API endpoints
+* [Security] Fixed CORS to allow Electron file:// protocol
+* [Fix] Settings toggles now persist correctly across sessions
+* [Fix] Music playback now uses direct Discord download (no Vercel streaming)
+* [Fix] Lock and Star status now properly update in both web and desktop
+* [Chore] Updated branding to "Disbox by naufal-backup"
 
 ## v4.5.9 (2026-04-01)
 
