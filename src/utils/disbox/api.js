@@ -105,14 +105,48 @@ export class DisboxAPI {
       const identifier = username || this.hashedWebhook;
       const BASE_API = 'https://disbox-web-weld.vercel.app';
 
+      // 1. Check for changes before pulling full structure
+      if (!force && !forceId && !metadataUrl) {
+        try {
+          const checkRes = await ipc.fetch(`${BASE_API}/api/files/check?identifier=${identifier}`);
+          const check = JSON.parse(checkRes.body);
+          
+          if (checkRes.ok && check.updated_at) {
+            const lastSync = localStorage.getItem(`dbx_sync_${this.hashedWebhook}`);
+            if (lastSync === `${check.updated_at}_${check.count}`) {
+              // No changes, skip
+              return true;
+            }
+            this._pendingSyncInfo = `${check.updated_at}_${check.count}`;
+          }
+        } catch (e) {
+          console.warn('[sync] Check failed, falling back to full pull:', e.message);
+        }
+      }
+
       console.log(`[sync] Pulling structure for ${identifier}...`);
       const res = await ipc.fetch(`${BASE_API}/api/files/list?identifier=${identifier}`);
       const result = JSON.parse(res.body);
 
-      if (res.ok && result.files && result.files.length > 0) {
-        console.log(`[sync] ✓ Loaded ${result.files.length} items from database.`);
-        await ipc.saveMetadata(this.hashedWebhook, result.files);
-        return true;
+      if (res.ok && result.files) {
+        if (result.files.length > 0) {
+          console.log(`[sync] ✓ Loaded ${result.files.length} items from database.`);
+          await ipc.saveMetadata(this.hashedWebhook, result.files);
+          
+          if (this._pendingSyncInfo) {
+            localStorage.setItem(`dbx_sync_${this.hashedWebhook}`, this._pendingSyncInfo);
+            this._pendingSyncInfo = null;
+          }
+          return true;
+        } else if (result.files.length === 0 && !forceId && !metadataUrl) {
+           // Empty but successful
+           await ipc.saveMetadata(this.hashedWebhook, []);
+           if (this._pendingSyncInfo) {
+             localStorage.setItem(`dbx_sync_${this.hashedWebhook}`, this._pendingSyncInfo);
+             this._pendingSyncInfo = null;
+           }
+           return true;
+        }
       }
 
       let legacyData = null;
@@ -127,11 +161,15 @@ export class DisboxAPI {
       if (legacyData) {
         const files = Array.isArray(legacyData) ? legacyData : (legacyData.files || []);
         console.log(`[sync] ✓ Migrating ${files.length} items to Supabase Files table...`);
-        await ipc.fetch(`${BASE_API}/api/files/sync-all`, {
+        const syncRes = await ipc.fetch(`${BASE_API}/api/files/sync-all`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ identifier, files })
         });
+        const syncData = JSON.parse(syncRes.body);
+        if (syncRes.ok && syncData.updated_at) {
+          localStorage.setItem(`dbx_sync_${this.hashedWebhook}`, `${syncData.updated_at}_${syncData.count}`);
+        }
         await ipc.saveMetadata(this.hashedWebhook, files);
         return true;
       }
@@ -182,11 +220,22 @@ export class DisboxAPI {
   async persistCloud(files) {
     const username = localStorage.getItem('dbx_username');
     const identifier = username || this.hashedWebhook;
-    return ipc.fetch('https://disbox-web-weld.vercel.app/api/files/sync-all', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ identifier, files })
-    }).catch(console.error);
+    const BASE_API = 'https://disbox-web-weld.vercel.app';
+    try {
+      const res = await ipc.fetch(`${BASE_API}/api/files/sync-all`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identifier, files })
+      });
+      const data = JSON.parse(res.body);
+      if (res.ok && data.updated_at) {
+        localStorage.setItem(`dbx_sync_${this.hashedWebhook}`, `${data.updated_at}_${data.count}`);
+      }
+      return res;
+    } catch (e) {
+      console.error('[persistCloud] error:', e);
+      throw e;
+    }
   }
 
   async uploadMetadataToDiscord(files) {
