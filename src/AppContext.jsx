@@ -217,7 +217,6 @@ export function AppProvider({ children }) {  // ─── 1. States & Refs ─�
 
       localStorage.setItem('disbox_webhook', normalizedUrl);
       
-      const isCloudAccount = !!localStorage.getItem('dbx_username');
       if (!isCloudAccount) {
         saveWebhookToList(normalizedUrl);
         setSavedWebhooks(getSavedWebhooks());
