@@ -3,6 +3,7 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import vscDarkPlus from 'react-syntax-highlighter/dist/esm/styles/prism/vsc-dark-plus';
 import styles from '../FilePreview.module.css';
 import MusicPlayer from '../MusicPlayer.jsx';
+import ProgressiveMediaPlayer from '../ProgressiveMediaPlayer.jsx';
 
 export default function FilePreviewContent({ 
   loading, downloadProgress, error, handleDownload, content, name, 
@@ -45,6 +46,12 @@ export default function FilePreviewContent({
         <div className={styles.imageWrapper}>
           <img key={content.url} src={content.url} alt={name} draggable={false} />
         </div>
+      )}
+      {content.type === 'progressive_video' && (
+        <ProgressiveMediaPlayer file={content.file} type="video" />
+      )}
+      {content.type === 'progressive_audio' && (
+        <ProgressiveMediaPlayer file={content.file} type="audio" />
       )}
       {content.type === 'video' && (
         <video key={content.url} src={content.url} controls autoPlay className={styles.video} />

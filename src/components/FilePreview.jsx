@@ -56,24 +56,39 @@ export default function FilePreview({ file, allFiles = [], onFileChange, onClose
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [goToNext, goToPrevious, onClose]);
 
-  const downloadFileContent = useCallback(async (targetFile, signal, onProgress) => {
+  const downloadFileContent = useCallback(async (targetFile, signal, onProgress, progressive = false) => {
     const targetName = targetFile.path.split('/').pop();
     const targetExt = targetName.split('.').pop().toLowerCase();
     const targetMime = getMimeType(targetName);
 
-    const buffer = await api.downloadFile(targetFile, onProgress, signal);
-
     const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(targetExt);
     const isVideo = ['mp4', 'webm', 'ogg', 'mov', 'mkv', 'avi'].includes(targetExt);
-    const isAudio = ['mp3', 'wav', 'flac', 'ogg'].includes(targetExt);
+    const isAudio = ['mp3', 'wav', 'flac', 'ogg', 'm4a', 'aac'].includes(targetExt);
     const isPdf = targetExt === 'pdf';
     const isText = ['txt', 'md', 'js', 'jsx', 'ts', 'tsx', 'py', 'rs', 'html', 'css',
                     'json', 'yml', 'yaml', 'sql', 'sh', 'bash', 'xml', 'cpp', 'c', 'java'].includes(targetExt);
 
-    if (isImage || isVideo || isAudio || isPdf) {
+    if (progressive && (isVideo || isAudio)) {
+      // Download partial chunks for progressive loading
+      const maxChunks = isVideo ? 5 : 3;
+      const result = await api.downloadPartialChunks(targetFile, maxChunks, signal, onProgress);
+      const blob = new Blob([result.buffer], { type: targetMime });
+      const objectUrl = URL.createObjectURL(blob);
+      return {
+        type: isVideo ? 'progressive_video' : 'progressive_audio',
+        url: objectUrl,
+        partialData: result,
+        file: targetFile
+      };
+    }
+
+    // Full download for images, pdfs, text, etc.
+    const buffer = await api.downloadFile(targetFile, onProgress, signal);
+
+    if (isImage || isPdf) {
       const blob = new Blob([buffer], { type: targetMime });
       const objectUrl = URL.createObjectURL(blob);
-      return { type: isImage ? 'image' : isVideo ? 'video' : isAudio ? 'audio' : 'pdf', url: objectUrl };
+      return { type: isImage ? 'image' : 'pdf', url: objectUrl };
     } else if (isText) {
       const text = new TextDecoder().decode(buffer);
       return { type: 'text', text };
@@ -117,7 +132,8 @@ export default function FilePreview({ file, allFiles = [], onFileChange, onClose
               setDownloadProgress(Math.round(p * 100));
               updateTransfer(transferId, { progress: p });
             }
-          }
+          },
+          isVideo || isAudio // use progressive for video/audio
         );
 
         if (!isMounted || (signal && signal.aborted)) return;

@@ -413,6 +413,41 @@ export class DisboxAPI {
     const bytes = await window.electron.proxyDownload(msg.attachments?.[0]?.url, signal || transferId);
     return await this.decrypt(bytes);
   }
+
+  async downloadPartialChunks(file, maxChunks = 5, signal, onProgress) {
+    const messageIds = file.messageIds || [];
+    const chunksToDownload = Math.min(maxChunks, messageIds.length);
+    const chunks = [];
+
+    for (let i = 0; i < chunksToDownload; i++) {
+      throwIfAborted(signal);
+      const msgId = typeof messageIds[i] === 'string' ? messageIds[i] : messageIds[i].msgId;
+      const res = await window.electron.fetch(`${this.webhookUrl}/messages/${msgId}`, { signal });
+      if (!res.ok) throw new Error(`Gagal memuat chunk ${i + 1}`);
+      const msg = JSON.parse(res.body);
+      const url = msg.attachments?.[0]?.url;
+      const bytes = await window.electron.proxyDownload(url, signal);
+      const decrypted = await this.decrypt(bytes);
+      chunks.push(decrypted);
+      if (onProgress) onProgress((i + 1) / chunksToDownload);
+    }
+
+    const totalSize = chunks.reduce((s, c) => s + c.byteLength, 0);
+    const result = new Uint8Array(totalSize);
+    let offset = 0;
+    for (const c of chunks) {
+      result.set(new Uint8Array(c), offset);
+      offset += c.byteLength;
+    }
+
+    return {
+      buffer: result.buffer,
+      downloadedChunks: chunksToDownload,
+      totalChunks: messageIds.length,
+      totalFileSize: file.size,
+      isComplete: chunksToDownload >= messageIds.length
+    };
+  }
 }
 
 // Re-export helpers
