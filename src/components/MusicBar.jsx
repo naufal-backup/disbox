@@ -23,7 +23,12 @@ export default function MusicBar({ track, playlist, onNext, onPrev, onClose }) {
   const currentAudioUrlRef = useRef(null);
 
   useEffect(() => {
-    if (!track) return;
+    if (!track) {
+      setIsPlaying(false);
+      setAudioUrl(null);
+      setMetadata({ title: '', artist: '' });
+      return;
+    }
 
     let isMounted = true;
     const transferId = `music-${track.id}`;
@@ -148,13 +153,18 @@ export default function MusicBar({ track, playlist, onNext, onPrev, onClose }) {
     }
   };
 
-  if (!track) return null;
-
   const progressPct = duration ? (currentTime / duration) * 100 : 0;
   const volPct = isMuted ? 0 : volume * 100;
 
   return (
-    <div className={styles.musicBar}>
+    <div 
+      className={styles.musicBar}
+      style={{ 
+        transform: track ? 'translateY(0)' : 'translateY(100%)',
+        opacity: track ? 1 : 0,
+        pointerEvents: track ? 'auto' : 'none'
+      }}
+    >
       {audioUrl && (
         <audio
           ref={audioRef}
@@ -170,11 +180,11 @@ export default function MusicBar({ track, playlist, onNext, onPrev, onClose }) {
         {/* Track Info */}
         <div className={styles.trackInfo}>
           <div className={styles.artwork}>
-            <FileThumbnailSmall file={track} />
+            {track && <FileThumbnailSmall file={track} />}
           </div>
           <div className={styles.details}>
-            <div className={styles.title}>{metadata.title}</div>
-            <div className={styles.artist}>{metadata.artist}</div>
+            <div className={styles.title}>{metadata.title || 'No Track Selected'}</div>
+            <div className={styles.artist}>{metadata.artist || '—'}</div>
           </div>
         </div>
 
@@ -192,12 +202,15 @@ export default function MusicBar({ track, playlist, onNext, onPrev, onClose }) {
               <SkipBack size={20} fill="currentColor" />
             </button>
             <button onClick={togglePlay} className={styles.playBtn}>
-              {loading ? (
-                <div className={styles.loader} />
-              ) : isPlaying ? (
+              {isPlaying ? (
                 <Pause size={20} fill="currentColor" />
               ) : (
                 <Play size={20} fill="currentColor" />
+              )}
+              {loading && (
+                <div className={styles.loaderOverlay}>
+                  <div className={styles.loader} />
+                </div>
               )}
             </button>
             <button onClick={() => onNext(isShuffle)} className={styles.mainBtn}>
@@ -284,7 +297,7 @@ function FileThumbnailSmall({ file }) {
   const [url, setUrl] = useState(null);
 
   useEffect(() => {
-    if (!showPreviews || !showAudioPreviews) return;
+    if (!showPreviews || !showAudioPreviews || !file) return;
     let isMounted = true;
     api.downloadFirstChunk(file).then(buffer => {
       if (!isMounted) return;
@@ -300,7 +313,7 @@ function FileThumbnailSmall({ file }) {
       });
     }).catch(() => {});
     return () => { isMounted = false; };
-  }, [file.id]);
+  }, [file?.id]);
 
   if (url) return (
     <img src={url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />

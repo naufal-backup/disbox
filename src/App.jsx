@@ -223,7 +223,7 @@ function AppInner() {
         )}
       </div>
       
-      {isConnected && currentTrack && (
+      {isConnected && (
         <MusicBar 
           track={currentTrack} 
           playlist={playlist}

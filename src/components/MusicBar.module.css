@@ -151,6 +151,17 @@
   transition: transform 0.18s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow 0.18s ease;
   box-shadow: 0 4px 14px rgba(0,0,0,0.35);
   flex-shrink: 0;
+  position: relative;
+}
+
+.loaderOverlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 50%;
 }
 
 .playBtn:hover {
