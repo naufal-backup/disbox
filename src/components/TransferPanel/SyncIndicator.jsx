@@ -1,7 +1,7 @@
 import { CheckCircle2, AlertCircle, RefreshCw } from 'lucide-react';
 import styles from '../TransferPanel.module.css';
 
-export default function SyncIndicator({ status, items, panelVisible, t }) {
+export default function SyncIndicator({ status, items, panelVisible, hasMusicBar, t }) {
   const isUploading = status === 'uploading' || status === 'dirty';
   const isSynced = status === 'synced';
   const isError = status === 'error';
@@ -10,11 +10,13 @@ export default function SyncIndicator({ status, items, panelVisible, t }) {
                 status === 'dirty' ? t('waiting_sync') : 
                 isSynced ? t('synced') : t('sync_error');
 
+  const bottomBase = hasMusicBar ? 20 + 88 : 20;
+
   return (
     <div 
       className={styles.syncIndicator} 
       style={{ 
-        bottom: panelVisible ? 'calc(20px + 52px)' : '20px',
+        bottom: panelVisible ? `calc(${bottomBase}px + 52px)` : `${bottomBase}px`,
       }}
     >
       <div className={styles.syncBadge} style={{ 

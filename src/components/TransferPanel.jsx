@@ -7,7 +7,11 @@ import SyncIndicator from './TransferPanel/SyncIndicator.jsx';
 import TransferItem from './TransferPanel/TransferItem.jsx';
 
 export default function TransferPanel({ activePage }) {
-  const { transfers, removeTransfer, cancelTransfer, autoCloseTransfers, metadataStatus, t } = useApp();
+  const { 
+    transfers, removeTransfer, cancelTransfer, 
+    autoCloseTransfers, metadataStatus, t,
+    currentTrack
+  } = useApp();
   const [collapsed, setCollapsed] = useState(false);
 
   const visibleTransfers = useMemo(() => transfers.filter(t => !t.hidden), [transfers]);
@@ -45,12 +49,13 @@ export default function TransferPanel({ activePage }) {
           status={metadataStatus.status} 
           items={metadataStatus.items} 
           panelVisible={showPanel}
+          hasMusicBar={!!currentTrack}
           t={t}
         />
       )}
 
       {showPanel && (
-        <div className={styles.panel}>
+        <div className={`${styles.panel} ${currentTrack ? styles.withMusic : ''}`}>
           <div className={styles.header} onClick={() => setCollapsed(c => !c)}>
             <div className={styles.headerLeft}>
               <span className={styles.title}>

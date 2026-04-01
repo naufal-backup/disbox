@@ -11,6 +11,20 @@
   z-index: 200;
   overflow: hidden;
   animation: fadeIn 0.2s ease;
+  transition: bottom 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.panel.withMusic {
+  bottom: 108px; /* 20 + 88 */
+}
+
+@media (max-width: 768px) {
+  .panel.withMusic {
+    bottom: calc(68px + 10px); /* MusicBar mobile height (68) + some space */
+    right: 10px;
+    left: 10px;
+    width: auto;
+  }
 }
 
 @media (max-width: 480px) {
