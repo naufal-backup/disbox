@@ -8,7 +8,7 @@ import { formatSize, getMimeType } from '../utils/disbox.js';
 import styles from './MusicBar.module.css';
 
 export default function MusicBar({ track, playlist, onNext, onPrev, onClose }) {
-  const { api, addTransfer, updateTransfer, removeTransfer, isSidebarOpen } = useApp();
+  const { api, addTransfer, removeTransfer } = useApp();
   const [isPlaying, setIsPlaying] = useState(false);
   const [isLooping, setIsLooping] = useState(false);
   const [isShuffle, setIsShuffle] = useState(false);
@@ -20,42 +20,57 @@ export default function MusicBar({ track, playlist, onNext, onPrev, onClose }) {
   const [loading, setLoading] = useState(false);
   const [metadata, setMetadata] = useState({ title: '', artist: '' });
   const audioRef = useRef(null);
+  const currentAudioUrlRef = useRef(null);
 
   useEffect(() => {
     if (!track) return;
-    
+
     let isMounted = true;
-    let url = null;
     const transferId = `music-${track.id}`;
 
     const loadTrack = async () => {
+      // Revoke previous blob URL if exists to avoid leaks
+      if (currentAudioUrlRef.current && currentAudioUrlRef.current.startsWith('blob:')) {
+        URL.revokeObjectURL(currentAudioUrlRef.current);
+        currentAudioUrlRef.current = null;
+      }
+
       setLoading(true);
       setMetadata({ title: track.path.split('/').pop(), artist: 'Disbox Audio' });
-      
-      try {
-        // ─── Use streaming API for audio (similar to Desktop) ──────────
-        const mime = getMimeType(track.path);
-        const messagesStr = encodeURIComponent(JSON.stringify(track.messageIds));
-        const streamUrl = `/api/stream?webhook=${encodeURIComponent(api.webhookUrl)}&mime=${encodeURIComponent(mime)}&size=${track.size}&chunkSize=${api.chunkSize}&messages=${messagesStr}&_t=${Date.now()}`;
-        
-        if (isMounted) {
-          setAudioUrl(streamUrl);
-          setIsPlaying(true);
-        }
 
-        // We still might want to fetch some metadata (ID3 tags) from the first chunk
-        const firstChunk = await api.downloadFirstChunk(track);
-        if (isMounted && window.jsmediatags) {
-          window.jsmediatags.read(new Blob([firstChunk]), {
-            onSuccess: (tag) => {
-              if (isMounted) {
-                setMetadata({
-                  title: tag.tags.title || track.path.split('/').pop(),
-                  artist: tag.tags.artist || 'Unknown Artist'
-                });
+      try {
+        const mime = getMimeType(track.path);
+        const signal = addTransfer({
+          id: transferId,
+          name: `Load: ${track.path.split('/').pop()}`,
+          progress: 0,
+          type: 'download',
+          status: 'active',
+          hidden: true
+        });
+
+        const buffer = await api.downloadFile(track, undefined, signal);
+
+        const blob = new Blob([buffer], { type: mime });
+        const url = URL.createObjectURL(blob);
+        currentAudioUrlRef.current = url;
+
+        if (isMounted) {
+          setAudioUrl(url);
+          setIsPlaying(true);
+          // Extract ID3 tags from buffer if available
+          if (window.jsmediatags) {
+            window.jsmediatags.read(new Blob([buffer]), {
+              onSuccess: (tag) => {
+                if (isMounted) {
+                  setMetadata({
+                    title: tag.tags.title || track.path.split('/').pop(),
+                    artist: tag.tags.artist || 'Unknown Artist'
+                  });
+                }
               }
-            }
-          });
+            });
+          }
         }
       } catch (e) {
         console.error('Failed to load music:', e);
@@ -68,10 +83,13 @@ export default function MusicBar({ track, playlist, onNext, onPrev, onClose }) {
 
     return () => {
       isMounted = false;
-      if (url) URL.revokeObjectURL(url);
+      if (currentAudioUrlRef.current && currentAudioUrlRef.current.startsWith('blob:')) {
+        URL.revokeObjectURL(currentAudioUrlRef.current);
+        currentAudioUrlRef.current = null;
+      }
       removeTransfer(transferId);
     };
-  }, [track?.id]);
+  }, [track?.id, api, addTransfer, removeTransfer]);
 
   const togglePlay = () => {
     if (audioRef.current) {
