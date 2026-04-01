@@ -1,0 +1,408 @@
+/* DiscordSetupPage.module.css */
+
+/* ── Card container ────────────────────────────────────────────────────────── */
+.card {
+  width: 100%;
+  max-width: 460px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-bright);
+  border-radius: var(--radius-xl);
+  padding: 28px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255,255,255,0.03);
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* ── Header ────────────────────────────────────────────────────────────────── */
+.header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.headerIcon {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-bright));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  flex-shrink: 0;
+  box-shadow: 0 4px 12px var(--accent-glow);
+}
+
+.headerText {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.headerTitle {
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+
+.headerSub {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+/* ── Loading ───────────────────────────────────────────────────────────────── */
+.loadingWrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 24px 0;
+}
+
+.spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid rgba(88, 101, 242, 0.2);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.loadingText {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+/* ── Error box ─────────────────────────────────────────────────────────────── */
+.errorBox {
+  background: rgba(237, 66, 69, 0.08);
+  border: 1px solid rgba(237, 66, 69, 0.25);
+  border-radius: var(--radius);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.errorIcon {
+  font-size: 20px;
+}
+
+.errorMsg {
+  font-size: 13px;
+  color: var(--red);
+  margin: 0;
+  line-height: 1.5;
+}
+
+.errorActions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────────── */
+.btnPrimary {
+  padding: 9px 18px;
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-on-accent);
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s;
+  box-shadow: var(--glow-accent);
+}
+.btnPrimary:hover { background: var(--accent-hover); transform: translateY(-1px); }
+.btnPrimary:active { transform: scale(0.97); }
+
+.btnSecondary {
+  padding: 9px 18px;
+  background: transparent;
+  border: 1px solid var(--border-bright);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.btnSecondary:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+/* ── Server picker ─────────────────────────────────────────────────────────── */
+.pickWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.pickHint {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* Search */
+.searchBox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-input);
+  border-radius: var(--radius-sm);
+  padding: 0 12px;
+  height: 36px;
+  color: var(--text-muted);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.searchBox:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-dim);
+}
+
+.searchInput {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-family: var(--font-body);
+  font-size: 13px;
+  color: var(--text-primary);
+}
+.searchInput::placeholder { color: var(--text-muted); }
+
+.searchClear {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: color 0.1s;
+}
+.searchClear:hover { color: var(--text-primary); }
+
+/* Guild list */
+.guildList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 340px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.guildList::-webkit-scrollbar { width: 4px; }
+.guildList::-webkit-scrollbar-thumb { background: var(--border-bright); border-radius: 99px; }
+
+.guildItem {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: all 0.15s;
+  text-align: left;
+  color: var(--text-primary);
+  width: 100%;
+}
+.guildItem:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: var(--accent);
+  transform: translateX(3px);
+  box-shadow: -3px 0 0 var(--accent);
+}
+.guildItem:active:not(:disabled) {
+  transform: scale(0.99);
+}
+.guildItem:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.guildInfo {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.guildName {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.guildRole {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.guildArrow {
+  color: var(--text-dim);
+  flex-shrink: 0;
+  transition: transform 0.15s, color 0.15s;
+}
+.guildItem:hover:not(:disabled) .guildArrow {
+  color: var(--accent-bright);
+  transform: translateX(3px);
+}
+
+.guildEmpty {
+  padding: 24px 16px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 13px;
+  background: var(--bg-elevated);
+  border: 1px dashed var(--border-bright);
+  border-radius: var(--radius);
+}
+.guildEmpty span:last-child {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+/* ── Setup progress ────────────────────────────────────────────────────────── */
+.setupWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.stepList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 0;
+}
+
+.stepRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  position: relative;
+  overflow: hidden;
+}
+
+/* Active step highlight */
+.stepRow:has(.stepBadge_active) {
+  border-color: var(--accent-dim);
+  background: rgba(88, 101, 242, 0.06);
+}
+
+.stepBadge {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  flex-shrink: 0;
+  position: relative;
+}
+
+.stepBadge_done    { background: var(--green);  color: #fff; }
+.stepBadge_active  { background: var(--accent); color: #fff; border: 2px solid var(--accent-bright); }
+.stepBadge_error   { background: var(--red);    color: #fff; }
+.stepBadge_pending { background: rgba(255,255,255,0.07); color: var(--text-dim); }
+
+.stepPing {
+  position: absolute;
+  inset: -2px;
+  border-radius: 50%;
+  border: 2px solid var(--accent);
+  animation: ping 1.2s cubic-bezier(0,0,0.2,1) infinite;
+}
+
+.stepLabel {
+  flex: 1;
+  font-size: 13px;
+}
+
+.stepLabel_done    { color: var(--text-muted); }
+.stepLabel_active  { color: var(--text-primary); }
+.stepLabel_error   { color: var(--red); }
+.stepLabel_pending { color: var(--text-dim); }
+
+.stepDots {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+.stepDots span {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--accent-bright);
+  animation: bounce 1.2s ease infinite;
+}
+.stepDots span:nth-child(2) { animation-delay: 0.15s; }
+.stepDots span:nth-child(3) { animation-delay: 0.3s; }
+
+/* ── Done state ────────────────────────────────────────────────────────────── */
+.doneWrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 12px 0;
+  gap: 10px;
+}
+
+.doneEmoji {
+  font-size: 52px;
+  line-height: 1;
+  animation: bounceIn 0.5s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+}
+
+.doneTitle {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.doneSub {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 0;
+  line-height: 1.6;
+}
+.doneSub strong {
+  color: var(--accent-bright);
+}
+
+/* ── Keyframes ─────────────────────────────────────────────────────────────── */
+@keyframes spin     { to { transform: rotate(360deg); } }
+@keyframes bounce   { 0%,80%,100%{transform:scale(0)} 40%{transform:scale(1)} }
+@keyframes ping     { 0%{transform:scale(1);opacity:1} 100%{transform:scale(2);opacity:0} }
+@keyframes bounceIn { from{transform:scale(0.5);opacity:0} to{transform:scale(1);opacity:1} }

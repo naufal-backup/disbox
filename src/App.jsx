@@ -1,12 +1,15 @@
 import { useState, useEffect } from 'react';
 import { Toaster, toast } from 'react-hot-toast';
 import { Hexagon } from 'lucide-react';
-import { AppProvider, useApp } from '@/AppContext.jsx';
-import LoginPage from '@/pages/LoginPage/LoginPage.jsx';
-import DrivePage from '@/pages/DrivePage/DrivePage.jsx';
-import MusicBar from '@/components/MusicBar/MusicBar.jsx';
+import { AppProvider } from './AppContext.jsx';
+import { useApp } from './context/useAppHook.js';
+import LoginPage from './pages/LoginPage.jsx';
+import DrivePage from './pages/DrivePage.jsx';
+import ShareViewPage from './pages/ShareViewPage.jsx';
+import DiscordSetupPage from './pages/DiscordSetupPage.jsx';
+import MusicBar from './components/MusicBar.jsx';
 import { Shield, Loader2 } from 'lucide-react';
-import styles from '@/App.module.css';
+import styles from './App.module.css';
 
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -20,10 +23,7 @@ function AppLockGateway({ onUnlocked }) {
     e.preventDefault();
     setLoading(true);
     setError('');
-    
-    // Simulate slight delay for verification feel
     await new Promise(resolve => setTimeout(resolve, 500));
-
     if (pin === appLockPin) {
       onUnlocked();
     } else {
@@ -34,59 +34,59 @@ function AppLockGateway({ onUnlocked }) {
   };
 
   return (
-    <div style={{ 
-      height: '100vh', width: '100vw', display: 'flex', 
-      alignItems: 'center', justifyContent: 'center', 
-      background: 'var(--bg-primary)', position: 'fixed', inset: 0, zIndex: 9999 
+    <div style={{
+      height: '100vh', width: '100vw', display: 'flex',
+      alignItems: 'center', justifyContent: 'center',
+      background: 'var(--bg-primary)', position: 'fixed', inset: 0, zIndex: 9999
     }}>
-      <motion.div 
+      <motion.div
         initial={animationsEnabled ? { opacity: 0, scale: 0.9, y: 20 } : {}}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-        style={{ 
-          background: 'var(--bg-elevated)', padding: 40, borderRadius: 24, 
-          border: '1px solid var(--border-bright)', textAlign: 'center', 
-          width: '100%', maxWidth: 360, boxShadow: '0 20px 50px rgba(0,0,0,0.5)' 
+        style={{
+          background: 'var(--bg-elevated)', padding: 40, borderRadius: 24,
+          border: '1px solid var(--border-bright)', textAlign: 'center',
+          width: '100%', maxWidth: 360, boxShadow: '0 20px 50px rgba(0,0,0,0.5)'
         }}
       >
         <div style={{ position: 'relative', marginBottom: 20, display: 'inline-block' }}>
           <Shield size={56} style={{ color: 'var(--accent)' }} />
-          <motion.div 
+          <motion.div
             animate={animationsEnabled ? { opacity: [0.5, 1, 0.5] } : {}}
             transition={{ repeat: Infinity, duration: 2 }}
             style={{ position: 'absolute', inset: -10, border: '2px solid var(--accent)', borderRadius: '50%', opacity: 0.2 }}
           />
         </div>
-        
+
         <h3 style={{ fontSize: 22, fontWeight: 800, marginBottom: 10, color: 'var(--text-primary)' }}>
           {t('app_locked')}
         </h3>
         <p style={{ fontSize: 14, color: 'var(--text-muted)', marginBottom: 28 }}>
           {t('app_locked_desc')}
         </p>
-        
+
         <form onSubmit={handleSubmit}>
           <motion.div
             animate={error && animationsEnabled ? { x: [-10, 10, -10, 10, 0] } : {}}
             transition={{ duration: 0.4 }}
           >
-            <input 
-              type="password" 
-              placeholder={t('app_lock_placeholder') || '••••'} 
+            <input
+              type="password"
+              placeholder={t('app_lock_placeholder') || '••••'}
               value={pin}
               onChange={e => setPin(e.target.value)}
               autoFocus
-              style={{ 
-                width: '100%', background: 'var(--bg-surface)', border: '1px solid var(--border)', 
-                borderRadius: 14, padding: 18, color: 'white', textAlign: 'center', 
-                fontSize: 28, letterSpacing: '0.4em', marginBottom: 12, outline: 'none' 
+              style={{
+                width: '100%', background: 'var(--bg-surface)', border: '1px solid var(--border)',
+                borderRadius: 14, padding: 18, color: 'white', textAlign: 'center',
+                fontSize: 28, letterSpacing: '0.4em', marginBottom: 12, outline: 'none'
               }}
             />
           </motion.div>
-          
+
           <AnimatePresence>
             {error && (
-              <motion.p 
+              <motion.p
                 initial={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: 'auto' }}
                 exit={{ opacity: 0, height: 0 }}
@@ -97,13 +97,13 @@ function AppLockGateway({ onUnlocked }) {
             )}
           </AnimatePresence>
 
-          <button 
-            type="submit" 
+          <button
+            type="submit"
             disabled={loading || !pin}
-            style={{ 
-              width: '100%', padding: 16, background: 'var(--accent)', border: 'none', 
-              borderRadius: 14, color: 'white', fontWeight: 800, fontSize: 15, 
-              cursor: 'pointer', transition: 'all 0.2s', display: 'flex', 
+            style={{
+              width: '100%', padding: 16, background: 'var(--accent)', border: 'none',
+              borderRadius: 14, color: 'white', fontWeight: 800, fontSize: 15,
+              cursor: 'pointer', transition: 'all 0.2s', display: 'flex',
               alignItems: 'center', justifyContent: 'center', gap: 10
             }}
           >
@@ -148,22 +148,36 @@ function AppInner() {
     setCurrentTrack(playlist[prevIdx]);
   };
 
-  // Auto-reconnect if saved webhook exists
-  useEffect(() => {
+    useEffect(() => {
     let isMounted = true;
     if (webhookUrl && !isConnected && !loading && !isConnecting) {
       setAutoConnecting(true);
       connect(webhookUrl)
         .catch(err => {
           console.error('[App] Auto-connect failed:', err);
+          // Show user-friendly error
           toast.error(err.message || 'Gagal menghubungkan ke drive. Silakan coba login kembali.');
         })
-        .finally(() => {
-          if (isMounted) setAutoConnecting(false);
-        });
+        .finally(() => { if (isMounted) setAutoConnecting(false); });
     }
     return () => { isMounted = false; };
   }, []);
+
+  // Tangani route /share/* — tampilkan ShareViewPage tanpa perlu login
+  if (window.location.pathname.startsWith('/share/')) {
+    return <ShareViewPage />;
+  }
+
+  // Auto-reconnect jika ada webhook tersimpan
+  const isDiscordCallback = window.location.pathname === '/discord/callback'
+    && new URLSearchParams(window.location.search).has('code');
+  if (isDiscordCallback) {
+    return (
+      <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#05050a' }}>
+        <DiscordSetupPage onBack={() => window.history.replaceState({}, '', '/')} />
+      </div>
+    );
+  }
 
   if (appLockEnabled && !isAppUnlocked) {
     return <AppLockGateway onUnlocked={() => setIsAppUnlocked(true)} />;
@@ -171,8 +185,8 @@ function AppInner() {
 
   return (
     <div className={styles.app}>
-      <Toaster 
-        position="bottom-center" 
+      <Toaster
+        position="bottom-center"
         toastOptions={{
           style: {
             background: 'var(--bg-elevated)',

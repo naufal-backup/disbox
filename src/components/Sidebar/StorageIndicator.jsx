@@ -1,5 +1,5 @@
 import { Infinity } from 'lucide-react';
-import styles from './Sidebar.module.css';
+import styles from '../Sidebar.module.css';
 
 export default function StorageIndicator({ files, t }) {
   const totalSize = files.reduce((sum, f) => sum + (f.size || 0), 0);
@@ -15,9 +15,7 @@ export default function StorageIndicator({ files, t }) {
         <span>{t('storage')}</span>
         <span className={styles.storageValue}>{formatSizeGB(totalSize)}</span>
       </div>
-      <span className={styles.storageNote}>
-        Discord Unlimited <Infinity size={11} style={{ verticalAlign: 'middle', marginBottom: 1 }} />
-      </span>
+      <span className={styles.storageNote}>Discord Unlimited <Infinity size={11} style={{ verticalAlign: 'middle', marginBottom: 1 }} /></span>
     </div>
   );
 }

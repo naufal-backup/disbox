@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Lock, Shield } from 'lucide-react';
-import { useApp } from '@/AppContext.jsx';
+import { useApp } from '../../context/useAppHook.js';
 
 export default function LockedGateway({ onVerified }) {
   const { verifyPin, hasPin, t } = useApp();

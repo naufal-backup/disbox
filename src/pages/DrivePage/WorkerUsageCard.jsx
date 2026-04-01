@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Activity } from 'lucide-react';
-import { ipc } from '@/utils/ipc';
-import styles from './DrivePage.module.css';
+import styles from '../DrivePage.module.css';
 
 export default function WorkerUsageCard({ t }) {
   const [workerUsage, setWorkerUsage] = useState({});
@@ -21,15 +20,15 @@ export default function WorkerUsageCard({ t }) {
       const results = {};
       await Promise.all(PUBLIC_WORKERS.map(async (worker) => {
         try {
-          const res = await ipc.fetch(`${worker.url}/share/stats`);
+          const res = await fetch(`${worker.url}/share/stats`);
           if (res.ok && isMounted) {
-            const data = JSON.parse(res.body);
+            const data = await res.json();
             results[worker.url] = data;
           }
         } catch (e) {
           if (isMounted) {
             try {
-              const ping = await ipc.fetch(worker.url);
+              const ping = await fetch(worker.url);
               if (ping.status < 500) results[worker.url] = { status: 'Online' };
             } catch (_) {}
           }

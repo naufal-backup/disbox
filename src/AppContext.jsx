@@ -1,54 +1,26 @@
-import { createContext, useContext, useCallback, useEffect, useRef, useState } from 'react';
-import { DisboxAPI, buildTree } from '@/utils/disbox.js';
-import { ipc } from '@/utils/ipc';
-import { clearThumbCache } from '@/utils/thumbnailCache.js';
-import { translations } from '@/utils/i18n.js';
-
+import { useState, useCallback, useEffect, useRef } from 'react';
+import { DisboxAPI, buildTree } from './utils/disbox.js';
+import { translations } from './utils/i18n.js';
+import { clearThumbCache } from './utils/thumbnailCache.js';
+import { AppContext } from './context/AppContextBase.jsx';
+import {
+  getSavedWebhooks, saveWebhookToList, updateWebhookLabel, removeWebhook
+} from './utils/webhookHelpers.js';
 import { useCloudSave } from './hooks/useCloudSave.js';
 
-const AppContext = createContext(null);
-
-const SAVED_WEBHOOKS_KEY = 'disbox_saved_webhooks';
-
-export function getSavedWebhooks() {
-  try { return JSON.parse(localStorage.getItem(SAVED_WEBHOOKS_KEY) || '[]'); }
-  catch (e) { return []; }
-}
-
-export function saveWebhookToList(url, label) {
-  const list = getSavedWebhooks();
-  const index = list.findIndex(i => i.url === url);
-  const entry = { url, label: label || (index >= 0 ? list[index].label : extractWebhookLabel(url)), lastUsed: Date.now() };
-  if (index >= 0) list.splice(index, 1);
-  list.unshift(entry);
-  localStorage.setItem(SAVED_WEBHOOKS_KEY, JSON.stringify(list.slice(0, 50)));
-}
-
-export function extractWebhookLabel(url) {
-  const parts = url.split('/');
-  return parts[parts.length - 2] ? `Webhook #${parts[parts.length - 2].slice(-6)}` : 'Unnamed';
-}
-
-export function AppProvider({ children }) {
-  // ─── 1. Core State ──────────────────────────────────────────────────────────
+export function AppProvider({ children }) {  // ─── 1. States & Refs ──────────────────────────────────────────────────────
   const [api, setApi] = useState(null);
   const [webhookUrl, setWebhookUrl] = useState(() => localStorage.getItem('disbox_webhook') || '');
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [metadataStatus, setMetadataStatus] = useState({ status: 'synced', items: 0 });
-  const [savedWebhooks, setSavedWebhooks] = useState(getSavedWebhooks);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [currentTrack, setCurrentTrack] = useState(null);
-  const [playlist, setPlaylist] = useState([]);
-  
-  // ─── 2. File State ──────────────────────────────────────────────────────────
   const [files, setFiles] = useState([]);
   const [fileTree, setFileTree] = useState(null);
   const [currentPath, setCurrentPath] = useState('/');
-  const [pendingOperations, setPendingOperations] = useState({});
+  const [loading, setLoading] = useState(false);
+  const [transfers, setTransfers] = useState([]);
+  const isTransferring = transfers.some(t => t.status === 'active');
 
-  // ─── 3. Preference State ─────────────────────────────────────────────────────
+  const [savedWebhooks, setSavedWebhooks] = useState(getSavedWebhooks);
   const [language, setLanguage] = useState(() => localStorage.getItem('disbox_lang') || 'id');
   const [theme, setTheme] = useState(() => localStorage.getItem('disbox_theme') || 'dark');
   const [uiScale, setUiScale] = useState(() => Number(localStorage.getItem('disbox_ui_scale')) || 1);
@@ -66,29 +38,30 @@ export function AppProvider({ children }) {
   const [showRecent, setShowRecent] = useState(() => localStorage.getItem('disbox_show_recent') !== 'false');
   const [autoCloseTransfers, setAutoCloseTransfers] = useState(() => localStorage.getItem('disbox_auto_close_transfers') !== 'false');
   const [animationsEnabled, setAnimationsEnabled] = useState(() => localStorage.getItem('disbox_animations_enabled') !== 'false');
+  const [metadataStatus, setMetadataStatus] = useState({ status: 'synced', items: 0 });
   const [closeToTray, setCloseToTray] = useState(true);
   const [startMinimized, setStartMinimized] = useState(false);
   const [chunksPerMessage, setChunksPerMessage] = useState(1);
-
-  // ─── 4. Auth State ──────────────────────────────────────────────────────────
   const [isVerified, setIsVerified] = useState(false);
   const [pinExists, setPinExists] = useState(null);
-  const [appLockEnabled, setAppLockEnabled] = useState(false);
-  const [appLockPin, setAppLockPin] = useState('');
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [appLockEnabled, setAppLockEnabled] = useState(() => localStorage.getItem('disbox_app_lock_enabled') === 'true');
+  const [appLockPin, setAppLockPin] = useState(() => localStorage.getItem('disbox_app_lock_pin') || '');
   const [isAppUnlocked, setIsAppUnlocked] = useState(false);
-
-  // ─── 5. Transfer State ──────────────────────────────────────────────────────
-  const [transfers, setTransfers] = useState([]);
-  const abortControllersRef = useRef(new Map());
-  const isTransferring = transfers.some(t => t.status === 'active');
-
-  // ─── 6. Share State ─────────────────────────────────────────────────────────
-  const [shareEnabled, setShareEnabled] = useState(true);
-  const [shareMode, setShareMode] = useState('public');
+  const [cloudSaveEnabled, setCloudSaveEnabled] = useState(false);
+  const [cloudSaves, setCloudSaves] = useState([]);
+  const [shareEnabled, setShareEnabled] = useState(() => localStorage.getItem('disbox_share_enabled') !== 'false');
+  const [shareMode, setShareMode] = useState(() => localStorage.getItem('disbox_share_mode') || 'public');
   const [shareLinks, setShareLinks] = useState([]);
   const [cfWorkerUrl, setCfWorkerUrl] = useState('');
 
-  // ─── 7. Helper Functions ────────────────────────────────────────────────────
+  const [currentTrack, setCurrentTrack] = useState(null);
+  const [playlist, setPlaylist] = useState([]);
+  const [pendingOperations, setPendingOperations] = useState({}); // { [path]: { type, progress, tempItem? } }
+
+  const abortControllersRef = useRef(new Map());
+
+  // ─── 2. Leaf Callbacks (No dependencies on other callbacks) ────────────────
   const t = useCallback((key, params = null) => {
     let text = translations[language]?.[key] || translations['en']?.[key] || key;
     if (params) { Object.keys(params).forEach(k => { text = text.replace(`{${k}}`, params[k]); }); }
@@ -96,17 +69,6 @@ export function AppProvider({ children }) {
   }, [language]);
 
   const toggleTheme = useCallback(() => { setTheme(prev => prev === 'dark' ? 'light' : 'dark'); }, []);
-
-  const addPendingItem = useCallback((path, tempItem, type) => {
-    setPendingOperations(prev => ({ ...prev, [path]: { type, tempItem, progress: 0 } }));
-  }, []);
-
-  const updatePendingProgress = useCallback((path, progress) => {
-    setPendingOperations(prev => {
-      if (!prev[path]) return prev;
-      return { ...prev, [path]: { ...prev[path], progress } };
-    });
-  }, []);
 
   const unmarkPending = useCallback((path) => {
     setPendingOperations(prev => {
@@ -116,12 +78,54 @@ export function AppProvider({ children }) {
     });
   }, []);
 
+  const addPendingItem = useCallback((path, tempItem, operationType = 'create') => {
+    setPendingOperations(prev => ({
+      ...prev,
+      [path]: { type: operationType, progress: 0, tempItem }
+    }));
+  }, []);
+
+  const updatePendingProgress = useCallback((path, progress) => {
+    setPendingOperations(prev => {
+      const current = prev[path];
+      if (current) {
+        return {
+          ...prev,
+          [path]: { ...current, progress }
+        };
+      }
+      return prev;
+    });
+  }, []);
+
+  const handleUpdateLabel = useCallback((url, label) => {
+    if (updateWebhookLabel(url, label)) setSavedWebhooks(getSavedWebhooks());
+  }, []);
+
+  const handleRemoveWebhook = useCallback((url) => {
+    removeWebhook(url);
+    setSavedWebhooks(getSavedWebhooks());
+  }, []);
+
+  const handleAddWebhook = useCallback((url, label) => {
+    saveWebhookToList(url, label);
+    setSavedWebhooks(getSavedWebhooks());
+  }, []);
+
+  const updatePrefs = useCallback((prefs) => {
+    if (prefs.closeToTray !== undefined) setCloseToTray(prefs.closeToTray);
+    if (prefs.startMinimized !== undefined) setStartMinimized(prefs.startMinimized);
+    if (prefs.chunksPerMessage !== undefined) setChunksPerMessage(prefs.chunksPerMessage);
+    if (window.electron?.setPrefs) window.electron.setPrefs(prefs);
+  }, []);
+
+  // ─── 3. Intermediate Callbacks (Depend on leaf callbacks) ───────────────────
   const refresh = useCallback(async (silent = false) => {
     if (!api) return;
     if (!silent) setLoading(true);
     try {
-      // 1. Ambil data lokal dulu agar instant
-      const fsLocal = await ipc.loadMetadata(api.hashedWebhook);
+      // 1. Ambil data lokal dulu agar instant (setelah local operation seperti create/delete)
+      const fsLocal = await window.electron.loadMetadata(api.hashedWebhook);
       if (fsLocal) {
         setFiles(fsLocal);
         setFileTree(buildTree(fsLocal));
@@ -139,6 +143,38 @@ export function AppProvider({ children }) {
     }
   }, [api]);
 
+  const loadShareLinks = useCallback(async () => {
+    if (!api) return;
+    try { const links = await window.electron.shareGetLinks(api.hashedWebhook); setShareLinks(links || []); }
+    catch (e) { console.error('[share] loadShareLinks error:', e.message); }
+  }, [api]);
+
+  const createShareLink = useCallback(async (filePath, fileId, permission, expiresAt) => {
+    if (!api) return { ok: false, reason: 'no_api' };
+    const result = await window.electron.shareCreateLink(api.hashedWebhook, { filePath, fileId, permission, expiresAt });
+    if (result.ok) await loadShareLinks();
+    return result;
+  }, [api, loadShareLinks]);
+
+  const revokeShareLink = useCallback(async (id, token) => {
+    if (!api) return false;
+    const ok = await window.electron.shareRevokeLink(api.hashedWebhook, { id, token });
+    if (ok) await loadShareLinks();
+    return ok;
+  }, [api, loadShareLinks]);
+
+  const revokeAllLinks = useCallback(async () => {
+    if (!api) return false;
+    const ok = await window.electron.shareRevokeAll(api.hashedWebhook);
+    if (ok) setShareLinks([]);
+    return ok;
+  }, [api]);
+
+  const deployWorker = useCallback(async (apiToken) => {
+    return await window.electron.shareDeployWorker({ apiToken });
+  }, []);
+
+  // ─── 4. High-level Callbacks (Business logic) ───────────────────────────────
   const connect = useCallback(async (url, options = {}) => {
     setIsConnecting(true);
     setLoading(true);
@@ -159,6 +195,7 @@ export function AppProvider({ children }) {
       const fs = await instance.getFileSystem();
 
       const normalizedUrl = instance.webhookUrl;
+
       localStorage.setItem('disbox_webhook', normalizedUrl);
       
       const isCloudAccount = !!localStorage.getItem('dbx_username');
@@ -167,7 +204,7 @@ export function AppProvider({ children }) {
         setSavedWebhooks(getSavedWebhooks());
       }
 
-      ipc?.setActiveWebhook(normalizedUrl, instance.hashedWebhook);
+      window.electron?.setActiveWebhook(normalizedUrl, instance.hashedWebhook);
 
       setWebhookUrl(normalizedUrl);
       setApi(instance);
@@ -176,20 +213,20 @@ export function AppProvider({ children }) {
       setIsConnected(true);
 
       try {
-        const shareSettings = await ipc.shareGetSettings(instance.hashedWebhook);
+        const shareSettings = await window.electron.shareGetSettings(instance.hashedWebhook);
         if (shareSettings) {
           setShareEnabled(!!shareSettings.enabled);
           setShareMode(shareSettings.mode || 'public');
           setCfWorkerUrl(shareSettings.cf_worker_url || '');
           
-          await ipc.shareSaveSettings(instance.hashedWebhook, {
+          await window.electron.shareSaveSettings(instance.hashedWebhook, {
             enabled: shareSettings.enabled,
             mode: shareSettings.mode || 'public',
             cf_worker_url: shareSettings.cf_worker_url || '',
             webhook_url: normalizedUrl
           });
         } else {
-          await ipc.shareSaveSettings(instance.hashedWebhook, {
+          await window.electron.shareSaveSettings(instance.hashedWebhook, {
             enabled: 1,
             mode: 'public',
             cf_worker_url: '',
@@ -199,7 +236,7 @@ export function AppProvider({ children }) {
           setShareMode('public');
           setCfWorkerUrl('');
         }
-        const links = await ipc.shareGetLinks(instance.hashedWebhook);
+        const links = await window.electron.shareGetLinks(instance.hashedWebhook);
         setShareLinks(links || []);
       } catch (e) {
         console.warn('[share] Failed to load share settings:', e.message);
@@ -222,8 +259,6 @@ export function AppProvider({ children }) {
     clearThumbCache();
     localStorage.removeItem('disbox_webhook');
     localStorage.removeItem('dbx_username');
-    localStorage.removeItem('dbx_user_id');
-    sessionStorage.removeItem('dbx_user_id');
     setApi(null);
     setWebhookUrl('');
     setIsConnected(false);
@@ -327,12 +362,12 @@ export function AppProvider({ children }) {
       const hash = api.hashedWebhook;
       const target = files.find(f => f.id === id);
       if (target) {
-        await ipc.setLocked(id, hash, isLocked);
+        await window.electron.setLocked(id, hash, isLocked);
       } else {
         const folderPath = id;
         const affectedFiles = files.filter(f => f.path === folderPath || f.path.startsWith(folderPath + '/'));
         for (const f of affectedFiles) {
-          await ipc.setLocked(f.id, hash, isLocked);
+          await window.electron.setLocked(f.id, hash, isLocked);
         }
       }
       await refresh(); return true;
@@ -345,10 +380,10 @@ export function AppProvider({ children }) {
       const hash = api.hashedWebhook;
       const target = files.find(f => f.id === id);
       if (target) {
-        await ipc.setStarred(id, hash, isStarred);
+        await window.electron.setStarred(id, hash, isStarred);
       } else {
         const keepFile = files.find(f => f.path === (id ? `${id}/.keep` : '.keep'));
-        if (keepFile) await ipc.setStarred(keepFile.id, hash, isStarred);
+        if (keepFile) await window.electron.setStarred(keepFile.id, hash, isStarred);
       }
       await refresh(); return true;
     } catch (e) { console.error('Set starred failed:', e); return false; }
@@ -356,43 +391,37 @@ export function AppProvider({ children }) {
 
   const verifyPin = useCallback(async (pin) => {
     if (!api) return false;
-    const ok = await ipc.verifyPin(api.hashedWebhook, pin);
+    const ok = await window.electron.verifyPin(api.hashedWebhook, pin);
     if (ok) setIsVerified(true);
     return ok;
   }, [api]);
 
   const setPin = useCallback(async (pin) => {
     if (!api) return false;
-    return await ipc.setPin(api.hashedWebhook, pin);
+    return await window.electron.setPin(api.hashedWebhook, pin);
   }, [api]);
 
   const hasPin = useCallback(async () => {
     if (!api) return false;
-    const exists = await ipc.hasPin(api.hashedWebhook);
+    const exists = await window.electron.hasPin(api.hashedWebhook);
     setPinExists(exists);
     return exists;
   }, [api]);
 
   const removePin = useCallback(async (pin) => {
     if (!api) return false;
-    const ok = await ipc.verifyPin(api.hashedWebhook, pin);
+    const ok = await window.electron.verifyPin(api.hashedWebhook, pin);
     if (ok) {
-      await ipc.removePin(api.hashedWebhook);
+      await window.electron.removePin(api.hashedWebhook);
       setIsVerified(false);
       return true;
     }
     return false;
   }, [api]);
 
-  const loadShareLinks = useCallback(async () => {
-    if (!api) return;
-    try { const links = await ipc.shareGetLinks(api.hashedWebhook); setShareLinks(links || []); }
-    catch (e) { console.error('[share] loadShareLinks error:', e.message); }
-  }, [api]);
-
   const saveShareSettings = useCallback(async (settings) => {
     if (!api) return false;
-    const ok = await ipc.shareSaveSettings(api.hashedWebhook, { ...settings, webhook_url: webhookUrl });
+    const ok = await window.electron.shareSaveSettings(api.hashedWebhook, { ...settings, webhook_url: webhookUrl });
     if (ok) {
       if (settings.enabled !== undefined) setShareEnabled(!!settings.enabled);
       if (settings.mode) setShareMode(settings.mode);
@@ -400,50 +429,6 @@ export function AppProvider({ children }) {
     }
     return ok;
   }, [api, webhookUrl]);
-
-  const deployWorker = useCallback(async (apiToken) => {
-    if (!api) return false;
-    const ok = await ipc.shareDeployWorker(api.hashedWebhook, apiToken);
-    if (ok) {
-      const shareSettings = await ipc.shareGetSettings(api.hashedWebhook);
-      if (shareSettings?.cf_worker_url) setCfWorkerUrl(shareSettings.cf_worker_url);
-    }
-    return ok;
-  }, [api]);
-
-  const createShareLink = useCallback(async (filePath, fileId = null, expireDays = 7) => {
-    if (!api) return null;
-    const link = await ipc.shareCreateLink(api.hashedWebhook, filePath, fileId, expireDays);
-    if (link) await loadShareLinks();
-    return link;
-  }, [api, loadShareLinks]);
-
-  const revokeShareLink = useCallback(async (token) => {
-    if (!api) return false;
-    const ok = await ipc.shareRevokeLink(api.hashedWebhook, token);
-    if (ok) await loadShareLinks();
-    return ok;
-  }, [api, loadShareLinks]);
-
-  const revokeAllLinks = useCallback(async () => {
-    if (!api) return false;
-    const ok = await ipc.shareRevokeAll(api.hashedWebhook);
-    if (ok) setShareLinks([]);
-    return ok;
-  }, [api]);
-
-  const updatePrefs = useCallback((prefs) => {
-    if (prefs.closeToTray !== undefined) setCloseToTray(prefs.closeToTray);
-    if (prefs.startMinimized !== undefined) setStartMinimized(prefs.startMinimized);
-    if (prefs.chunksPerMessage !== undefined) setChunksPerMessage(prefs.chunksPerMessage);
-    if (prefs.showRecent !== undefined) { setShowRecent(prefs.showRecent); localStorage.setItem('disbox_show_recent', prefs.showRecent.toString()); }
-    if (prefs.autoCloseTransfers !== undefined) { setAutoCloseTransfers(prefs.autoCloseTransfers); localStorage.setItem('disbox_auto_close_transfers', prefs.autoCloseTransfers.toString()); }
-    if (prefs.showPreviews !== undefined) { setShowPreviews(prefs.showPreviews); localStorage.setItem('disbox_show_previews', prefs.showPreviews.toString()); }
-    if (prefs.showImagePreviews !== undefined) { setShowImagePreviews(prefs.showImagePreviews); localStorage.setItem('disbox_show_image_previews', prefs.showImagePreviews.toString()); }
-    if (prefs.showVideoPreviews !== undefined) { setShowVideoPreviews(prefs.showVideoPreviews); localStorage.setItem('disbox_show_video_previews', prefs.showVideoPreviews.toString()); }
-    if (prefs.showAudioPreviews !== undefined) { setShowAudioPreviews(prefs.showAudioPreviews); localStorage.setItem('disbox_show_audio_previews', prefs.showAudioPreviews.toString()); }
-    if (ipc?.setPrefs) ipc.setPrefs(prefs);
-  }, []);
 
   const getAllDirs = useCallback(() => {
     const dirs = new Set(['/']);
@@ -475,7 +460,6 @@ export function AppProvider({ children }) {
   const cancelTransfer = useCallback((id) => {
     const controller = abortControllersRef.current.get(id);
     if (controller) controller.abort();
-    if (ipc?.cancelUpload) ipc.cancelUpload(id);
     setTransfers(p => p.map(t => t.id === id ? { ...t, status: 'cancelled' } : t));
     setTimeout(() => {
       abortControllersRef.current.delete(id);
@@ -487,36 +471,12 @@ export function AppProvider({ children }) {
     return abortControllersRef.current.get(id)?.signal ?? null;
   }, []);
 
-  const handleUpdateLabel = (url, label) => {
-    const list = getSavedWebhooks();
-    const index = list.findIndex(i => i.url === url);
-    if (index >= 0) {
-      list[index].label = label;
-      localStorage.setItem(SAVED_WEBHOOKS_KEY, JSON.stringify(list));
-      setSavedWebhooks(list);
-    }
-  };
-
-  const handleRemoveWebhook = (url) => {
-    const list = getSavedWebhooks().filter(i => i.url !== url);
-    localStorage.setItem(SAVED_WEBHOOKS_KEY, JSON.stringify(list));
-    setSavedWebhooks(list);
-  };
-
-  const handleAddWebhook = (url, label) => {
-    saveWebhookToList(url, label);
-    setSavedWebhooks(getSavedWebhooks());
-  };
-
-  // ─── 8. Cloud Save Integration ──────────────────────────────────────────────
-  const cloudSave = useCloudSave(api, isConnected, webhookUrl, chunkSize);
-
-  // ─── 9. Effects ─────────────────────────────────────────────────────────────
+  // ─── 5. Effects ─────────────────────────────────────────────────────────────
   useEffect(() => { localStorage.setItem('disbox_animations_enabled', animationsEnabled.toString()); }, [animationsEnabled]);
 
   useEffect(() => {
-    if (!ipc?.onMetadataStatus) return;
-    return ipc.onMetadataStatus((data) => {
+    if (!window.electron?.onMetadataStatus) return;
+    return window.electron.onMetadataStatus((data) => {
       setMetadataStatus(data);
     });
   }, []);
@@ -529,12 +489,12 @@ export function AppProvider({ children }) {
 
   useEffect(() => {
     if (!api || !webhookUrl) return;
-    ipc?.setActiveWebhook(webhookUrl, api.hashedWebhook);
+    window.electron?.setActiveWebhook(webhookUrl, api.hashedWebhook);
   }, [api, webhookUrl]);
 
   useEffect(() => {
-    if (!ipc?.onMetadataChange || !api) return;
-    const cleanup = ipc.onMetadataChange((hash) => { if (api.hashedWebhook === hash) refresh(); });
+    if (!window.electron?.onMetadataChange || !api) return;
+    const cleanup = window.electron.onMetadataChange((hash) => { if (api.hashedWebhook === hash) refresh(); });
     return cleanup;
   }, [api, refresh]);
 
@@ -545,14 +505,17 @@ export function AppProvider({ children }) {
   useEffect(() => { localStorage.setItem('disbox_show_previews', showPreviews.toString()); }, [showPreviews]);
 
   useEffect(() => {
-    if (ipc?.getPrefs) {
-      ipc.getPrefs().then(p => {
+    if (window.electron?.getPrefs) {
+      window.electron.getPrefs().then(p => {
         if (p.closeToTray !== undefined) setCloseToTray(p.closeToTray);
         if (p.startMinimized !== undefined) setStartMinimized(p.startMinimized);
         if (p.chunksPerMessage !== undefined) setChunksPerMessage(p.chunksPerMessage);
       });
     }
   }, []);
+
+  // ─── 8. Cloud Save Integration ──────────────────────────────────────────────
+  const cloudSave = useCloudSave(api, isConnected, webhookUrl, chunkSize);
 
   return (
     <AppContext.Provider value={{
@@ -604,5 +567,3 @@ export function AppProvider({ children }) {
     </AppContext.Provider>
   );
 }
-
-export const useApp = () => useContext(AppContext);

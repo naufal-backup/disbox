@@ -1,10 +1,10 @@
 import { motion } from 'framer-motion';
 import { Sun, Moon, RefreshCw, Settings, LogOut } from 'lucide-react';
-import styles from './Sidebar.module.css';
+import styles from '../Sidebar.module.css';
 
 export default function ActionsSection({ 
-  theme, toggleTheme, refresh, loading, activePage, 
-  onNavigate, setShowDisconnectConfirm, animationsEnabled, t 
+  theme, toggleTheme, refresh, loading, activePage, onNavigate, 
+  setShowDisconnectConfirm, animationsEnabled, t 
 }) {
   const btnVariants = {
     hover: { x: 4 },
@@ -25,7 +25,6 @@ export default function ActionsSection({
         </div>
         <span>{theme === 'dark' ? t('light') : t('dark')}</span>
       </motion.button>
-      
       <motion.button
         whileHover={animationsEnabled ? "hover" : ""}
         whileTap={animationsEnabled ? "tap" : ""}
@@ -39,7 +38,6 @@ export default function ActionsSection({
         </div>
         <span>{t('refresh')}</span>
       </motion.button>
-      
       <motion.button
         whileHover={animationsEnabled ? "hover" : ""}
         whileTap={animationsEnabled ? "tap" : ""}
@@ -52,7 +50,6 @@ export default function ActionsSection({
         </div>
         <span>{t('settings')}</span>
       </motion.button>
-      
       <motion.button
         whileHover={animationsEnabled ? "hover" : ""}
         whileTap={animationsEnabled ? "tap" : ""}

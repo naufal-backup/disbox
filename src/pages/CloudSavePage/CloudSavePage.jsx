@@ -1,12 +1,10 @@
 import { useState, useEffect } from 'react';
-import { useApp } from '@/AppContext.jsx';
+import { useApp } from '../../context/useAppHook.js';
 import { Plus, Folder, RefreshCw, Download, Trash2, AlertCircle, CheckCircle2, Cloud } from 'lucide-react';
-import { ConfirmModal } from '@/components/FolderModal/FolderModal.jsx';
+import { ConfirmModal } from '../../components/FolderModal.jsx';
 import styles from './CloudSavePage.module.css';
 import toast from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
-
-import { ipc } from '@/utils/ipc';
 
 export default function CloudSavePage() {
   const { cloudSaves, addCloudSave, removeCloudSave, exportCloudSave, syncCloudSave, setLocalPath, restoreCloudSave, t, animationsEnabled } = useApp();
@@ -28,7 +26,7 @@ export default function CloudSavePage() {
   };
 
   const handleBrowse = async () => {
-    const path = await ipc.cloudsaveChooseFolder();
+    const path = await window.electron.cloudsaveChooseFolder();
     if (path) setNewPath(path);
   };
 

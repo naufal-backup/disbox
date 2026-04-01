@@ -1,0 +1,250 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(8px);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  animation: fadeIn 0.2s ease;
+}
+
+@media (max-width: 768px) {
+  .overlay { padding: 0; }
+  .modal { max-height: 100vh; border-radius: 0; border: none; }
+  .audio { width: 280px; }
+  .zoomControl { display: none; }
+}
+
+.isFull { padding: 0; }
+
+.modal {
+  width: 100%;
+  max-width: 1000px;
+  height: 100%;
+  max-height: 85vh;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-bright);
+  border-radius: var(--radius-lg);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 32px 100px rgba(0, 0, 0, 0.6);
+  position: relative;
+}
+
+.isFull .modal {
+  max-width: none;
+  max-height: none;
+  border-radius: 0;
+  border: none;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.fileInfo { display: flex; flex-direction: column; min-width: 0; }
+
+.fileName {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fileMeta { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); }
+
+.actions { display: flex; align-items: center; gap: 8px; }
+
+.actionBtn {
+  width: 32px; height: 32px;
+  display: flex; align-items: center; justify-content: center;
+  background: transparent; border: none;
+  color: var(--text-secondary); cursor: pointer;
+  border-radius: 6px; transition: all 0.15s;
+}
+.actionBtn:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+.divider { width: 1px; height: 20px; background: var(--border); margin: 0 4px; }
+
+.closeBtn {
+  width: 32px; height: 32px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(237, 66, 69, 0.1); border: none;
+  color: var(--red); cursor: pointer;
+  border-radius: 6px; transition: all 0.15s;
+}
+.closeBtn:hover { background: var(--red); color: white; }
+
+.viewport {
+  flex: 1;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  position: relative;
+}
+
+.navBtn {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 54px; height: 54px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.8);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 10;
+  opacity: 0.6;
+}
+.navBtn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: white; opacity: 1;
+  width: 60px; height: 60px;
+  border-color: rgba(255, 255, 255, 0.3);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+.navBtn:active { transform: translateY(-50%) scale(0.92); background: var(--accent); border-color: transparent; }
+
+.prevBtn { left: 20px; }
+.nextBtn { right: 20px; }
+
+@media (max-width: 600px) {
+  .navBtn { width: 44px; height: 44px; background: rgba(0,0,0,0.6); }
+  .navBtn:hover { width: 44px; height: 44px; }
+  .prevBtn { left: 10px; }
+  .nextBtn { right: 10px; }
+}
+
+.content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+}
+
+.imageWrapper {
+  width: 100%; height: 100%;
+  display: flex; align-items: center; justify-content: center;
+  animation: fadeIn 0.3s ease;
+  user-select: none;
+}
+.imageWrapper img {
+  max-width: 100%; max-height: 100%;
+  width: auto; height: auto;
+  object-fit: contain; display: block;
+}
+
+.video { max-width: 100%; max-height: 100%; object-fit: contain; margin: auto; flex-shrink: 0; }
+
+.audioWrapper {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.pdf { width: 100%; height: 100%; border: none; background: white; }
+
+.textWrapper { width: 100%; height: 100%; overflow: auto; background: #1e1e1e; text-align: left; }
+.textWrapper pre { margin: 0 !important; min-width: 100%; width: max-content; }
+
+.state {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 16px; color: var(--text-secondary); text-align: center; margin: auto; flex-shrink: 0;
+}
+
+.retryBtn {
+  padding: 8px 20px; background: var(--accent); border: none;
+  border-radius: 6px; color: white; font-size: 13px; font-weight: 600;
+  cursor: pointer; transition: all 0.15s;
+}
+.retryBtn:hover { background: var(--accent-bright); }
+
+/* ─── File List Panel ────────────────────────────────────────────────────── */
+.fileList {
+  position: absolute;
+  top: 0; left: 0; bottom: 0;
+  width: 220px;
+  background: rgba(10, 10, 21, 0.95);
+  border-right: 1px solid var(--border-bright);
+  backdrop-filter: blur(12px);
+  display: flex;
+  flex-direction: column;
+  z-index: 20;
+  animation: slideInLeft 0.18s ease;
+}
+
+@keyframes slideInLeft {
+  from { transform: translateX(-100%); opacity: 0; }
+  to   { transform: translateX(0);     opacity: 1; }
+}
+
+.fileListHeader {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px; font-weight: 700; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.06em; flex-shrink: 0;
+}
+.fileListHeader button {
+  background: transparent; border: none; color: var(--text-muted);
+  cursor: pointer; padding: 2px; display: flex; align-items: center;
+  border-radius: 4px; transition: all 0.15s;
+}
+.fileListHeader button:hover { color: var(--text-primary); background: var(--bg-hover); }
+
+.fileListScroll {
+  flex: 1; overflow-y: auto; padding: 6px;
+  display: flex; flex-direction: column; gap: 2px;
+}
+
+.fileListItem {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; padding: 8px 10px; width: 100%;
+  background: transparent; border: none; border-radius: 8px;
+  color: var(--text-secondary); font-size: 12px;
+  cursor: pointer; text-align: left; transition: all 0.12s;
+}
+.fileListItem:hover { background: var(--bg-hover); color: var(--text-primary); }
+.fileListItemActive { background: var(--accent-dim) !important; color: var(--accent-bright) !important; }
+
+.fileListName {
+  flex: 1; min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+.fileListMeta {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 10px; color: var(--text-dim);
+  font-family: var(--font-mono); flex-shrink: 0;
+}
+
+.cachedDot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--green); box-shadow: 0 0 4px var(--green); flex-shrink: 0;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: scale(0.98); }
+  to   { opacity: 1; transform: scale(1); }
+}

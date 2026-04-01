@@ -1,7 +1,7 @@
+import { useRef, useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { User, Repeat, Plus } from 'lucide-react';
-import { useState, useRef, useEffect } from 'react';
-import styles from './Sidebar.module.css';
+import styles from '../Sidebar.module.css';
 
 export default function UserSection({ 
   activePage, onNavigate, animationsEnabled, 
@@ -9,7 +9,6 @@ export default function UserSection({
 }) {
   const [showSwitcher, setShowSwitcher] = useState(false);
   const switcherRef = useRef(null);
-
   const currentUsername = localStorage.getItem('dbx_username');
   const activeWebhook = savedWebhooks.find(w => w.url === webhookUrl);
   const userLabel = currentUsername ? `@${currentUsername}` : (activeWebhook ? activeWebhook.label : 'Guest User');

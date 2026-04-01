@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion';
 import { HardDrive, Link2, Star, Clock, Lock, Cloud } from 'lucide-react';
-import styles from './Sidebar.module.css';
+import styles from '../Sidebar.module.css';
 
 export default function NavSection({ 
   activePage, onNavigate, shareEnabled, showRecent, 
@@ -26,7 +26,6 @@ export default function NavSection({
         .filter(item => {
           if (!item.alwaysShow) {
             if (item.showKey === 'showRecent' && !showRecent) return false;
-            if (item.showKey === 'cloudSaveEnabled' && !cloudSaveEnabled) return false;
           }
           return true;
         })
