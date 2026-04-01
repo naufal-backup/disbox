@@ -191,6 +191,17 @@ export function AppProvider({ children }) {  // ─── 1. States & Refs ─�
 
     try {
       const instance = new DisboxAPI(url);
+      // Create session with Vercel API (required for files/cloud endpoints)
+      const authRes = await fetch('https://disbox-web-weld.vercel.app/api/auth/webhook', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ webhook_url: url.trim() })
+      });
+      if (!authRes.ok) {
+        const err = await authRes.json();
+        throw new Error(err.error || 'Gagal membuat sesi API');
+      }
       await instance.init(options);
       const fs = await instance.getFileSystem();
 

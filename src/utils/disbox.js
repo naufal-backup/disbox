@@ -105,8 +105,10 @@ export class DisboxAPI {
 
       // 1. Ambil dari Tabel Files (JSONB)
       console.log(`[sync] Pulling structure for ${identifier}...`);
-      const res = await window.electron.fetch(`${BASE_API}/api/files/list?identifier=${identifier}`);
-      const result = JSON.parse(res.body);
+      const res = await fetch(`${BASE_API}/api/files/list?identifier=${identifier}`, {
+        credentials: 'include'
+      });
+      const result = await res.json();
 
       if (result.ok && result.files && result.files.length > 0) {
         console.log(`[sync] ✓ Loaded ${result.files.length} items from database.`);
@@ -127,8 +129,9 @@ export class DisboxAPI {
       if (legacyData) {
         const files = Array.isArray(legacyData) ? legacyData : (legacyData.files || []);
         console.log(`[sync] ✓ Migrating ${files.length} items to Supabase Files table...`);
-        await window.electron.fetch(`${BASE_API}/api/files/sync-all`, {
+        await fetch(`${BASE_API}/api/files/sync-all`, {
           method: 'POST',
+          credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ identifier, files })
         });
@@ -182,8 +185,9 @@ export class DisboxAPI {
   async persistCloud(files) {
     const username = localStorage.getItem('dbx_username');
     const identifier = username || this.hashedWebhook;
-    return window.electron.fetch(`${BASE_API}/api/files/sync-all`, {
+    return fetch(`${BASE_API}/api/files/sync-all`, {
       method: 'POST',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ identifier, files })
     }).catch(console.error);
@@ -213,8 +217,9 @@ export class DisboxAPI {
         
         const username = localStorage.getItem('dbx_username');
         if (username) {
-          window.electron.fetch(`${BASE_API}/api/cloud/sync`, {
+          fetch(`${BASE_API}/api/cloud/sync`, {
             method: 'POST',
+            credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ username, last_msg_id: data.id })
           }).catch(() => {});
