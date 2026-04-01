@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { Cloud, User, AlertCircle, Loader2, Key, X, Sparkles, Info, UserPlus, Zap } from 'lucide-react';
 import { useApp } from '../context/useAppHook.js';
+import { BASE_API } from '../utils/disbox.js';
 import styles from './LoginPage.module.css';
 import toast from 'react-hot-toast';
 
-const BASE_API = 'https://disbox-web-weld.vercel.app';
 const DISCORD_WEBHOOK_REGEX = /^https:\/\/discord(app)?\.com\/api\/webhooks\/\d+\/.+$/;
 
 export default function LoginPage() {
@@ -43,7 +43,7 @@ export default function LoginPage() {
     }
 
     try {
-      // Gunakan window.electron.fetch untuk bypass CORS dan menghindari ERR_FILE_NOT_FOUND
+      // Menjiplak alur fetch web tapi dengan window.electron.fetch
       const res = await window.electron.fetch(`${BASE_API}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -291,7 +291,7 @@ export default function LoginPage() {
       </div>
 
       <div className={styles.version}>
-        <div>Disbox v3.6.0 · Database Auth Edition</div>
+        <div>Disbox v4.5.4 · Web Aligned Edition</div>
       </div>
     </div>
   );
