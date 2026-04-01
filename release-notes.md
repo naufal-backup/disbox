@@ -6,3 +6,7 @@
 * Forced all audio file thumbnails to scale proportionally using a fixed 1:1 aspect ratio (CD jewel case format).
 * Unified desktop and web user experience for browsing and listening to your cloud-synced media files.
 * Automated the CI/CD pipeline and desktop binary publishing via new GitHub Actions workflow.
+
+## v4.5.7 (2026-04-01)
+
+* [Fix] Fixed audio/video preview errors in desktop app by using direct file download instead of streaming endpoint.
