@@ -514,19 +514,29 @@ export class DisboxAPI {
       if (onProgress) onProgress((i + 1) / sortedIndices.length);
     }
 
-    // Assemble buffer (with gaps as zeros if necessary, or just the downloaded parts)
-    // For many players, just concatenating the available chunks is enough if it's a stream
-    // but for Blob playback, gaps might be tricky.
-    // However, Discord chunks are usually sequential. If we have 0,1,2 and 99, 
-    // we might need to represent the gap.
+    // Assemble buffer with correct offsets (Padded with zeros in gaps)
+    // Safety: Only pad if total file size is reasonable (< 200MB) to avoid OOM
+    const usePadding = file.size < 200 * 1024 * 1024;
     
-    const resultSize = sortedIndices.reduce((acc, idx) => acc + chunks.get(idx).byteLength, 0);
-    const result = new Uint8Array(resultSize);
-    let offset = 0;
-    for (const idx of sortedIndices) {
-      const buf = chunks.get(idx);
-      result.set(new Uint8Array(buf), offset);
-      offset += buf.byteLength;
+    let result;
+    if (usePadding) {
+      result = new Uint8Array(file.size);
+      for (const [idx, buf] of chunks.entries()) {
+        const offset = idx * this.chunkSize;
+        if (offset + buf.byteLength <= result.length) {
+          result.set(new Uint8Array(buf), offset);
+        }
+      }
+    } else {
+      // For very large files, fallback to contiguous (might fail MP4 metadata)
+      const resultSize = sortedIndices.reduce((acc, idx) => acc + chunks.get(idx).byteLength, 0);
+      result = new Uint8Array(resultSize);
+      let offset = 0;
+      for (const idx of sortedIndices) {
+        const buf = chunks.get(idx);
+        result.set(new Uint8Array(buf), offset);
+        offset += buf.byteLength;
+      }
     }
 
     return {
@@ -534,7 +544,8 @@ export class DisboxAPI {
       downloadedChunks: sortedIndices.length,
       totalChunks: totalChunks,
       totalFileSize: file.size,
-      isComplete: sortedIndices.length >= totalChunks
+      isComplete: sortedIndices.length >= totalChunks,
+      isPadded: usePadding
     };
   }
 }

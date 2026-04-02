@@ -21,13 +21,13 @@ export function compressImageBlob(blob) {
 }
 
 // ─── Video frame capturer ─────────────────────────────────────────────────────
-export function captureFrameFromBlob(blob) {
+export function captureFrameFromURL(url) {
   return new Promise((resolve) => {
     const video = document.createElement('video');
     video.muted = true;
     video.playsInline = true;
-    video.preload = 'metadata'; // Only need metadata first
-    const url = URL.createObjectURL(blob);
+    video.crossOrigin = 'anonymous';
+    video.preload = 'metadata';
     let settled = false;
 
     const done = (result) => {
@@ -36,57 +36,68 @@ export function captureFrameFromBlob(blob) {
       video.pause();
       video.src = '';
       video.load();
-      URL.revokeObjectURL(url);
+      if (url.startsWith('blob:')) URL.revokeObjectURL(url);
       resolve(result);
     };
 
     const capture = () => {
       if (settled) return;
-      if (!video.videoWidth || !video.videoHeight) return;
-      
-      try {
-        const MAX = 256;
-        let w = video.videoWidth, h = video.videoHeight;
-        if (w > h) { if (w > MAX) { h = Math.floor(h * MAX / w); w = MAX; } }
-        else       { if (h > MAX) { w = Math.floor(w * MAX / h); h = MAX; } }
-        
-        const canvas = document.createElement('canvas');
-        canvas.width = Math.max(1, w);
-        canvas.height = Math.max(1, h);
-        const ctx = canvas.getContext('2d', { alpha: false });
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        
-        canvas.toBlob((b) => done(b), 'image/webp', 0.8);
-      } catch (e) {
-        done(null);
+      if (!video.videoWidth || !video.videoHeight) {
+        console.log(`[thumb-utils] Video not ready for capture: ${video.videoWidth}x${video.videoHeight}, state: ${video.readyState}`);
+        return;
       }
+
+      console.log(`[thumb-utils] Capturing frame at ${video.currentTime}s, size: ${video.videoWidth}x${video.videoHeight}`);
+      // Small delay to ensure frame is rendered after seek
+      setTimeout(() => {
+        if (settled) return;
+        try {
+          const MAX = 256;
+          let w = video.videoWidth, h = video.videoHeight;
+          if (w > h) { if (w > MAX) { h = Math.floor(h * MAX / w); w = MAX; } }
+          else       { if (h > MAX) { w = Math.floor(w * MAX / h); h = MAX; } }
+
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.max(1, w);
+          canvas.height = Math.max(1, h);
+          const ctx = canvas.getContext('2d', { alpha: false });
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+          canvas.toBlob((b) => {
+            console.log(`[thumb-utils] Capture success for ${url.slice(0, 50)}..., blob size: ${b?.size}`);
+            done(b);
+          }, 'image/webp', 0.8);
+        } catch (e) {
+          console.error('[thumb-utils] Canvas draw error:', e);
+          done(null);
+        }
+      }, 100);
     };
 
-    // Timeout safety
-    const timeout = setTimeout(() => done(null), 10000);
+    const timeout = setTimeout(() => {
+      console.warn('[thumb-utils] Capture timeout for:', url.slice(0, 100));
+      done(null);
+    }, 20000);
 
     video.onloadedmetadata = () => {
-      // Seek to 1.0 second to avoid initial black frames.
-      // 1.0s is safe for the first 7.5MB chunk in most videos.
-      video.currentTime = 1.0; 
+      const seekTime = Math.min(1.0, (video.duration || 2) / 2);
+      console.log(`[thumb-utils] Metadata loaded. Duration: ${video.duration}, Seeking to ${seekTime}s`);
+      video.currentTime = seekTime; 
     };
 
     video.onseeked = () => {
-      if (!settled) capture();
-    };
-
-    video.onloadeddata = () => {
-      if (!settled && video.readyState >= 2) capture();
+      console.log(`[thumb-utils] Seeked to ${video.currentTime}s`);
+      capture();
     };
 
     video.oncanplay = () => {
-      if (!settled) capture();
+      console.log(`[thumb-utils] CanPlay event at ${video.currentTime}s`);
+      capture();
     };
 
     video.onerror = () => {
-      // Even if it errors (due to partial data), try to capture what's available
-      if (video.videoWidth > 0 && !settled) capture();
-      else done(null);
+      console.error('[thumb-utils] Video error:', video.error?.message || 'unknown', 'URL:', url.slice(0, 100));
+      if (!settled) done(null);
     };
 
     video.src = url;

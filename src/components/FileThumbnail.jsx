@@ -3,7 +3,7 @@ import { Folder } from 'lucide-react';
 import { useApp } from '../context/useAppHook.js';
 import { getMimeType } from '../utils/disbox.js';
 import { enqueueThumb, cancelThumb, getCachedThumb, isThumbCached } from '../utils/thumbnailCache.js';
-import { compressImageBlob, captureFrameFromBlob, captureAudioArtworkFromBlob } from './FileThumbnail/ThumbnailUtils.js';
+import { compressImageBlob, captureFrameFromURL, captureAudioArtworkFromBlob } from './FileThumbnail/ThumbnailUtils.js';
 import { visibilityMap, getObserver } from './FileThumbnail/VisibilityObserver.js';
 
 export default function FileThumbnail({ file, size = 32 }) {
@@ -76,30 +76,46 @@ export default function FileThumbnail({ file, size = 32 }) {
       const onAbort = () => combinedAbort.abort();
       signal.addEventListener('abort', onAbort);
       transferSignal?.addEventListener?.('abort', onAbort);
+try {
+  let compressed;
+  const mime = getMimeType(name);
+  console.log(`[thumb] Generating for ${name} (${mime})...`);
 
-      try {
-        let buffer;
-        if (isVideo || isAudio) {
-          buffer = await api.downloadFirstChunk(file, combinedAbort.signal, transferId);
-        } else {
-          buffer = await api.downloadFile(file, (p) => updateTransfer(transferId, { progress: p }), combinedAbort.signal, transferId);
-        }
+  if (isVideo) {
+    // Download first chunk + last chunk (metadata) and pad the gap
+    console.log(`[thumb] Video capture starting for ${name} (padded)`);
+    const result = await api.downloadPartialChunks(file, 1, combinedAbort.signal, undefined, true);
+    if (combinedAbort.signal.aborted) return null;
+    const blob = new Blob([result.buffer], { type: mime });
+    const bUrl = URL.createObjectURL(blob);
+    compressed = await captureFrameFromURL(bUrl);
+    console.log(`[thumb] Video capture finished for ${name}:`, !!compressed);
+  } else {
+    let buffer;
+    if (isAudio) {
+      console.log(`[thumb] Audio capture starting for ${name}`);
+      buffer = await api.downloadFirstChunk(file, combinedAbort.signal, transferId);
+    } else {
+      console.log(`[thumb] Image capture starting for ${name}`);
+      buffer = await api.downloadFile(file, (p) => updateTransfer(transferId, { progress: p }), combinedAbort.signal, transferId);
+    }
 
-        if (combinedAbort.signal.aborted) return null;
+    if (combinedAbort.signal.aborted) return null;
+    const blob = new Blob([buffer], { type: mime });
 
-        const mime = getMimeType(name);
-        const blob = new Blob([buffer], { type: mime });
-        
-        let compressed;
-        if (isVideo) {
-          compressed = await captureFrameFromBlob(blob);
-        } else if (isAudio) {
-          compressed = await captureAudioArtworkFromBlob(blob);
-        } else {
-          compressed = await compressImageBlob(blob);
-        }
+    if (isAudio) {
+      compressed = await captureAudioArtworkFromBlob(blob);
+    } else {
+      compressed = await compressImageBlob(blob);
+    }
+    console.log(`[thumb] ${isAudio ? 'Audio' : 'Image'} capture finished for ${name}:`, !!compressed);
+  }
 
-        if (!compressed) return null;
+  if (!compressed) {
+    console.warn(`[thumb] Generation returned null for ${name}`);
+    return null;
+  }
+
 
         const objectUrl = URL.createObjectURL(compressed);
         updateTransfer(transferId, { status: 'done', progress: 1 });
