@@ -260,7 +260,7 @@ export default function ProfilePage() {
 }
 
 function CloudSaveSection() {
-  const { webhookUrl, api, files } = useApp();
+  const { webhookUrl, api, files, t } = useApp();
   const [isEditing, setIsEditing] = useState(false);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");

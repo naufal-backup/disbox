@@ -76,8 +76,8 @@ export default function TransferPanel({ activePage }) {
 
           {!collapsed && (
             <div className={styles.list}>
-              {visibleTransfers.map(t => (
-                <TransferItem key={t.id} t={t} onCancel={cancelTransfer} onRemove={removeTransfer} />
+              {visibleTransfers.map(transfer => (
+                <TransferItem key={transfer.id} transfer={transfer} onCancel={cancelTransfer} onRemove={removeTransfer} />
               ))}
             </div>
           )}

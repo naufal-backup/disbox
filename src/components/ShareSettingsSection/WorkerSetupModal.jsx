@@ -1,10 +1,12 @@
 import { motion } from 'framer-motion';
 import { Link2, ExternalLink, AlertCircle } from 'lucide-react';
+import { useApp } from '../../context/useAppHook.js';
 
 export default function WorkerSetupModal({ 
   onClose, backdropVariants, modalVariants, transition, 
   apiToken, setApiToken, handleDeploy, deploying, deployError 
 }) {
+  const { t } = useApp();
   return (
     <motion.div 
       style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }} 
