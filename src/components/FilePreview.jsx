@@ -62,7 +62,7 @@ export default function FilePreview({ file, allFiles = [], onFileChange, onClose
     const targetMime = getMimeType(targetName);
 
     const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(targetExt);
-    const isVideo = ['mp4', 'webm', 'ogg', 'mov', 'mkv', 'avi'].includes(targetExt);
+    const isVideo = ['mp4', 'webm', 'ogg', 'mov', 'mkv', 'avi', 'flv', 'wmv', 'm4v', '3gp', 'ts', 'mts', 'm2ts'].includes(targetExt);
     const isAudio = ['mp3', 'wav', 'flac', 'ogg', 'm4a', 'aac'].includes(targetExt);
     const isPdf = targetExt === 'pdf';
     const isText = ['txt', 'md', 'js', 'jsx', 'ts', 'tsx', 'py', 'rs', 'html', 'css',
@@ -114,7 +114,7 @@ export default function FilePreview({ file, allFiles = [], onFileChange, onClose
       setContent(null);
 
       try {
-        const isVideo = ['mp4', 'webm', 'ogg', 'mov', 'mkv', 'avi'].includes(ext);
+        const isVideo = ['mp4', 'webm', 'ogg', 'mov', 'mkv', 'avi', 'flv', 'wmv', 'm4v', '3gp', 'ts', 'mts', 'm2ts'].includes(ext);
         const isAudio = ['mp3', 'wav', 'flac', 'ogg', 'm4a', 'aac'].includes(ext);
 
         // For desktop/electron, download file first for audio/video preview

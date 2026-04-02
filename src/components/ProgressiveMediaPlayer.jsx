@@ -22,14 +22,16 @@ export default function ProgressiveMediaPlayer({ file }) {
       setProgress(0);
 
       try {
-        // Download first 5 chunks for video
+        const mime = getMimeType(file.path);
+        // Download first 10 chunks + last chunk for metadata
         const result = await api.downloadPartialChunks(
           file,
-          5,
+          10,
           undefined,
           (p) => {
             if (isMounted) setProgress(Math.round(p * 100));
-          }
+          },
+          true // includeLast
         );
 
         if (!isMounted) return;
@@ -37,8 +39,8 @@ export default function ProgressiveMediaPlayer({ file }) {
         const video = videoRef.current;
         if (!video) return;
 
-        // Create blob from partial buffer
-        const blob = new Blob([result.buffer], { type: 'video/mp4' });
+        // Create blob from partial buffer with correct mime
+        const blob = new Blob([result.buffer], { type: mime });
         const url = URL.createObjectURL(blob);
         video.src = url;
         video.load();

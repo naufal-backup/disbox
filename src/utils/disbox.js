@@ -481,38 +481,60 @@ export class DisboxAPI {
     return await this.decrypt(bytes);
   }
 
-  async downloadPartialChunks(file, maxChunks = 5, signal, onProgress) {
+  async downloadPartialChunks(file, maxChunks = 5, signal, onProgress, includeLast = true) {
     const messageIds = file.messageIds || [];
-    const chunksToDownload = Math.min(maxChunks, messageIds.length);
-    const chunks = [];
+    const totalChunks = messageIds.length;
+    
+    // Determine which chunks to download
+    const chunkIndices = new Set();
+    
+    // Always get the first few chunks
+    const firstChunksCount = Math.min(maxChunks, totalChunks);
+    for (let i = 0; i < firstChunksCount; i++) chunkIndices.add(i);
+    
+    // Also get the last chunk if requested (often contains moov atom for MP4)
+    if (includeLast && totalChunks > firstChunksCount) {
+      chunkIndices.add(totalChunks - 1);
+    }
 
-    for (let i = 0; i < chunksToDownload; i++) {
+    const sortedIndices = Array.from(chunkIndices).sort((a, b) => a - b);
+    const chunks = new Map(); // index -> buffer
+
+    for (let i = 0; i < sortedIndices.length; i++) {
       throwIfAborted(signal);
-      const msgId = typeof messageIds[i] === 'string' ? messageIds[i] : messageIds[i].msgId;
+      const chunkIdx = sortedIndices[i];
+      const msgId = typeof messageIds[chunkIdx] === 'string' ? messageIds[chunkIdx] : messageIds[chunkIdx].msgId;
       const res = await window.electron.fetch(`${this.webhookUrl}/messages/${msgId}`, { signal });
-      if (!res.ok) throw new Error(`Gagal memuat chunk ${i + 1}`);
+      if (!res.ok) throw new Error(`Gagal memuat chunk ${chunkIdx + 1}`);
       const msg = JSON.parse(res.body);
       const url = msg.attachments?.[0]?.url;
       const bytes = await window.electron.proxyDownload(url, signal);
       const decrypted = await this.decrypt(bytes);
-      chunks.push(decrypted);
-      if (onProgress) onProgress((i + 1) / chunksToDownload);
+      chunks.set(chunkIdx, decrypted);
+      if (onProgress) onProgress((i + 1) / sortedIndices.length);
     }
 
-    const totalSize = chunks.reduce((s, c) => s + c.byteLength, 0);
-    const result = new Uint8Array(totalSize);
+    // Assemble buffer (with gaps as zeros if necessary, or just the downloaded parts)
+    // For many players, just concatenating the available chunks is enough if it's a stream
+    // but for Blob playback, gaps might be tricky.
+    // However, Discord chunks are usually sequential. If we have 0,1,2 and 99, 
+    // we might need to represent the gap.
+    
+    const resultSize = sortedIndices.reduce((acc, idx) => acc + chunks.get(idx).byteLength, 0);
+    const result = new Uint8Array(resultSize);
     let offset = 0;
-    for (const c of chunks) {
-      result.set(new Uint8Array(c), offset);
-      offset += c.byteLength;
+    for (const idx of sortedIndices) {
+      const buf = chunks.get(idx);
+      result.set(new Uint8Array(buf), offset);
+      offset += buf.byteLength;
     }
 
     return {
       buffer: result.buffer,
-      downloadedChunks: chunksToDownload,
-      totalChunks: messageIds.length,
+      downloadedChunks: sortedIndices.length,
+      totalChunks: totalChunks,
       totalFileSize: file.size,
-      isComplete: chunksToDownload >= messageIds.length
+      isComplete: sortedIndices.length >= totalChunks
     };
   }
 }
