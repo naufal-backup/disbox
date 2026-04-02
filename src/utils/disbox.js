@@ -560,7 +560,10 @@ export function getMimeType(name) {
   const ext = name?.split('.').pop()?.toLowerCase();
   const map = {
     pdf: 'application/pdf',
-    mp4: 'video/mp4', mov: 'video/quicktime', avi: 'video/x-msvideo',
+    mp4: 'video/mp4', webm: 'video/webm', ogg: 'video/ogg', 
+    mkv: 'video/x-matroska', mov: 'video/quicktime', avi: 'video/x-msvideo', 
+    flv: 'video/x-flv', wmv: 'video/x-ms-wmv', m4v: 'video/x-m4v',
+    '3gp': 'video/3gpp', ts: 'video/mp2t',
     mp3: 'audio/mpeg', wav: 'audio/wav', flac: 'audio/flac', m4a: 'audio/mp4', aac: 'audio/aac',
     jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
     gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml',

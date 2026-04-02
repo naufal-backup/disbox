@@ -16,7 +16,7 @@ export default function FileThumbnail({ file, size = 32 }) {
   const name   = file.path.split('/').pop();
   const ext    = name.split('.').pop().toLowerCase();
   const isImage = ['png', 'jpg', 'jpeg', 'webp', 'svg'].includes(ext);
-  const isVideo = ['mp4', 'webm', 'ogg', 'mkv', 'mov', 'avi'].includes(ext);
+  const isVideo = ['mp4', 'webm', 'ogg', 'mkv', 'mov', 'avi', 'flv', 'wmv', 'm4v', '3gp', 'ts', 'mts', 'm2ts'].includes(ext);
   const isAudio = ['mp3', 'wav', 'flac', 'ogg', 'm4a', 'aac'].includes(ext);
 
   const canShowImage = showPreviews && showImagePreviews && isImage;
