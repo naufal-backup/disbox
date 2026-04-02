@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Folder } from 'lucide-react';
 import { useApp } from '../context/useAppHook.js';
-import { getMimeType } from '../utils/disbox.js';
+import { getMimeType, BASE_API } from '../utils/disbox.js';
 import { enqueueThumb, cancelThumb, getCachedThumb, isThumbCached } from '../utils/thumbnailCache.js';
 import { compressImageBlob, captureFrameFromURL, captureAudioArtworkFromBlob } from './FileThumbnail/ThumbnailUtils.js';
 import { visibilityMap, getObserver } from './FileThumbnail/VisibilityObserver.js';
