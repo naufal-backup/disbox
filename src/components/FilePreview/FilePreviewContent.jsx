@@ -13,7 +13,7 @@ export default function FilePreviewContent({
     return (
       <div className={styles.state}>
         <Loader2 size={32} className="spin" style={{ color: 'var(--accent)' }} />
-        <p>Mendownload... {downloadProgress > 0 ? `${downloadProgress}%` : ''}</p>
+        <p>{t('downloading')} {downloadProgress > 0 ? `${downloadProgress}%` : ''}</p>
       </div>
     );
   }
@@ -23,7 +23,7 @@ export default function FilePreviewContent({
       <div className={styles.state}>
         <AlertCircle size={32} style={{ color: 'var(--red)' }} />
         <p>{error}</p>
-        <button className={styles.retryBtn} onClick={handleDownload}>Download Saja</button>
+        <button className={styles.retryBtn} onClick={handleDownload}>{t('reload')}</button>
       </div>
     );
   }
@@ -85,8 +85,8 @@ export default function FilePreviewContent({
       {content.type === 'unsupported' && (
         <div className={styles.state}>
           <div style={{ fontSize: 48 }}>📄</div>
-          <p>Pratinjau tidak tersedia untuk format ini.</p>
-          <button className={styles.retryBtn} onClick={handleDownload}>Download untuk Melihat</button>
+          <p>{t('preview_unsupported')}</p>
+          <button className={styles.retryBtn} onClick={handleDownload}>{t('download')}</button>
         </div>
       )}
     </div>

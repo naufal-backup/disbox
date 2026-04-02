@@ -61,8 +61,8 @@ export default function TransferItem({ t, onCancel, onRemove }) {
               </span>
             )}
             {isError && <span className={styles.errorText}>{t.error}</span>}
-            {isCancelled && <span className={styles.cancelledText}>Dibatalkan</span>}
-            {isDone && <span className={styles.doneText}>Selesai</span>}
+            {isCancelled && <span className={styles.cancelledText}>{t('cancelled')}</span>}
+            {isDone && <span className={styles.doneText}>{t('done')}</span>}
           </div>
         </div>
         <div className={styles.itemRight}>

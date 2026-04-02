@@ -43,8 +43,11 @@ export default function PinPromptModal({ title, onSuccess, onClose }) {
         </div>
         <form onSubmit={handleSubmit}>
           <input
-            type="password"
-            placeholder="Masukkan PIN"
+            type="text"
+            name="disbox_pin_input"
+            autoComplete="off"
+            style={{ WebkitTextSecurity: 'disc' }}
+            placeholder={t('enter_pin')}
             value={pin}
             onChange={e => setPin(e.target.value)}
             autoFocus
@@ -52,9 +55,9 @@ export default function PinPromptModal({ title, onSuccess, onClose }) {
           />
           {error && <p className={styles.pinError}>{error}</p>}
           <div className={styles.pinActions}>
-            <button type="button" onClick={onClose} className={styles.cancelBtn}>Batal</button>
+            <button type="button" onClick={onClose} className={styles.cancelBtn}>{t('cancel')}</button>
             <button type="submit" disabled={checking || !pin} className={styles.confirmBtn}>
-              {checking ? 'Memverifikasi...' : 'Buka Kunci'}
+              {checking ? t('verifying') : t('unlock_button')}
             </button>
           </div>
         </form>

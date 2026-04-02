@@ -78,7 +78,7 @@ export default function WorkerSetupModal({
             </div>
             <input
               type="password"
-              placeholder="Paste API token di sini..."
+              placeholder={t('api_token_placeholder')}
               value={apiToken}
               onChange={e => setApiToken(e.target.value)}
               style={{ width: '100%', padding: '10px 12px', background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 12, outline: 'none' }}
@@ -96,7 +96,7 @@ export default function WorkerSetupModal({
 
         <div style={{ display: 'flex', gap: 8 }}>
           <button onClick={onClose} style={{ flex: 1, padding: 10, background: 'transparent', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 13 }}>
-            Batal
+            {t('cancel')}
           </button>
           <button
             onClick={handleDeploy}

@@ -145,7 +145,7 @@ export default function FilePreview({ file, allFiles = [], onFileChange, onClose
       } catch (e) {
         if (isMounted) {
           console.error('Preview failed:', e);
-          setError('Gagal memuat pratinjau: ' + e.message);
+          setError(t('failed_to_load') + ': ' + e.message);
         }
       } finally {
         if (isMounted) setLoading(false);

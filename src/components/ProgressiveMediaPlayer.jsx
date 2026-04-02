@@ -69,7 +69,7 @@ export default function ProgressiveMediaPlayer({ file }) {
       } catch (e) {
         if (isMounted) {
           console.error('Progressive load failed:', e);
-          setError('Gagal memuat: ' + e.message);
+          setError(t('failed_to_load') + ': ' + e.message);
           setLoading(false);
         }
       }
@@ -135,7 +135,7 @@ export default function ProgressiveMediaPlayer({ file }) {
 
       {loading && (
         <div className={styles.loader}>
-          <div className={styles.progressText}>Memuat pratinjau... {progress}%</div>
+          <div className={styles.progressText}>{t('loading_preview')} {progress}%</div>
           <div className={styles.progressBar}>
             <div className={styles.progressFill} style={{ width: `${progress}%` }} />
           </div>

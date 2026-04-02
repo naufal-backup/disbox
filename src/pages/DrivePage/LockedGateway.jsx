@@ -55,8 +55,9 @@ export default function LockedGateway({ onVerified }) {
 
         <form onSubmit={handleSubmit}>
           <input
-            type="password"
-            placeholder="••••"
+            type="text"
+            name="disbox_gateway_pin"
+            autoComplete="off"
             value={pin}
             onChange={e => setPin(e.target.value)}
             autoFocus
@@ -72,7 +73,9 @@ export default function LockedGateway({ onVerified }) {
               letterSpacing: '0.4em',
               marginBottom: 12,
               outline: 'none',
+              WebkitTextSecurity: 'disc'
             }}
+            placeholder={t('pin_placeholder')}
           />
           {error && <p style={{ color: 'var(--red)', fontSize: 12, marginBottom: 16 }}>{error}</p>}
           <button

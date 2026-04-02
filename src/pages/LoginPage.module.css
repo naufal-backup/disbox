@@ -86,6 +86,22 @@
 
 .divider { height: 1px; background: var(--border); margin-bottom: 20px; }
 
+/* ── Language Selector ── */
+.langSelector {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--bg-surface); border: 1px solid var(--border);
+  padding: 6px 12px; border-radius: 20px;
+  transition: all 0.2s;
+}
+.langSelector:hover { border-color: var(--accent); background: var(--bg-hover); }
+
+.langSelect {
+  background: transparent; border: none; color: var(--text-secondary);
+  font-size: 12px; font-weight: 600; outline: none; cursor: pointer;
+  appearance: none; -webkit-appearance: none;
+}
+.langSelect option { background: var(--bg-elevated); color: var(--text-primary); }
+
 /* ── Method Selector ── */
 .methodSelector {
   display: flex;

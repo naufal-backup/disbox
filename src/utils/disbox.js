@@ -32,6 +32,7 @@ export class DisboxAPI {
     this.lastSyncedId = null;
     this.pinHash = null;
     this.shareLinks = [];
+    this.settings = {};
     const savedChunkSize = Number(localStorage.getItem('disbox_chunk_size'));
     this.chunkSize = (savedChunkSize && savedChunkSize < 8 * 1024 * 1024) ? savedChunkSize : 7.5 * 1024 * 1024;
     this._taskQueue = Promise.resolve();
@@ -124,15 +125,17 @@ export class DisboxAPI {
         console.log(`[sync] ✓ Loaded ${result.files.length} items from database.`);
         this.pinHash = result.pinHash || null;
         this.shareLinks = result.shareLinks || [];
+        this.settings = result.settings || {};
         await window.electron.saveMetadata(this.hashedWebhook, result.files);
         return { 
           files: result.files, 
           pinHash: this.pinHash, 
-          shareLinks: this.shareLinks 
+          shareLinks: this.shareLinks,
+          settings: this.settings
         };
       }
 
-      // 2. Load from Discord for full container (including pinHash, shareLinks)
+      // 2. Load from Discord for full container (including pinHash, shareLinks, settings)
       const discovery = await this._getMsgIdFromDiscovery();
       const msgId = forceId || discovery?.best;
       let fullContainer = null;
@@ -142,9 +145,10 @@ export class DisboxAPI {
         const files = fullContainer.files || [];
         this.pinHash = fullContainer.pinHash || null;
         this.shareLinks = fullContainer.shareLinks || [];
+        this.settings = fullContainer.settings || {};
 
         await window.electron.saveMetadata(this.hashedWebhook, files);
-        return { files, pinHash: this.pinHash, shareLinks: this.shareLinks };
+        return { files, pinHash: this.pinHash, shareLinks: this.shareLinks, settings: this.settings };
       }
       
       return result.files ? { files: result.files } : null;
@@ -197,6 +201,7 @@ export class DisboxAPI {
     
     if (extra.pinHash !== undefined) this.pinHash = extra.pinHash;
     if (extra.shareLinks !== undefined) this.shareLinks = extra.shareLinks;
+    if (extra.settings !== undefined) this.settings = { ...this.settings, ...extra.settings };
 
     // Normalize properties to booleans for JSONB storage
     const normalizedFiles = files.map(f => ({
@@ -213,7 +218,8 @@ export class DisboxAPI {
         identifier, 
         files: normalizedFiles,
         pinHash: this.pinHash,
-        shareLinks: this.shareLinks
+        shareLinks: this.shareLinks,
+        settings: this.settings
       })
     }).catch(console.error);
   }
@@ -225,6 +231,7 @@ export class DisboxAPI {
       
       if (extra.pinHash !== undefined) this.pinHash = extra.pinHash;
       if (extra.shareLinks !== undefined) this.shareLinks = extra.shareLinks;
+      if (extra.settings !== undefined) this.settings = { ...this.settings, ...extra.settings };
 
       let pinHash = this.pinHash;
       if (pinHash === null) {
@@ -235,7 +242,7 @@ export class DisboxAPI {
         try { shareLinks = await window.electron.shareGetLinks?.(this.hashedWebhook) || []; } catch {}
       }
 
-      const container = { files, pinHash, shareLinks, updatedAt: Date.now() };
+      const container = { files, pinHash, shareLinks, settings: this.settings, updatedAt: Date.now() };
       const jsonStr = JSON.stringify(container);
       const jsonBytes = new TextEncoder().encode(jsonStr);
       const encryptedBytes = await this.encrypt(jsonBytes.buffer);

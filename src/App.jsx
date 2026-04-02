@@ -213,7 +213,7 @@ function AppInner() {
                 setAutoConnecting(false);
               }}
             >
-              Batal & Keluar
+              {t('cancel')}
             </button>
           </div>
         ) : isConnected ? (

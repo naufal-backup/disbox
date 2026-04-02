@@ -88,7 +88,7 @@ export default function Sidebar({ activePage, onNavigate }) {
                   style={{ flex: 1, padding: '8px 0', background: 'transparent', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 12 }}
                   onClick={() => setShowSharePopup(false)}
                 >
-                  Batal
+                  {t('cancel')}
                 </button>
                 <button
                   style={{ flex: 1, padding: '8px 0', background: 'var(--accent)', border: 'none', borderRadius: 8, color: 'white', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}

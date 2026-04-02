@@ -263,7 +263,7 @@ export default function DiscordSetupPage({ onBack }) {
       {phase === 'loading' && (
         <div className={styles.loadingWrap}>
           <div className={styles.spinner} />
-          <p className={styles.loadingText}>Memuat daftar server...</p>
+          <p className={styles.loadingText}>{t('loading_servers')}</p>
         </div>
       )}
 
@@ -291,7 +291,7 @@ export default function DiscordSetupPage({ onBack }) {
               <Search size={14} strokeWidth={2.5} />
               <input
                 className={styles.searchInput}
-                placeholder="Cari server..."
+                placeholder={t('search_server')}
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 autoFocus

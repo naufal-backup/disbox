@@ -88,12 +88,37 @@ export function AppProvider({ children }) {
     },
   });
 
+  const syncSettingsToCloud = useCallback(async (newSettings) => {
+    if (!api || !isConnected) return;
+    try {
+      await api.persistCloud(files, { settings: newSettings });
+      await api.uploadMetadataToDiscord(files, { settings: newSettings });
+    } catch (e) { console.error('[settings-sync] Failed:', e); }
+  }, [api, isConnected, files]);
+
   // Sync server data to local state when query returns
   useEffect(() => {
     if (serverContainer && !isMutatingRef.current && Date.now() - lastMutationRef.current > 2000) {
       const fs = serverContainer.files || [];
       setFiles(fs);
       setFileTree(buildTree(fs));
+      
+      // Apply cloud settings
+      if (serverContainer.settings) {
+        const s = serverContainer.settings;
+        if (s.language) setLanguage(s.language);
+        if (s.theme) setTheme(s.theme);
+        if (s.uiScale) setUiScale(s.uiScale);
+        if (s.chunkSize) setChunkSize(s.chunkSize);
+        if (s.showPreviews !== undefined) setShowPreviews(s.showPreviews);
+        if (s.showImagePreviews !== undefined) setShowImagePreviews(s.showImagePreviews);
+        if (s.showVideoPreviews !== undefined) setShowVideoPreviews(s.showVideoPreviews);
+        if (s.showAudioPreviews !== undefined) setShowAudioPreviews(s.showAudioPreviews);
+        if (s.autoCloseTransfers !== undefined) setAutoCloseTransfers(s.autoCloseTransfers);
+        if (s.animationsEnabled !== undefined) setAnimationsEnabled(s.animationsEnabled);
+        if (s.showRecent !== undefined) setShowRecent(s.showRecent);
+      }
+
       if (serverContainer.pinHash) {
         setPinHash(serverContainer.pinHash);
         setPinExists(true);
@@ -592,18 +617,63 @@ export function AppProvider({ children }) {
   }, []);
 
   // ─── 6. Effects ─────────────────────────────────────────────────────────────
-  useEffect(() => { localStorage.setItem('disbox_animations_enabled', animationsEnabled.toString()); }, [animationsEnabled]);
+  useEffect(() => { 
+    localStorage.setItem('disbox_animations_enabled', animationsEnabled.toString());
+    syncSettingsToCloud({ animationsEnabled });
+  }, [animationsEnabled]);
 
-  useEffect(() => { document.documentElement.setAttribute('data-theme', theme); localStorage.setItem('disbox_theme', theme); }, [theme]);
-  useEffect(() => { localStorage.setItem('disbox_lang', language); }, [language]);
-  useEffect(() => { document.body.style.zoom = uiScale; localStorage.setItem('disbox_ui_scale', uiScale.toString()); }, [uiScale]);
-  useEffect(() => { localStorage.setItem('disbox_chunk_size', chunkSize.toString()); if (api) api.chunkSize = chunkSize; }, [chunkSize, api]);
-  useEffect(() => { localStorage.setItem('disbox_show_previews', showPreviews.toString()); }, [showPreviews]);
-  useEffect(() => { localStorage.setItem('disbox_show_image_previews', showImagePreviews.toString()); }, [showImagePreviews]);
-  useEffect(() => { localStorage.setItem('disbox_show_video_previews', showVideoPreviews.toString()); }, [showVideoPreviews]);
-  useEffect(() => { localStorage.setItem('disbox_show_audio_previews', showAudioPreviews.toString()); }, [showAudioPreviews]);
-  useEffect(() => { localStorage.setItem('disbox_show_recent', showRecent.toString()); }, [showRecent]);
-  useEffect(() => { localStorage.setItem('disbox_auto_close_transfers', autoCloseTransfers.toString()); }, [autoCloseTransfers]);
+  useEffect(() => { 
+    document.documentElement.setAttribute('data-theme', theme); 
+    localStorage.setItem('disbox_theme', theme);
+    syncSettingsToCloud({ theme });
+  }, [theme]);
+
+  useEffect(() => { 
+    localStorage.setItem('disbox_lang', language);
+    syncSettingsToCloud({ language });
+  }, [language]);
+
+  useEffect(() => { 
+    document.body.style.zoom = uiScale; 
+    localStorage.setItem('disbox_ui_scale', uiScale.toString());
+    syncSettingsToCloud({ uiScale });
+  }, [uiScale]);
+
+  useEffect(() => { 
+    localStorage.setItem('disbox_chunk_size', chunkSize.toString()); 
+    if (api) api.chunkSize = chunkSize;
+    syncSettingsToCloud({ chunkSize });
+  }, [chunkSize, api]);
+
+  useEffect(() => { 
+    localStorage.setItem('disbox_show_previews', showPreviews.toString());
+    syncSettingsToCloud({ showPreviews });
+  }, [showPreviews]);
+
+  useEffect(() => { 
+    localStorage.setItem('disbox_show_image_previews', showImagePreviews.toString());
+    syncSettingsToCloud({ showImagePreviews });
+  }, [showImagePreviews]);
+
+  useEffect(() => { 
+    localStorage.setItem('disbox_show_video_previews', showVideoPreviews.toString());
+    syncSettingsToCloud({ showVideoPreviews });
+  }, [showVideoPreviews]);
+
+  useEffect(() => { 
+    localStorage.setItem('disbox_show_audio_previews', showAudioPreviews.toString());
+    syncSettingsToCloud({ showAudioPreviews });
+  }, [showAudioPreviews]);
+
+  useEffect(() => { 
+    localStorage.setItem('disbox_show_recent', showRecent.toString());
+    syncSettingsToCloud({ showRecent });
+  }, [showRecent]);
+
+  useEffect(() => { 
+    localStorage.setItem('disbox_auto_close_transfers', autoCloseTransfers.toString());
+    syncSettingsToCloud({ autoCloseTransfers });
+  }, [autoCloseTransfers]);
   useEffect(() => { localStorage.setItem('disbox_chunks_per_message', chunksPerMessage.toString()); }, [chunksPerMessage]);
   useEffect(() => { localStorage.setItem('disbox_app_lock_enabled', appLockEnabled.toString()); }, [appLockEnabled]);
   useEffect(() => { localStorage.setItem('disbox_app_lock_pin', appLockPin); }, [appLockPin]);

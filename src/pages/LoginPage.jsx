@@ -110,22 +110,22 @@ export default function LoginPage() {
   const InfoPopup = () => (
     <div className={styles.infoOverlay} onClick={() => setShowInfo(false)}>
       <div className={styles.infoContent} onClick={e => e.stopPropagation()}>
-        <h2 className={styles.infoTitle}><Info size={20} /> Informasi Akses</h2>
+        <h2 className={styles.infoTitle}><Info size={20} /> {t('access_info')}</h2>
         <div className={styles.infoList}>
           <div className={styles.infoItem}>
-            <span className={styles.infoLabel}>Masuk dengan Akun</span>
-            <span className={styles.infoText}>Gunakan jika Anda sudah memiliki akun Disbox Cloud. Seluruh data metadata akan otomatis tersinkronisasi.</span>
+            <span className={styles.infoLabel}>{t('login_with_account')}</span>
+            <span className={styles.infoText}>{t('login_account_desc')}</span>
           </div>
           <div className={styles.infoItem}>
-            <span className={styles.infoLabel}>Daftar Akun Baru</span>
-            <span className={styles.infoText}>Simpan konfigurasi drive Anda ke cloud. Metadata akan di-backup ke server Vercel & Discord. Bisa import metadata lama via link CDN.</span>
+            <span className={styles.infoLabel}>{t('register_new_account')}</span>
+            <span className={styles.infoText}>{t('register_account_desc')}</span>
           </div>
           <div className={styles.infoItem}>
-            <span className={styles.infoLabel}>Setup Baru (Webhook)</span>
-            <span className={styles.infoText}>Gunakan jika Anda benar-benar baru atau ingin menggunakan drive tanpa sistem akun (Metadata disimpan lokal/discord).</span>
+            <span className={styles.infoLabel}>{t('setup_new_drive')}</span>
+            <span className={styles.infoText}>{t('setup_drive_desc')}</span>
           </div>
         </div>
-        <button className={styles.closeInfo} onClick={() => setShowInfo(false)}>Tutup</button>
+        <button className={styles.closeInfo} onClick={() => setShowInfo(false)}>{t('close')}</button>
       </div>
     </div>
   );
@@ -153,50 +153,66 @@ export default function LoginPage() {
         <div className={styles.divider} />
 
         {!loginMode ? (
-          <div className={styles.methodSelector}>
+          <>
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 20 }}>
+              <div className={styles.langSelector}>
+                <Globe size={14} style={{ color: 'var(--text-muted)' }} />
+                <select 
+                  value={language} 
+                  onChange={e => setLanguage(e.target.value)}
+                  className={styles.langSelect}
+                >
+                  <option value="id">Bahasa Indonesia</option>
+                  <option value="en">English</option>
+                  <option value="zh">中文</option>
+                </select>
+              </div>
+            </div>
+
+            <div className={styles.methodSelector}>
             <button className={styles.methodBtnPrimary} onClick={() => setLoginMode('account')} disabled={loading}>
               <User size={20} />
               <div className={styles.methodInfo}>
-                <span className={styles.methodTitle}>Masuk dengan Akun</span>
-                <span className={styles.methodDesc}>Sync metadata otomatis via Cloud</span>
+                <span className={styles.methodTitle}>{t('login_with_account')}</span>
+                <span className={styles.methodDesc}>{t('login_account_desc')}</span>
               </div>
             </button>
 
             <button className={styles.methodBtnSecondary} onClick={() => setLoginMode('register')} disabled={loading}>
               <UserPlus size={20} />
               <div className={styles.methodInfo}>
-                <span className={styles.methodTitle}>Daftar Akun Baru</span>
-                <span className={styles.methodDesc}>Simpan profil ke database Cloud</span>
+                <span className={styles.methodTitle}>{t('register_new_account')}</span>
+                <span className={styles.methodDesc}>{t('register_account_desc')}</span>
               </div>
             </button>
 
             <button className={styles.methodBtnTernary} onClick={() => setLoginMode('manual')} disabled={loading}>
               <Zap size={20} />
               <div className={styles.methodInfo}>
-                <span className={styles.methodTitle}>Setup Baru (Guest)</span>
-                <span className={styles.methodDesc}>Input Webhook saja</span>
+                <span className={styles.methodTitle}>{t('setup_new_drive')}</span>
+                <span className={styles.methodDesc}>{t('setup_drive_desc')}</span>
               </div>
             </button>
           </div>
         ) : loginMode === 'account' ? (
           <div className={styles.manualForm}>
             <div className={styles.formHeader}>
-              <button className={styles.backBtn} onClick={() => { setLoginMode(null); setError(''); }}>← Kembali</button>
-              <span className={styles.formTitle}>Login Akun</span>
+              <button className={styles.backBtn} onClick={() => { setLoginMode(null); setError(''); }}>← {t('back')}</button>
+              <span className={styles.formTitle}>{t('welcome')}</span>
             </div>
 
             <div className={styles.inputGroup}>
-              <label className={styles.label}>Username</label>
+              <label className={styles.label}>{t('username')}</label>
               <input 
-                type="text" className={styles.input} placeholder="Masukkan username"
+                type="text" className={styles.input} placeholder={t('enter_username')}
                 value={username} onChange={e => setUsername(e.target.value)}
               />
             </div>
 
             <div className={styles.inputGroup}>
-              <label className={styles.label}>Password</label>
+              <label className={styles.label}>{t('password')}</label>
               <input 
-                type="password" className={styles.input} placeholder="••••••••"
+                type="password" className={styles.input} placeholder={t('password_placeholder')}
                 value={password} onChange={e => setPassword(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && handleAccountLogin()}
               />
@@ -205,28 +221,28 @@ export default function LoginPage() {
             {error && <div className={styles.errorMsg}><AlertCircle size={12} /> {error}</div>}
 
             <button className={styles.connectBtn} onClick={handleAccountLogin} disabled={loading}>
-              {loading ? <><Loader2 size={16} className="spin" /> Memuat...</> : <><Key size={16} /> Masuk</>}
+              {loading ? <><Loader2 size={16} className="spin" /> {t('loading')}</> : <><Key size={16} /> {t('next')}</>}
             </button>
           </div>
         ) : loginMode === 'register' ? (
           <div className={styles.manualForm}>
             <div className={styles.formHeader}>
-              <button className={styles.backBtn} onClick={() => { setLoginMode(null); setError(''); }}>← Kembali</button>
-              <span className={styles.formTitle}>Daftar Akun Cloud</span>
+              <button className={styles.backBtn} onClick={() => { setLoginMode(null); setError(''); }}>← {t('back')}</button>
+              <span className={styles.formTitle}>{t('register')}</span>
             </div>
 
             <div className={styles.inputGroup}>
-              <label className={styles.label}>Username</label>
+              <label className={styles.label}>{t('username')}</label>
               <input 
-                type="text" className={styles.input} placeholder="Username baru"
+                type="text" className={styles.input} placeholder={t('new_username')}
                 value={username} onChange={e => setUsername(e.target.value)}
               />
             </div>
 
             <div className={styles.inputGroup}>
-              <label className={styles.label}>Password</label>
+              <label className={styles.label}>{t('password')}</label>
               <input 
-                type="password" className={styles.input} placeholder="••••••••"
+                type="password" className={styles.input} placeholder={t('password_placeholder')}
                 value={password} onChange={e => setPassword(e.target.value)}
               />
             </div>
@@ -234,7 +250,7 @@ export default function LoginPage() {
             <div className={styles.inputGroup}>
               <label className={styles.label}>Webhook URL</label>
               <input 
-                type="text" className={styles.input} placeholder="https://discord.com/api/webhooks/..."
+                type="text" className={styles.input} placeholder={t('webhook_placeholder')}
                 value={url} onChange={e => setUrl(e.target.value)}
               />
             </div>
@@ -251,20 +267,20 @@ export default function LoginPage() {
             {error && <div className={styles.errorMsg}><AlertCircle size={12} /> {error}</div>}
 
             <button className={styles.connectBtn} onClick={handleRegister} disabled={loading}>
-              {loading ? <><Loader2 size={16} className="spin" /> Mendaftar...</> : <><UserPlus size={16} /> Daftar & Simpan</>}
+              {loading ? <><Loader2 size={16} className="spin" /> {t('status_syncing')}</> : <><UserPlus size={16} /> {t('register')}</>}
             </button>
           </div>
         ) : (
           <div className={styles.manualForm}>
             <div className={styles.formHeader}>
-              <button className={styles.backBtn} onClick={() => { setLoginMode(null); setError(''); }}>← Kembali</button>
-              <span className={styles.formTitle}>Setup Baru</span>
+              <button className={styles.backBtn} onClick={() => { setLoginMode(null); setError(''); }}>← {t('back')}</button>
+              <span className={styles.formTitle}>{t('add_webhook')}</span>
             </div>
 
             <div className={styles.inputGroup}>
               <label className={styles.label}>Webhook URL</label>
               <input 
-                type="text" className={styles.input} placeholder="https://discord.com/api/webhooks/..."
+                type="text" className={styles.input} placeholder={t('webhook_placeholder')}
                 value={url} onChange={e => setUrl(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && handleManualConnect()}
               />
@@ -273,7 +289,7 @@ export default function LoginPage() {
             {error && <div className={styles.errorMsg}><AlertCircle size={12} /> {error}</div>}
 
             <button className={styles.connectBtn} onClick={handleManualConnect} disabled={loading}>
-              {loading ? <><Loader2 size={16} className="spin" /> Menghubungkan...</> : <><Cloud size={16} /> Connect Drive</>}
+              {loading ? <><Loader2 size={16} className="spin" /> {t('verifying')}</> : <><Cloud size={16} /> {t('connect_drive')}</>}
             </button>
           </div>
         )}

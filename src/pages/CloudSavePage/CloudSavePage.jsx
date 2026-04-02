@@ -106,24 +106,24 @@ export default function CloudSavePage() {
             >
               <h3>{t('add_cloud_save')}</h3>
               <div className={styles.formGroup}>
-                <label>Name</label>
+                <label>{t('sort_name')}</label>
                 <input 
                   className={styles.input}
                   value={newName}
                   onChange={e => setNewName(e.target.value)}
-                  placeholder="Game Name (e.g. Elden Ring)"
+                  placeholder={t('game_name_placeholder')}
                 />
               </div>
               <div className={styles.formGroup}>
-                <label>Local Folder</label>
+                <label>{t('local_folder')}</label>
                 <div className={styles.pathSelector}>
                   <input 
                     className={styles.input}
                     value={newPath}
                     readOnly
-                    placeholder="Choose folder..."
+                    placeholder={t('choose_folder')}
                   />
-                  <button className={styles.browseBtn} onClick={handleBrowse}>Browse</button>
+                  <button className={styles.browseBtn} onClick={handleBrowse}>{t('browse')}</button>
                 </div>
               </div>
               <div className={styles.modalActions}>

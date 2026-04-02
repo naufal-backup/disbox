@@ -106,14 +106,14 @@ export default function ProfilePage() {
       <div className={styles.content}>
         {/* Storage Stats Section */}
         <div className={styles.section}>
-          <h3 className={styles.sectionTitle}>Account Statistics</h3>
+          <h3 className={styles.sectionTitle}>{t('storage')}</h3>
           <div className={styles.statsGrid}>
             <div className={styles.statCard}>
               <div className={styles.statIcon} style={{ background: 'rgba(88, 101, 242, 0.1)', color: 'var(--accent)' }}>
                 <HardDrive size={20} />
               </div>
               <div className={styles.statInfo}>
-                <span className={styles.statLabel}>Storage Used</span>
+                <span className={styles.statLabel}>{t('storage')}</span>
                 <span className={styles.statValue}>{stats.size}</span>
               </div>
             </div>
@@ -122,7 +122,7 @@ export default function ProfilePage() {
                 <FileText size={20} />
               </div>
               <div className={styles.statInfo}>
-                <span className={styles.statLabel}>Total Files</span>
+                <span className={styles.statLabel}>{t('total_files')}</span>
                 <span className={styles.statValue}>{stats.count}</span>
               </div>
             </div>
@@ -137,7 +137,7 @@ export default function ProfilePage() {
           <div className={styles.section}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
               <h3 className={styles.sectionTitle} style={{ margin: 0 }}>
-                {t('saved_webhooks') || 'History Webhook Lokal'}
+                {t('saved_webhooks')}
               </h3>
               <button className={styles.addBtn} onClick={() => setShowAddModal(true)}>
                 <Plus size={16} />
@@ -148,7 +148,7 @@ export default function ProfilePage() {
             {savedWebhooks.length === 0 ? (
               <div className={styles.emptyState}>
                 <Key className={styles.emptyIcon} size={40} />
-                <p>{t('no_saved_webhooks') || 'Belum ada history webhook tersimpan.'}</p>
+                <p>{t('no_saved_webhooks')}</p>
               </div>
             ) : (
               <div className={styles.list}>
@@ -316,13 +316,13 @@ function CloudSaveSection() {
   if (currentAccount && !isEditing) {
     return (
       <div className={styles.section}>
-        <h3 className={styles.sectionTitle}>Cloud Account</h3>
+        <h3 className={styles.sectionTitle}>{t('security')}</h3>
         <div className={styles.cloudBadge} style={{ justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <ShieldCheck size={20} color="#10b981" />
-            <span>Terhubung sebagai: <strong>@{currentAccount}</strong></span>
+            <span>{t('connected_as')}: <strong>@{currentAccount}</strong></span>
           </div>
-          <button onClick={() => { setIsEditing(true); setUsername(currentAccount); }} style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: '6px', padding: '4px 10px', fontSize: '11px', cursor: 'pointer', color: 'var(--text-secondary)' }}>Edit Akun</button>
+          <button onClick={() => { setIsEditing(true); setUsername(currentAccount); }} style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: '6px', padding: '4px 10px', fontSize: '11px', cursor: 'pointer', color: 'var(--text-secondary)' }}>{t('edit_account')}</button>
         </div>
       </div>
     );
@@ -330,18 +330,19 @@ function CloudSaveSection() {
 
   return (
     <div className={styles.section}>
-      <h3 className={styles.sectionTitle}>{currentAccount ? 'Edit Cloud Account' : 'Cloud Sync Account'}</h3>
+      <h3 className={styles.sectionTitle}>{currentAccount ? t('edit_account') : t('cloud_save')}</h3>
       <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '12px' }}>
-        {currentAccount ? 'Kosongkan password jika tidak ingin diubah.' : 'Daftarkan akun untuk membuka drive ini di perangkat lain.'}
+        {currentAccount ? t('edit_account_hint') : t('register_hint')}
       </p>
       <form onSubmit={currentAccount ? handleUpdate : handleRegister} className={styles.cloudForm}>
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-          <input type="text" placeholder="Username" className={styles.input} style={{ flex: 1, minWidth: '150px' }} value={username} onChange={e => setUsername(e.target.value)} required={!currentAccount} />
-          <input type="password" placeholder={currentAccount ? "Password baru (opsional)" : "Password"} className={styles.input} style={{ flex: 1, minWidth: '150px' }} value={password} onChange={e => setPassword(e.target.value)} required={!currentAccount} />
+          <input type="text" placeholder={t('username')} className={styles.input} style={{ flex: 1, minWidth: '150px' }} value={username} onChange={e => setUsername(e.target.value)} required={!currentAccount} />
+          <input type="password" placeholder={currentAccount ? t('new_password_optional') : t('password')} className={styles.input} style={{ flex: 1, minWidth: '150px' }} value={password} onChange={e => setPassword(e.target.value)} required={!currentAccount} />
           <div style={{ display: 'flex', gap: '8px' }}>
-            <button className={styles.saveBtn} disabled={busy} style={{ background: 'var(--accent)', color: 'white', border: 'none', borderRadius: '12px', padding: '0 16px', fontWeight: '600', cursor: 'pointer' }}>{busy ? '...' : (currentAccount ? 'Simpan' : 'Daftar')}</button>
-            {isEditing && <button type="button" onClick={() => setIsEditing(false)} style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: '12px', padding: '0 12px', cursor: 'pointer' }}>Batal</button>}
+            <button className={styles.saveBtn} disabled={busy} style={{ background: 'var(--accent)', color: 'white', border: 'none', borderRadius: '12px', padding: '0 16px', fontWeight: '600', cursor: 'pointer' }}>{busy ? '...' : (currentAccount ? t('save') : t('register'))}</button>
+            {isEditing && <button type="button" onClick={() => setIsEditing(false)} style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: '12px', padding: '0 12px', cursor: 'pointer' }}>{t('cancel')}</button>}
           </div>
+
         </div>
         {status && <div style={{ marginTop: '10px', fontSize: '12px', color: status.type === 'success' ? '#10b981' : '#ef4444', display: 'flex', alignItems: 'center', gap: '6px' }}><AlertCircle size={14} /> {status.msg}</div>}
       </form>
