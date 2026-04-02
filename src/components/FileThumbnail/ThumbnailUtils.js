@@ -66,9 +66,9 @@ export function captureFrameFromBlob(blob) {
     const timeout = setTimeout(() => done(null), 10000);
 
     video.onloadedmetadata = () => {
-      // Don't seek to middle, we only have the first chunk (7.5MB)
-      // Seeking too far will fail on partial files.
-      video.currentTime = 0.1; 
+      // Seek to 1.0 second to avoid initial black frames.
+      // 1.0s is safe for the first 7.5MB chunk in most videos.
+      video.currentTime = 1.0; 
     };
 
     video.onseeked = () => {
