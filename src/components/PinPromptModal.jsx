@@ -5,7 +5,7 @@ import { useApp } from '../context/useAppHook.js';
 import styles from './FileGrid.module.css';
 
 export default function PinPromptModal({ title, onSuccess, onClose }) {
-  const { verifyPin, hasPin } = useApp();
+  const { verifyPin, hasPin, t } = useApp();
   const [pin, setPin] = useState('');
   const [error, setError] = useState('');
   const [checking, setChecking] = useState(false);
@@ -18,7 +18,7 @@ export default function PinPromptModal({ title, onSuccess, onClose }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!exists) {
-      setError('PIN belum diset. Silakan set PIN di Settings.');
+      setError(t('pin_not_set_security'));
       return;
     }
     setChecking(true);
@@ -28,7 +28,7 @@ export default function PinPromptModal({ title, onSuccess, onClose }) {
       onSuccess();
       onClose();
     } else {
-      setError('PIN salah');
+      setError(t('pin_error_wrong'));
       setPin('');
     }
     setChecking(false);

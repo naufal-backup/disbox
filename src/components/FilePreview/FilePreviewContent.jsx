@@ -4,11 +4,13 @@ import vscDarkPlus from 'react-syntax-highlighter/dist/esm/styles/prism/vsc-dark
 import styles from '../FilePreview.module.css';
 import MusicPlayer from '../MusicPlayer.jsx';
 import ProgressiveMediaPlayer from '../ProgressiveMediaPlayer.jsx';
+import { useApp } from '../../context/useAppHook.js';
 
 export default function FilePreviewContent({ 
   loading, downloadProgress, error, handleDownload, content, name, 
   ext, file, navigatableFiles, onFileChange, onClose 
 }) {
+  const { t } = useApp();
   if (loading) {
     return (
       <div className={styles.state}>

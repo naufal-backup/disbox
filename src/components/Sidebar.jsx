@@ -79,9 +79,9 @@ export default function Sidebar({ activePage, onNavigate }) {
           <div className={styles.sharePopupOverlay} onClick={() => setShowSharePopup(false)}>
             <div className={styles.sharePopup} onClick={e => e.stopPropagation()}>
               <Link2 size={28} style={{ color: 'var(--accent)', marginBottom: 12 }} />
-              <h3 style={{ fontSize: 15, fontWeight: 700, marginBottom: 8 }}>Aktifkan Fitur Shared?</h3>
+              <h3 style={{ fontSize: 15, fontWeight: 700, marginBottom: 8 }}>{t('enable_shared_feature')}</h3>
               <p style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.6, marginBottom: 20 }}>
-                Bagikan file ke siapapun via link. Penerima cukup buka link di browser, tanpa perlu install Disbox.
+                {t('feature_active_hint')}
               </p>
               <div style={{ display: 'flex', gap: 8 }}>
                 <button
@@ -94,7 +94,7 @@ export default function Sidebar({ activePage, onNavigate }) {
                   style={{ flex: 1, padding: '8px 0', background: 'var(--accent)', border: 'none', borderRadius: 8, color: 'white', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
                   onClick={() => { setShowSharePopup(false); handleNavigateClose('settings'); }}
                 >
-                  Ke Settings
+                  {t('go_to_settings')}
                 </button>
               </div>
             </div>
@@ -104,8 +104,8 @@ export default function Sidebar({ activePage, onNavigate }) {
 
       {showDisconnectConfirm && (
         <ConfirmModal
-          title="Disconnect Session"
-          message="Apakah Anda yakin ingin memutus sesi? Semua perubahan metadata yang belum terunggah akan hilang."
+          title={t('disconnect_title')}
+          message={t('disconnect_message')}
           danger={true}
           onConfirm={disconnect}
           onClose={() => setShowDisconnectConfirm(false)}

@@ -233,7 +233,10 @@ export const translations = {
     expired: 'Kedaluwarsa',
     feature_not_active: 'Fitur Shared Belum Aktif',
     feature_active_hint: 'Bagikan file ke siapapun via link. Penerima cukup buka link di browser.',
+    enable_shared_feature: 'Aktifkan Fitur Shared?',
     go_to_settings: 'Ke Pengaturan',
+    disconnect_title: 'Putus Sesi',
+    disconnect_message: 'Apakah Anda yakin ingin memutus sesi? Semua perubahan metadata yang belum terunggah akan hilang.',
     // New/Polishing
     search_server: 'Cari server...',
     enter_username: 'Masukkan username',
@@ -478,7 +481,10 @@ export const translations = {
     expired: 'Expired',
     feature_not_active: 'Sharing Not Active',
     feature_active_hint: 'Share files with anyone via link. Recipients can open in browser.',
+    enable_shared_feature: 'Enable Shared Feature?',
     go_to_settings: 'Go to Settings',
+    disconnect_title: 'Disconnect Session',
+    disconnect_message: 'Are you sure you want to disconnect? Any un-uploaded metadata changes will be lost.',
     // New/Polishing
     search_server: 'Search server...',
     enter_username: 'Enter username',
@@ -722,7 +728,10 @@ export const translations = {
     expired: '已过期',
     feature_not_active: '分享功能未激活',
     feature_active_hint: '通过链接与任何人分享文件。接收者可以在浏览器中直接打开。',
+    enable_shared_feature: '启用分享功能？',
     go_to_settings: '前往设置',
+    disconnect_title: '断开会话',
+    disconnect_message: '您确定要断开连接吗？任何未上传的元数据更改都将丢失。',
     // New/Polishing
     search_server: '搜索服务器...',
     enter_username: '输入用户名',

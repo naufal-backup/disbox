@@ -3,7 +3,7 @@ import { useApp } from '../context/useAppHook.js';
 import styles from './ProgressiveMediaPlayer.module.css';
 
 export default function ProgressiveMediaPlayer({ file }) {
-  const { api, addTransfer, updateTransfer, removeTransfer } = useApp();
+  const { api, addTransfer, updateTransfer, removeTransfer, t } = useApp();
   const videoRef = useRef(null);
   const mediaSourceRef = useRef(null);
   const sourceBufferRef = useRef(null);
@@ -55,7 +55,7 @@ export default function ProgressiveMediaPlayer({ file }) {
 
         video.onerror = () => {
           if (isMounted) {
-            setError('Gagal memutar video');
+            setError(t('failed_to_load'));
             setLoading(false);
           }
         };

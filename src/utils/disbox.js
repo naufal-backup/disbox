@@ -70,7 +70,7 @@ export class DisboxAPI {
     }
 
     const container = await this.syncMetadata({ forceId, metadataUrl });
-    if (!container) {
+    if (!container && window.electron?.saveMetadata) {
       console.log('[init] New drive. Initializing empty structure.');
       await window.electron.saveMetadata(this.hashedWebhook, []);
     }
@@ -106,7 +106,6 @@ export class DisboxAPI {
       const username = localStorage.getItem('dbx_username');
       const identifier = username || this.hashedWebhook;
 
-      // 1. Ambil dari Tabel Files (JSONB)
       console.log(`[sync] Pulling structure for ${identifier}...`);
       const res = await fetch(`${BASE_API}/api/files/list?identifier=${identifier}`, {
         credentials: 'include'
@@ -126,16 +125,10 @@ export class DisboxAPI {
         this.pinHash = result.pinHash || null;
         this.shareLinks = result.shareLinks || [];
         this.settings = result.settings || {};
-        await window.electron.saveMetadata(this.hashedWebhook, result.files);
-        return { 
-          files: result.files, 
-          pinHash: this.pinHash, 
-          shareLinks: this.shareLinks,
-          settings: this.settings
-        };
+        if (window.electron?.saveMetadata) await window.electron.saveMetadata(this.hashedWebhook, result.files);
+        return { files: result.files, pinHash: this.pinHash, shareLinks: this.shareLinks, settings: this.settings };
       }
 
-      // 2. Load from Discord for full container (including pinHash, shareLinks, settings)
       const discovery = await this._getMsgIdFromDiscovery();
       const msgId = forceId || discovery?.best;
       let fullContainer = null;
@@ -147,7 +140,7 @@ export class DisboxAPI {
         this.shareLinks = fullContainer.shareLinks || [];
         this.settings = fullContainer.settings || {};
 
-        await window.electron.saveMetadata(this.hashedWebhook, files);
+        if (window.electron?.saveMetadata) await window.electron.saveMetadata(this.hashedWebhook, files);
         return { files, pinHash: this.pinHash, shareLinks: this.shareLinks, settings: this.settings };
       }
       
@@ -157,17 +150,25 @@ export class DisboxAPI {
 
   async _downloadMetadataFromUrl(url) {
     const freshUrl = `${url}${url.includes('?') ? '&' : '?'}t=${Date.now()}`;
-    const bytes = await window.electron.proxyDownload(freshUrl);
+    const bytes = await (window.electron ? window.electron.proxyDownload(freshUrl) : fetch(freshUrl).then(r => r.arrayBuffer()));
     const dec = await this.decrypt(bytes);
     return JSON.parse(new TextDecoder().decode(dec));
   }
 
   async _downloadMetadataFromMsg(msgId) {
-    const msgRes = await window.electron.fetch(`${this.webhookUrl}/messages/${msgId}`);
-    const msg = JSON.parse(msgRes.body);
+    const webhookBase = this.webhookUrl.split('?')[0];
+    const msgRes = await (window.electron ? window.electron.fetch(`${this.webhookUrl}/messages/${msgId}`) : fetch(`${webhookBase}/messages/${msgId}`));
+    const msg = window.electron ? JSON.parse(msgRes.body) : await msgRes.json();
     const url = msg.attachments?.[0]?.url;
     if (!url) return null;
-    const bytes = await window.electron.proxyDownload(url);
+    
+    let bytes;
+    if (window.electron) {
+      bytes = await window.electron.proxyDownload(url);
+    } else {
+      const proxiedUrl = `${BASE_API}/api/proxy?url=${encodeURIComponent(url)}`;
+      bytes = await fetch(proxiedUrl).then(r => r.arrayBuffer());
+    }
     const dec = await this.decrypt(bytes);
     return JSON.parse(new TextDecoder().decode(dec));
   }
@@ -175,24 +176,25 @@ export class DisboxAPI {
   async _getMsgIdFromDiscovery() {
     let channelId = null;
     try {
-      const res = await window.electron.fetch(this.webhookUrl);
-      if (res.ok) channelId = JSON.parse(res.body).channel_id;
+      const res = await (window.electron ? window.electron.fetch(this.webhookUrl) : fetch(`${BASE_API}/api/proxy?url=${encodeURIComponent(this.webhookUrl)}`));
+      const data = window.electron ? JSON.parse(res.body) : await res.json();
+      channelId = data.channel_id;
     } catch {}
     if (!channelId) return null;
     try {
-      const dRes = await window.electron.fetch(`${BASE_API}/api/discord/discover?channel_id=${channelId}`);
-      const dData = JSON.parse(dRes.body);
+      const dRes = await (window.electron ? window.electron.fetch(`${BASE_API}/api/discord/discover?channel_id=${channelId}`) : fetch(`${BASE_API}/api/discord/discover?channel_id=${channelId}`));
+      const dData = window.electron ? JSON.parse(dRes.body) : await dRes.json();
       return dData.ok && dData.found ? { best: dData.message_id } : null;
     } catch { return null; }
   }
 
   async getFileSystem() {
-    const data = await window.electron.loadMetadata(this.hashedWebhook);
-    if (!data || data.length === 0) {
-      const container = await this.syncMetadata();
-      return container?.files || [];
+    if (window.electron) {
+      const data = await window.electron.loadMetadata(this.hashedWebhook);
+      if (data && data.length > 0) return data;
     }
-    return data;
+    const container = await this.syncMetadata();
+    return container?.files || [];
   }
 
   async persistCloud(files, extra = {}) {
@@ -203,7 +205,6 @@ export class DisboxAPI {
     if (extra.shareLinks !== undefined) this.shareLinks = extra.shareLinks;
     if (extra.settings !== undefined) this.settings = { ...this.settings, ...extra.settings };
 
-    // Normalize properties to booleans for JSONB storage
     const normalizedFiles = files.map(f => ({
       ...f,
       isLocked: !!f.isLocked,
@@ -234,11 +235,11 @@ export class DisboxAPI {
       if (extra.settings !== undefined) this.settings = { ...this.settings, ...extra.settings };
 
       let pinHash = this.pinHash;
-      if (pinHash === null) {
+      if (pinHash === null && window.electron) {
         try { pinHash = await window.electron.getPinHash?.(this.hashedWebhook); } catch {}
       }
       let shareLinks = this.shareLinks || [];
-      if (!shareLinks.length) {
+      if (!shareLinks.length && window.electron) {
         try { shareLinks = await window.electron.shareGetLinks?.(this.hashedWebhook) || []; } catch {}
       }
 
@@ -246,13 +247,22 @@ export class DisboxAPI {
       const jsonStr = JSON.stringify(container);
       const jsonBytes = new TextEncoder().encode(jsonStr);
       const encryptedBytes = await this.encrypt(jsonBytes.buffer);
-      const b64 = await _bufferToBase64(encryptedBytes);
       
-      const res = await window.electron.uploadChunk(this.webhookUrl, b64, 'disbox_metadata.json');
+      let res;
+      if (window.electron) {
+        const b64 = await _bufferToBase64(encryptedBytes);
+        res = await window.electron.uploadChunk(this.webhookUrl, b64, 'disbox_metadata.json');
+      } else {
+        const formData = new FormData();
+        const blob = new Blob([encryptedBytes], { type: 'application/json' });
+        formData.append('file', blob, 'disbox_metadata.json');
+        res = await fetch(this.webhookUrl, { method: 'POST', body: formData });
+      }
+
       if (res.ok) {
-        const data = JSON.parse(res.body);
+        const data = window.electron ? JSON.parse(res.body) : await res.json();
         this.lastSyncedId = data.id;
-        await window.electron.saveMetadata(this.hashedWebhook, files, data.id);
+        if (window.electron) await window.electron.saveMetadata(this.hashedWebhook, files, data.id);
         console.log('[disbox] Metadata synced to Discord. ID:', data.id);
         
         const username = localStorage.getItem('dbx_username');
@@ -265,11 +275,9 @@ export class DisboxAPI {
           }).catch(() => {});
         }
 
-        await window.electron.fetch(this.webhookUrl, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: `dbx: ${data.id}` })
-        }).catch(() => {});
+        const patchData = JSON.stringify({ name: `dbx: ${data.id}` });
+        if (window.electron) await window.electron.fetch(this.webhookUrl, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: patchData });
+        else await fetch(this.webhookUrl, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: patchData });
       }
     } catch (e) { console.error('[disbox] Failed to upload metadata:', e); }
   }
@@ -281,7 +289,7 @@ export class DisboxAPI {
       const idx = files.findIndex(f => f.path === path);
       if (idx >= 0) files[idx] = entry; else files.push(entry);
       
-      await window.electron.saveMetadata(this.hashedWebhook, files);
+      if (window.electron) await window.electron.saveMetadata(this.hashedWebhook, files);
       await this.persistCloud(files);
       await this.uploadMetadataToDiscord(files);
       return entry;
@@ -302,7 +310,7 @@ export class DisboxAPI {
         if (f.path === targetPath || f.path.startsWith(targetPath + '/')) return false;
         return true;
       });
-      await window.electron.saveMetadata(this.hashedWebhook, filtered);
+      if (window.electron) await window.electron.saveMetadata(this.hashedWebhook, filtered);
       await this.persistCloud(filtered);
       await this.uploadMetadataToDiscord(filtered);
     });
@@ -312,7 +320,7 @@ export class DisboxAPI {
     return this._enqueue(async () => {
       const files = await this.getFileSystem();
       const filtered = files.filter(f => !pathsOrIds.some(p => f.id === p || f.path === p || f.path.startsWith(p + '/')));
-      await window.electron.saveMetadata(this.hashedWebhook, filtered);
+      if (window.electron) await window.electron.saveMetadata(this.hashedWebhook, filtered);
       await this.persistCloud(filtered);
       await this.uploadMetadataToDiscord(filtered);
     });
@@ -326,7 +334,7 @@ export class DisboxAPI {
         if (f.path.startsWith(oldPath + '/')) return { ...f, path: f.path.replace(oldPath + '/', newPath + '/') };
         return f;
       });
-      await window.electron.saveMetadata(this.hashedWebhook, updated);
+      if (window.electron) await window.electron.saveMetadata(this.hashedWebhook, updated);
       await this.persistCloud(updated);
       await this.uploadMetadataToDiscord(updated);
     });
@@ -349,7 +357,7 @@ export class DisboxAPI {
         }
         return f;
       });
-      await window.electron.saveMetadata(this.hashedWebhook, updated);
+      if (window.electron) await window.electron.saveMetadata(this.hashedWebhook, updated);
       await this.persistCloud(updated);
       await this.uploadMetadataToDiscord(updated);
     });
@@ -367,7 +375,7 @@ export class DisboxAPI {
         }
       });
       const next = [...files, ...toAdd];
-      await window.electron.saveMetadata(this.hashedWebhook, next);
+      if (window.electron) await window.electron.saveMetadata(this.hashedWebhook, next);
       await this.persistCloud(next);
       await this.uploadMetadataToDiscord(next);
     });
@@ -391,7 +399,7 @@ export class DisboxAPI {
         });
       });
       const next = [...files, ...toAdd];
-      await window.electron.saveMetadata(this.hashedWebhook, next);
+      if (window.electron) await window.electron.saveMetadata(this.hashedWebhook, next);
       await this.persistCloud(next);
       await this.uploadMetadataToDiscord(next);
     });
@@ -405,7 +413,7 @@ export class DisboxAPI {
         if (f.path === id || f.path.startsWith(id + '/')) return { ...f, isLocked };
         return f;
       });
-      await window.electron.saveMetadata(this.hashedWebhook, updated);
+      if (window.electron) await window.electron.saveMetadata(this.hashedWebhook, updated);
       await this.persistCloud(updated);
       await this.uploadMetadataToDiscord(updated);
     });
@@ -416,11 +424,10 @@ export class DisboxAPI {
       const files = await this.getFileSystem();
       const updated = files.map(f => {
         if (f.id === id) return { ...f, isStarred };
-        // Folder logic: starred if its .keep file is starred
         if (f.path === (id ? `${id}/.keep` : '.keep')) return { ...f, isStarred };
         return f;
       });
-      await window.electron.saveMetadata(this.hashedWebhook, updated);
+      if (window.electron) await window.electron.saveMetadata(this.hashedWebhook, updated);
       await this.persistCloud(updated);
       await this.uploadMetadataToDiscord(updated);
     });
@@ -432,7 +439,7 @@ export class DisboxAPI {
     let messageIds = [];
     let uploadedSize = 0;
 
-    if (file.nativePath) {
+    if (window.electron && file.nativePath) {
       if (signal) signal.addEventListener('abort', () => window.electron.cancelUpload(transferId));
       const res = await window.electron.uploadFileFromPath(this.webhookUrl, file.nativePath, `${fileId}_${fileName}`, (p) => { if (!signal?.aborted) onProgress?.(p); }, transferId, this.chunkSize);
       if (!res.ok) throw new Error('Gagal upload file');
@@ -444,10 +451,19 @@ export class DisboxAPI {
       throwIfAborted(signal);
       const chunk = buffer.slice(offset, offset + this.chunkSize);
       const encrypted = await this.encrypt(chunk);
-      const b64 = await _bufferToBase64(encrypted);
-      const res = await window.electron.uploadChunk(this.webhookUrl, b64, `${fileId}.part${messageIds.length}`);
+      
+      let res;
+      if (window.electron) {
+        const b64 = await _bufferToBase64(encrypted);
+        res = await window.electron.uploadChunk(this.webhookUrl, b64, `${fileId}.part${messageIds.length}`);
+      } else {
+        const formData = new FormData();
+        formData.append('file', new Blob([encrypted]), `${fileId}.part${messageIds.length}`);
+        res = await fetch(this.webhookUrl, { method: 'POST', body: formData, signal });
+      }
+
       if (!res.ok) throw new Error('Gagal upload chunk');
-      const data = JSON.parse(res.body);
+      const data = window.electron ? JSON.parse(res.body) : await res.json();
       messageIds.push(data.id);
       uploadedSize += chunk.byteLength;
       if (onProgress) onProgress(uploadedSize / buffer.byteLength);
@@ -458,14 +474,32 @@ export class DisboxAPI {
   async downloadFile(file, onProgress, signal) {
     const messageIds = file.messageIds || [];
     const chunks = [];
+    const webhookBase = this.webhookUrl.split('?')[0];
+
     for (let i = 0; i < messageIds.length; i++) {
       throwIfAborted(signal);
       const msgId = typeof messageIds[i] === 'string' ? messageIds[i] : messageIds[i].msgId;
-      const res = await window.electron.fetch(`${this.webhookUrl}/messages/${msgId}`, { signal });
-      if (!res.ok) throw new Error(`Gagal memuat chunk ${i}`);
-      const msg = JSON.parse(res.body);
-      const url = msg.attachments?.[0]?.url;
-      const bytes = await window.electron.proxyDownload(url, signal);
+      
+      let resData;
+      if (window.electron) {
+        const res = await window.electron.fetch(`${this.webhookUrl}/messages/${msgId}`, { signal });
+        if (!res.ok) throw new Error(`Gagal memuat chunk ${i}`);
+        resData = JSON.parse(res.body);
+      } else {
+        const res = await fetch(`${webhookBase}/messages/${msgId}`, { signal });
+        if (!res.ok) throw new Error(`Gagal memuat chunk ${i}`);
+        resData = await res.json();
+      }
+
+      const url = resData.attachments?.[0]?.url;
+      let bytes;
+      if (window.electron) {
+        bytes = await window.electron.proxyDownload(url, signal);
+      } else {
+        const proxiedUrl = `${BASE_API}/api/proxy?url=${encodeURIComponent(url)}`;
+        bytes = await fetch(proxiedUrl, { signal }).then(r => r.arrayBuffer());
+      }
+
       const decrypted = await this.decrypt(bytes);
       chunks.push(decrypted);
       if (onProgress) onProgress((i + 1) / messageIds.length);
@@ -481,10 +515,27 @@ export class DisboxAPI {
     const messageIds = file.messageIds || [];
     if (!messageIds.length) return new ArrayBuffer(0);
     const msgId = typeof messageIds[0] === 'string' ? messageIds[0] : messageIds[0].msgId;
-    const res = await window.electron.fetch(`${this.webhookUrl}/messages/${msgId}`, { signal });
-    if (!res.ok) return new ArrayBuffer(0);
-    const msg = JSON.parse(res.body);
-    const bytes = await window.electron.proxyDownload(msg.attachments?.[0]?.url, signal || transferId);
+    const webhookBase = this.webhookUrl.split('?')[0];
+    
+    let resData;
+    if (window.electron) {
+      const res = await window.electron.fetch(`${this.webhookUrl}/messages/${msgId}`, { signal });
+      if (!res.ok) return new ArrayBuffer(0);
+      resData = JSON.parse(res.body);
+    } else {
+      const res = await fetch(`${webhookBase}/messages/${msgId}`, { signal });
+      if (!res.ok) return new ArrayBuffer(0);
+      resData = await res.json();
+    }
+
+    const url = resData.attachments?.[0]?.url;
+    let bytes;
+    if (window.electron) {
+      bytes = await window.electron.proxyDownload(url, signal || transferId);
+    } else {
+      const proxiedUrl = `${BASE_API}/api/proxy?url=${encodeURIComponent(url)}`;
+      bytes = await fetch(proxiedUrl, { signal }).then(r => r.arrayBuffer());
+    }
     return await this.decrypt(bytes);
   }
 
@@ -492,37 +543,48 @@ export class DisboxAPI {
     const messageIds = file.messageIds || [];
     const totalChunks = messageIds.length;
     
-    // Determine which chunks to download
     const chunkIndices = new Set();
-    
-    // Always get the first few chunks
     const firstChunksCount = Math.min(maxChunks, totalChunks);
     for (let i = 0; i < firstChunksCount; i++) chunkIndices.add(i);
     
-    // Also get the last chunk if requested (often contains moov atom for MP4)
     if (includeLast && totalChunks > firstChunksCount) {
       chunkIndices.add(totalChunks - 1);
     }
 
     const sortedIndices = Array.from(chunkIndices).sort((a, b) => a - b);
-    const chunks = new Map(); // index -> buffer
+    const chunks = new Map();
 
     for (let i = 0; i < sortedIndices.length; i++) {
       throwIfAborted(signal);
       const chunkIdx = sortedIndices[i];
       const msgId = typeof messageIds[chunkIdx] === 'string' ? messageIds[chunkIdx] : messageIds[chunkIdx].msgId;
-      const res = await window.electron.fetch(`${this.webhookUrl}/messages/${msgId}`, { signal });
-      if (!res.ok) throw new Error(`Gagal memuat chunk ${chunkIdx + 1}`);
-      const msg = JSON.parse(res.body);
-      const url = msg.attachments?.[0]?.url;
-      const bytes = await window.electron.proxyDownload(url, signal);
+      
+      let resData;
+      if (window.electron) {
+        const res = await window.electron.fetch(`${this.webhookUrl}/messages/${msgId}`, { signal });
+        if (!res.ok) throw new Error(`Gagal memuat chunk ${chunkIdx + 1}`);
+        resData = JSON.parse(res.body);
+      } else {
+        const webhookBase = this.webhookUrl.split('?')[0];
+        const res = await fetch(`${webhookBase}/messages/${msgId}`, { signal });
+        if (!res.ok) throw new Error(`Gagal memuat chunk ${chunkIdx + 1}`);
+        resData = await res.json();
+      }
+
+      const url = resData.attachments?.[0]?.url;
+      let bytes;
+      if (window.electron) {
+        bytes = await window.electron.proxyDownload(url, signal);
+      } else {
+        const proxiedUrl = `${BASE_API}/api/proxy?url=${encodeURIComponent(url)}`;
+        bytes = await fetch(proxiedUrl, { signal }).then(r => r.arrayBuffer());
+      }
+
       const decrypted = await this.decrypt(bytes);
       chunks.set(chunkIdx, decrypted);
       if (onProgress) onProgress((i + 1) / sortedIndices.length);
     }
 
-    // Assemble buffer with correct offsets (Padded with zeros in gaps)
-    // Safety: Only pad if total file size is reasonable (< 200MB) to avoid OOM
     const usePadding = file.size < 200 * 1024 * 1024;
     
     let result;
@@ -535,7 +597,6 @@ export class DisboxAPI {
         }
       }
     } else {
-      // For very large files, fallback to contiguous (might fail MP4 metadata)
       const resultSize = sortedIndices.reduce((acc, idx) => acc + chunks.get(idx).byteLength, 0);
       result = new Uint8Array(resultSize);
       let offset = 0;

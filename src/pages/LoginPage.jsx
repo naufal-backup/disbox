@@ -8,7 +8,7 @@ import toast from 'react-hot-toast';
 const DISCORD_WEBHOOK_REGEX = /^https:\/\/discord(app)?\.com\/api\/webhooks\/\d+\/.+$/;
 
 export default function LoginPage() {
-  const { connect, loading, t } = useApp();
+  const { connect, loading, t, language, setLanguage } = useApp();
   const [loginMode, setLoginMode] = useState(null); // 'manual', 'account', 'register' atau null
   const [showInfo, setShowInfo] = useState(false);
   
@@ -24,21 +24,21 @@ export default function LoginPage() {
 
   const handleManualConnect = async () => {
     setError('');
-    if (!url.trim()) { setError('Masukkan webhook URL'); return; }
+    if (!url.trim()) { setError(t('error_no_url')); return; }
 
     if (!DISCORD_WEBHOOK_REGEX.test(url.trim())) {
-      setError('Format webhook URL tidak valid');
+      setError(t('error_invalid_url'));
       return;
     }
 
     const result = await connect(url.trim(), { metadataUrl: metadataUrl.trim() });
-    if (!result.ok) setError(result.message || 'Gagal connect.');
+    if (!result.ok) setError(result.message || t('error_connect_fail'));
   };
 
   const handleAccountLogin = async () => {
     setError('');
     if (!username.trim() || !password.trim()) {
-      setError('Masukkan username dan password');
+      setError(t('pin_error_wrong'));
       return;
     }
 
@@ -71,12 +71,12 @@ export default function LoginPage() {
   const handleRegister = async () => {
     setError('');
     if (!username.trim() || !password.trim() || !url.trim()) {
-      setError('Username, Password, dan Webhook wajib diisi');
+      setError(t('error_empty'));
       return;
     }
 
     if (!DISCORD_WEBHOOK_REGEX.test(url.trim())) {
-      setError('Format webhook URL tidak valid');
+      setError(t('error_invalid_url'));
       return;
     }
 
