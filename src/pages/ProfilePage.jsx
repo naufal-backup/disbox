@@ -1,6 +1,6 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../context/useAppHook.js';
-import { Edit2, Trash2, Key, AlertCircle, Eye, EyeOff, HardDrive, FileText, Plus, Loader2, CheckCircle, ShieldCheck } from 'lucide-react';
+import { Edit2, Trash2, Key, AlertCircle, Eye, EyeOff, HardDrive, FileText, Plus, Loader2, CheckCircle, ShieldCheck, Info, Activity, Globe } from 'lucide-react';
 import { ConfirmModal } from '../components/FolderModal.jsx';
 import styles from './ProfilePage.module.css';
 import toast from 'react-hot-toast';
@@ -131,6 +131,15 @@ export default function ProfilePage() {
 
         {/* ─── CLOUD SAVE SECTION ─── */}
         <CloudSaveSection />
+
+        {/* System Info Section */}
+        <div className={styles.section}>
+          <h3 className={styles.sectionTitle}>{t('about_disbox') || 'About Disbox'}</h3>
+          <div className={styles.statsGrid}>
+            <AboutCard t={t} />
+            <WorkerUsageCard />
+          </div>
+        </div>
 
         {/* Hanya tampilkan history jika TIDAK sedang dalam mode Cloud Account */}
         {!localStorage.getItem('dbx_username') && (
@@ -346,6 +355,98 @@ function CloudSaveSection() {
         </div>
         {status && <div style={{ marginTop: '10px', fontSize: '12px', color: status.type === 'success' ? '#10b981' : '#ef4444', display: 'flex', alignItems: 'center', gap: '6px' }}><AlertCircle size={14} /> {status.msg}</div>}
       </form>
+    </div>
+  );
+}
+
+function AboutCard({ t }) {
+  return (
+    <div className={styles.statCard} style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '12px', minHeight: '160px', justifyContent: 'space-between' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+        <div className={styles.statIcon} style={{ background: 'rgba(88, 101, 242, 0.1)', color: 'var(--accent)' }}>
+          <Info size={20} />
+        </div>
+        <div>
+          <div style={{ fontWeight: 700, fontSize: '15px' }}>Disbox Desktop</div>
+          <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>v4.9.1 Stable</div>
+        </div>
+      </div>
+      <p style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.5', margin: 0 }}>
+        {t('about_desc') || 'Discord-based cloud storage with AES-GCM encryption.'}
+      </p>
+      <div style={{ display: 'flex', gap: '8px', width: '100%' }}>
+        <button 
+          onClick={() => window.open('https://github.com/naufal-backup/disbox-linux', '_blank')}
+          className={styles.actionBtn} 
+          style={{ flex: 1, fontSize: '11px', padding: '6px' }}
+        >
+          GitHub
+        </button>
+        <button 
+          onClick={() => window.open('https://disbox.naufal.dev', '_blank')}
+          className={styles.actionBtn} 
+          style={{ flex: 1, fontSize: '11px', padding: '6px' }}
+        >
+          Website
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function WorkerUsageCard() {
+  const { cfWorkerUrl, t } = useApp();
+  const [stats, setStats] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!cfWorkerUrl) return;
+    
+    const fetchStats = async () => {
+      setLoading(true);
+      try {
+        const res = await window.electron.fetch(`${cfWorkerUrl}/share/stats`);
+        if (res.ok) {
+          setStats(JSON.parse(res.body));
+        }
+      } catch (e) {
+        console.error('[worker-stats] Failed:', e);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchStats();
+    const interval = setInterval(fetchStats, 60000); // Update every minute
+    return () => clearInterval(interval);
+  }, [cfWorkerUrl]);
+
+  if (!cfWorkerUrl) return null;
+
+  return (
+    <div className={styles.statCard} style={{ display: 'flex', flexDirection: 'column', gap: '12px', minHeight: '160px', justifyContent: 'space-between' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+        <div className={styles.statIcon} style={{ background: 'rgba(16, 185, 129, 0.1)', color: '#10b981' }}>
+          <Activity size={20} />
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 700, fontSize: '15px' }}>CF Worker Active</div>
+          <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {cfWorkerUrl.replace('https://', '')}
+          </div>
+        </div>
+      </div>
+      
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+        <div style={{ background: 'var(--bg-surface)', padding: '10px', borderRadius: '10px', border: '1px solid var(--border)' }}>
+          <div style={{ fontSize: '10px', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>Total Requests</div>
+          <div style={{ fontSize: '16px', fontWeight: 800 }}>{loading && !stats ? '...' : (stats?.requests || 0)}</div>
+        </div>
+        <div style={{ background: 'var(--bg-surface)', padding: '10px', borderRadius: '10px', border: '1px solid var(--border)' }}>
+          <div style={{ fontSize: '10px', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>Shared Links</div>
+          <div style={{ fontSize: '16px', fontWeight: 800 }}>{loading && !stats ? '...' : (stats?.links || 0)}</div>
+        </div>
+      </div>
     </div>
   );
 }

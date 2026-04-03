@@ -1,3 +1,10 @@
+## v4.9.1 (2026-04-03)
+
+* [Feature] Added About Disbox card in Profile Page
+* [Feature] Added Worker Usage statistics card
+* [Fix] Improved Settings page layout to be non-overlapping when scrolling
+* [Chore] Bumped version to 4.9.1
+
 ## v4.6.1 (2026-04-01)
 
 * [Security] Added JWT session authentication for Vercel API endpoints
