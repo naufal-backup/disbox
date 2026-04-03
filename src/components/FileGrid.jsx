@@ -699,7 +699,7 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
           })()}
         </div>
       )}
-      {isDragOver && <div className={styles.dropOverlay}><Upload size={40} /><p>Drop untuk upload</p></div>}
+      {isDragOver && <div className={styles.dropOverlay}><Upload size={40} /><p>{t('drop_to_upload')}</p></div>}
       <AnimatePresence>
         {showCreateFolder && <CreateFolderModal onClose={() => setShowCreateFolder(false)} />}
         {moveModal && <MoveModal id={moveModal.id} file={moveModal.path} paths={moveModal.paths} mode={moveModal.mode} onClose={() => { setMoveModal(null); clearSelection(); }} onUnlock={moveModal.onUnlock} />}
