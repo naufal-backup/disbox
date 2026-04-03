@@ -135,10 +135,11 @@ export default function ProfilePage() {
         {/* System Info Section */}
         <div className={styles.section}>
           <h3 className={styles.sectionTitle}>{t('about_disbox') || 'About Disbox'}</h3>
-          <div className={styles.statsGrid}>
-            <AboutCard t={t} />
-            <WorkerUsageCard />
-          </div>
+          <AboutCard t={t} />
+        </div>
+
+        <div className={styles.section}>
+          <WorkerUsageCard />
         </div>
 
         {/* Hanya tampilkan history jika TIDAK sedang dalam mode Cloud Account */}
@@ -396,56 +397,75 @@ function AboutCard({ t }) {
 
 function WorkerUsageCard() {
   const { cfWorkerUrl, t } = useApp();
-  const [stats, setStats] = useState(null);
-  const [loading, setLoading] = useState(false);
+  const [workerUsage, setWorkerUsage] = useState({});
+  const [loading, setLoading] = useState(true);
+
+  const PUBLIC_WORKERS = [
+    { label: 'Disbox Public #1 (Main)', url: 'https://disbox-shared-link.naufal-backup.workers.dev' },
+    { label: 'Disbox Public #2 (New)', url: 'https://disbox-shared-link.alamsyahnaufal453.workers.dev' },
+    { label: 'Disbox Public #3', url: 'https://disbox-worker-2.naufal-backup.workers.dev' },
+    { label: 'Disbox Public #4', url: 'https://disbox-worker-3.naufal-backup.workers.dev' },
+  ];
+
+  // Include user's worker if exists
+  const allWorkers = cfWorkerUrl ? [{ label: 'My Worker', url: cfWorkerUrl }, ...PUBLIC_WORKERS] : PUBLIC_WORKERS;
 
   useEffect(() => {
-    if (!cfWorkerUrl) return;
-    
-    const fetchStats = async () => {
+    let isMounted = true;
+    const fetchUsage = async () => {
       setLoading(true);
-      try {
-        const res = await window.electron.fetch(`${cfWorkerUrl}/share/stats`);
-        if (res.ok) {
-          setStats(JSON.parse(res.body));
-        }
-      } catch (e) {
-        console.error('[worker-stats] Failed:', e);
-      } finally {
+      const results = {};
+      await Promise.all(allWorkers.map(async (worker) => {
+        try {
+          const res = await window.electron.fetch(`${worker.url.replace(/\/+$/, '')}/share/stats`);
+          if (res.ok && isMounted) {
+            results[worker.url] = JSON.parse(res.body);
+          }
+        } catch (e) {}
+      }));
+      if (isMounted) {
+        setWorkerUsage(results);
         setLoading(false);
       }
     };
 
-    fetchStats();
-    const interval = setInterval(fetchStats, 60000); // Update every minute
-    return () => clearInterval(interval);
+    fetchUsage();
+    const interval = setInterval(fetchUsage, 60000);
+    return () => { isMounted = false; clearInterval(interval); };
   }, [cfWorkerUrl]);
 
-  if (!cfWorkerUrl) return null;
-
   return (
-    <div className={styles.statCard} style={{ display: 'flex', flexDirection: 'column', gap: '12px', minHeight: '160px', justifyContent: 'space-between' }}>
+    <div className={styles.statCard} style={{ display: 'flex', flexDirection: 'column', gap: '16px', minHeight: '300px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
         <div className={styles.statIcon} style={{ background: 'rgba(16, 185, 129, 0.1)', color: '#10b981' }}>
           <Activity size={20} />
         </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 700, fontSize: '15px' }}>CF Worker Active</div>
-          <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {cfWorkerUrl.replace('https://', '')}
-          </div>
-        </div>
+        <h3 className={styles.sectionTitle} style={{ margin: 0, fontSize: '14px' }}>Worker Usage</h3>
       </div>
       
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-        <div style={{ background: 'var(--bg-surface)', padding: '10px', borderRadius: '10px', border: '1px solid var(--border)' }}>
-          <div style={{ fontSize: '10px', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>Total Requests</div>
-          <div style={{ fontSize: '16px', fontWeight: 800 }}>{loading && !stats ? '...' : (stats?.requests || 0)}</div>
-        </div>
-        <div style={{ background: 'var(--bg-surface)', padding: '10px', borderRadius: '10px', border: '1px solid var(--border)' }}>
-          <div style={{ fontSize: '10px', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>Shared Links</div>
-          <div style={{ fontSize: '16px', fontWeight: 800 }}>{loading && !stats ? '...' : (stats?.links || 0)}</div>
-        </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        {allWorkers.map(worker => (
+          <div key={worker.url} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '8px', borderBottom: '1px solid var(--border)' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0, flex: 1 }}>
+              <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{worker.label}</span>
+              <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {worker.url.replace('https://', '')}
+              </span>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '2px', marginLeft: '12px' }}>
+              {workerUsage[worker.url] ? (
+                <>
+                  <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-primary)' }}>{workerUsage[worker.url].links} links</span>
+                  <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{workerUsage[worker.url].requests} reqs</span>
+                </>
+              ) : loading ? (
+                <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>...</span>
+              ) : (
+                <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Offline</span>
+              )}
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
