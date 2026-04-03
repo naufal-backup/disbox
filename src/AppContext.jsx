@@ -679,6 +679,17 @@ export function AppProvider({ children }) {
   useEffect(() => { localStorage.setItem('disbox_app_lock_enabled', appLockEnabled.toString()); }, [appLockEnabled]);
   useEffect(() => { localStorage.setItem('disbox_app_lock_pin', appLockPin); }, [appLockPin]);
 
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      if (isTransferring) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isTransferring]);
+
   return (
     <AppContext.Provider value={{
       api, webhookUrl, isConnected, isConnecting, files, fileTree,
