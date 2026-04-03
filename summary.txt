@@ -54,9 +54,14 @@ Changes made:
     - Refactored upload use case and repository to support the new resume capability.
 
 11. New Releases:
-    - Desktop: Version 4.9.0 released successfully (Windows & Linux builds passed).
-    - Mobile: Version 4.1.0 (build 11) build triggered. Previous build 10 passed successfully.
+    - Desktop: Version 4.9.0 released successfully.
+    - Mobile: Version 4.1.0 (build 11) released successfully.
+
+12. Release Policy Update:
+    - Both Desktop and Mobile repositories are now configured to only keep the SINGLE most recent release tagged as 'latest'.
+    - Old releases and tags have been manually purged.
+    - Workflows (.github/workflows) have been updated to automatically delete the previous 'latest' release before creating a new one on every successful build.
 
 DISCLAIMER: 
-TIDAK ADA FITUR LAIN YANG DIUBAH SELAIN PERBAIKAN PADA FITUR CREATE FOLDER, FIX BUILD WORKFLOW, PERBAIKAN RUBBERBAND, STYLING DROP OVERLAY, PERBAIKAN CONTEXT MENU, PENAMBAHAN ICON TITLE, FITUR RESUME UPLOAD, PERINGATAN CLOSE TAB, DAN PENYESUAIAN AUTH/RESUME PADA MOBILE SERTA BUMP VERSION.
+TIDAK ADA FITUR LAIN YANG DIUBAH SELAIN PERBAIKAN PADA FITUR CREATE FOLDER, FIX BUILD WORKFLOW, PERBAIKAN RUBBERBAND, STYLING DROP OVERLAY, PERBAIKAN CONTEXT MENU, PENAMBAHAN ICON TITLE, FITUR RESUME UPLOAD, PERINGATAN CLOSE TAB, PENYESUAIAN AUTH/RESUME PADA MOBILE, SERTA PENERAPAN KEBIJAKAN SINGLE LATEST RELEASE.
 SEMUA LOGIKA DAN FITUR LAINNYA TETAP SAMA SEPERTI SEBELUMNYA.
