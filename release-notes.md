@@ -1,3 +1,10 @@
+## v4.9.5 (2026-04-03)
+
+* [Fix] Resolved BASE_API and t reference errors in File Preview
+* [Fix] Ensured all proxy requests include credentials for session verification
+* [Fix] Improved reliability of proxied metadata and discovery calls
+* [Chore] Bumped version to 4.9.5
+
 ## v4.9.4 (2026-04-03)
 
 * [Security] Implemented Session-based Trust for Proxy API

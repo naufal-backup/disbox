@@ -167,7 +167,7 @@ export class DisboxAPI {
       bytes = await window.electron.proxyDownload(url);
     } else {
       const proxiedUrl = `${BASE_API}/api/proxy?url=${encodeURIComponent(url)}`;
-      bytes = await fetch(proxiedUrl).then(r => r.arrayBuffer());
+      bytes = await fetch(proxiedUrl, { credentials: 'include' }).then(r => r.arrayBuffer());
     }
     const dec = await this.decrypt(bytes);
     return JSON.parse(new TextDecoder().decode(dec));
@@ -176,13 +176,13 @@ export class DisboxAPI {
   async _getMsgIdFromDiscovery() {
     let channelId = null;
     try {
-      const res = await (window.electron ? window.electron.fetch(this.webhookUrl) : fetch(`${BASE_API}/api/proxy?url=${encodeURIComponent(this.webhookUrl)}`));
+      const res = await (window.electron ? window.electron.fetch(this.webhookUrl) : fetch(`${BASE_API}/api/proxy?url=${encodeURIComponent(this.webhookUrl)}`, { credentials: 'include' }));
       const data = window.electron ? JSON.parse(res.body) : await res.json();
       channelId = data.channel_id;
     } catch {}
     if (!channelId) return null;
     try {
-      const dRes = await (window.electron ? window.electron.fetch(`${BASE_API}/api/discord/discover?channel_id=${channelId}`) : fetch(`${BASE_API}/api/discord/discover?channel_id=${channelId}`));
+      const dRes = await (window.electron ? window.electron.fetch(`${BASE_API}/api/discord/discover?channel_id=${channelId}`) : fetch(`${BASE_API}/api/discord/discover?channel_id=${channelId}`, { credentials: 'include' }));
       const dData = window.electron ? JSON.parse(dRes.body) : await dRes.json();
       return dData.ok && dData.found ? { best: dData.message_id } : null;
     } catch { return null; }
