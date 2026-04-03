@@ -10,7 +10,9 @@ const STORE_NAME = 'metadata';
 // ─── CORS Proxy ───────────────────────────────────────────────────────────────
 const PROXY_BASE   = '/api/proxy';
 const SLICE_SIZE   = 4 * 1024 * 1024; // 4MB
-const PROXY_SECRET = import.meta.env.VITE_PROXY_SECRET || '';
+// Note: PROXY_SECRET is no longer bundled into the client for security.
+// Signatures will only be generated if the secret is available (e.g. during development).
+const PROXY_SECRET = import.meta.env.PROXY_SECRET || '';
 
 function isCdnUrl(url) {
   return url.includes('cdn.discordapp.com') || url.includes('media.discordapp.net');
@@ -18,14 +20,17 @@ function isCdnUrl(url) {
 
 // ─── HMAC sign untuk proxy URL ────────────────────────────────────────────────
 async function hmacSign(secret, message) {
-  const encoder   = new TextEncoder();
-  const cryptoKey = await crypto.subtle.importKey(
-    'raw', encoder.encode(secret),
-    { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
-  );
-  const sigBuffer = await crypto.subtle.sign('HMAC', cryptoKey, encoder.encode(message));
-  return btoa(String.fromCharCode(...new Uint8Array(sigBuffer)))
-    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+  if (!secret) return null;
+  try {
+    const encoder   = new TextEncoder();
+    const cryptoKey = await crypto.subtle.importKey(
+      'raw', encoder.encode(secret),
+      { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
+    );
+    const sigBuffer = await crypto.subtle.sign('HMAC', cryptoKey, encoder.encode(message));
+    return btoa(String.fromCharCode(...new Uint8Array(sigBuffer)))
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+  } catch { return null; }
 }
 
 async function buildProxyUrl(cdnUrl, start, end) {
@@ -451,7 +456,7 @@ export const webElectronShim = {
         'https://disbox-worker-2.naufal-backup.workers.dev':          'disbox-shared-link-0001',
         'https://disbox-worker-3.naufal-backup.workers.dev':          'disbox-shared-link-0001',
       };
-      const DEFAULT_API_KEY = 'disbox-shared-link-0001';
+      const DEFAULT_API_KEY = import.meta.env.VITE_DEFAULT_WORKER_KEY || 'disbox-shared-link-0001';
 
       let cfWorkerUrl = (settings?.cf_worker_url || PUBLIC_WORKER_URL).replace(/\/+$/, '');
       if (!cfWorkerUrl || !cfWorkerUrl.startsWith('http'))

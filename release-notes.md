@@ -1,3 +1,10 @@
+## v4.9.3 (2026-04-03)
+
+* [Security] Removed hardcoded API secrets from client-side bundle
+* [Security] Moved Proxy and Share secrets to server-side only environment variables
+* [Fix] Improved worker API key handling using environment variables
+* [Chore] Bumped version to 4.9.3
+
 ## v4.9.2 (2026-04-03)
 
 * [Feature] Added About Disbox card in Profile Page

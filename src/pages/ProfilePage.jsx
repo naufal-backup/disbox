@@ -369,7 +369,7 @@ function AboutCard({ t }) {
         </div>
         <div>
           <div style={{ fontWeight: 700, fontSize: '15px' }}>Disbox Desktop</div>
-          <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>v4.9.2 Stable</div>
+          <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>v4.9.3 Stable</div>
         </div>
       </div>
       <p style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.5', margin: 0 }}>
