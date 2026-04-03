@@ -23,10 +23,19 @@ export default function useRubberBand(contentRef, { uiScale, selectedFiles, setS
     rbEl.style.background = 'rgba(88, 101, 242, 0.12)';
     rbEl.style.borderRadius = '4px';
     rbEl.style.pointerEvents = 'none';
-    rbEl.style.zIndex = '9999';
+    rbEl.style.zIndex = '150';
     rbEl.style.display = 'none';
     document.body.appendChild(rbEl);
     rubberBandElRef.current = rbEl;
+
+    const getCoords = (e) => {
+      // document.body.style.zoom affects clientX/Y. 
+      // We need to normalize them by dividing by uiScale.
+      return {
+        x: e.clientX / uiScale,
+        y: e.clientY / uiScale
+      };
+    };
 
     const onMouseDown = (e) => {
       if (e.button !== 0) return;
@@ -34,15 +43,27 @@ export default function useRubberBand(contentRef, { uiScale, selectedFiles, setS
       if (e.target.closest('button, input, a, [role="button"]')) return;
       
       const rect = content.getBoundingClientRect();
-      if (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom) return;
+      const coords = getCoords(e);
+      const scaledX = e.clientX / uiScale;
+      const scaledY = e.clientY / uiScale;
+
+      if (scaledX < rect.left / uiScale || scaledX > rect.right / uiScale || scaledY < rect.top / uiScale || scaledY > rect.bottom / uiScale) return;
       
-      rubberOrigin.current = { x: e.clientX, y: e.clientY };
+      rubberOrigin.current = { x: scaledX, y: scaledY };
       isRubbering.current = false;
       const items = content.querySelectorAll('[data-item-id]');
-      itemBoundsCache.current = Array.from(items).map(el => ({ 
-        id: el.dataset.itemId, 
-        rect: el.getBoundingClientRect() 
-      }));
+      itemBoundsCache.current = Array.from(items).map(el => {
+        const r = el.getBoundingClientRect();
+        return { 
+          id: el.dataset.itemId, 
+          rect: {
+            left: r.left / uiScale,
+            top: r.top / uiScale,
+            right: r.right / uiScale,
+            bottom: r.bottom / uiScale
+          }
+        };
+      });
       
       if (!e.ctrlKey) {
         setSelectedFiles(new Set());
@@ -57,8 +78,9 @@ export default function useRubberBand(contentRef, { uiScale, selectedFiles, setS
         if (!rubberOrigin.current) return;
         if (rafId) cancelAnimationFrame(rafId);
         rafId = requestAnimationFrame(() => {
-          const dx = me.clientX - rubberOrigin.current.x;
-          const dy = me.clientY - rubberOrigin.current.y;
+          const mCoords = getCoords(me);
+          const dx = mCoords.x - rubberOrigin.current.x;
+          const dy = mCoords.y - rubberOrigin.current.y;
           
           if (!isRubbering.current) {
             if (Math.sqrt(dx * dx + dy * dy) < 6) return;
@@ -67,8 +89,15 @@ export default function useRubberBand(contentRef, { uiScale, selectedFiles, setS
           }
           
           const cr = content.getBoundingClientRect();
-          const clampedX2 = Math.max(cr.left, Math.min(me.clientX, cr.right));
-          const clampedY2 = Math.max(cr.top, Math.min(me.clientY, cr.bottom));
+          const crScaled = {
+            left: cr.left / uiScale,
+            top: cr.top / uiScale,
+            right: cr.right / uiScale,
+            bottom: cr.bottom / uiScale
+          };
+          
+          const clampedX2 = Math.max(crScaled.left, Math.min(mCoords.x, crScaled.right));
+          const clampedY2 = Math.max(crScaled.top, Math.min(mCoords.y, crScaled.bottom));
           
           const rb = {
             x: Math.min(rubberOrigin.current.x, clampedX2),
