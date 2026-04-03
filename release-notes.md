@@ -1,9 +1,9 @@
-## v4.9.1 (2026-04-03)
+## v4.9.2 (2026-04-03)
 
 * [Feature] Added About Disbox card in Profile Page
-* [Feature] Added Worker Usage statistics card
+* [Feature] Added Worker Usage statistics list with public workers
 * [Fix] Improved Settings page layout to be non-overlapping when scrolling
-* [Chore] Bumped version to 4.9.1
+* [Chore] Bumped version to 4.9.2
 
 ## v4.6.1 (2026-04-01)
 
