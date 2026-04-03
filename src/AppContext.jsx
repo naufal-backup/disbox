@@ -356,7 +356,7 @@ export function AppProvider({ children }) {
   const createFolder = useCallback(async (folderName) => {
     if (!api || !folderName.trim()) return false;
     const cleanName = folderName.trim();
-    const newFolderPath = (currentPath === '/' ? '' : currentPath.slice(1)) + cleanName;
+    const newFolderPath = (currentPath === '/' ? '' : currentPath.slice(1) + '/') + cleanName;
     const entry = { path: newFolderPath + '/.keep', name: '.keep', size: 0, createdAt: Date.now(), id: crypto.randomUUID() };
     
     const oldFiles = [...files];
@@ -368,9 +368,10 @@ export function AppProvider({ children }) {
     
     enqueueMutation(async () => {
       await api.createFolder(cleanName, currentPath);
+      await refresh(true);
     });
     return true;
-  }, [api, currentPath, files]);
+  }, [api, currentPath, files, refresh]);
 
   const movePath = useCallback(async (oldPath, destDir, id = null) => {
     if (!api) return false;
