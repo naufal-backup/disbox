@@ -435,9 +435,19 @@ export class DisboxAPI {
 
   async uploadFile(file, virtualPath, onProgress, signal, transferId) {
     const fileName = file.name;
-    const fileId = crypto.randomUUID();
+    const fileSize = file.size || (file.buffer ? file.buffer.byteLength : 0);
+    // Deterministic fileId based on name and size for resume support
+    const fileId = `res_${btoa(fileName).replace(/=/g,'')}_${fileSize}`;
+    
+    // Resume logic: check if we have already uploaded some chunks
+    const resumeKey = `disbox_resume_${this.hashedWebhook}_${fileId}`;
     let messageIds = [];
-    let uploadedSize = 0;
+    try {
+      const saved = localStorage.getItem(resumeKey);
+      if (saved) messageIds = JSON.parse(saved);
+    } catch (e) {}
+
+    let uploadedSize = messageIds.length * this.chunkSize;
 
     if (window.electron && file.nativePath) {
       if (signal) signal.addEventListener('abort', () => window.electron.cancelUpload(transferId));
@@ -449,26 +459,42 @@ export class DisboxAPI {
     const buffer = file.buffer || await file.arrayBuffer();
     for (let offset = 0; offset < buffer.byteLength; offset += this.chunkSize) {
       throwIfAborted(signal);
+      const chunkIdx = Math.floor(offset / this.chunkSize);
+      
+      // Skip if already uploaded (Resume)
+      if (chunkIdx < messageIds.length) {
+        if (onProgress) onProgress(uploadedSize / buffer.byteLength);
+        continue;
+      }
+
       const chunk = buffer.slice(offset, offset + this.chunkSize);
       const encrypted = await this.encrypt(chunk);
       
       let res;
       if (window.electron) {
         const b64 = await _bufferToBase64(encrypted);
-        res = await window.electron.uploadChunk(this.webhookUrl, b64, `${fileId}.part${messageIds.length}`);
+        res = await window.electron.uploadChunk(this.webhookUrl, b64, `${fileId}.part${chunkIdx}`);
       } else {
         const formData = new FormData();
-        formData.append('file', new Blob([encrypted]), `${fileId}.part${messageIds.length}`);
+        formData.append('file', new Blob([encrypted]), `${fileId}.part${chunkIdx}`);
         res = await fetch(this.webhookUrl, { method: 'POST', body: formData, signal });
       }
 
       if (!res.ok) throw new Error('Gagal upload chunk');
       const data = window.electron ? JSON.parse(res.body) : await res.json();
       messageIds.push(data.id);
+      
+      // Save progress for resume
+      localStorage.setItem(resumeKey, JSON.stringify(messageIds));
+      
       uploadedSize += chunk.byteLength;
       if (onProgress) onProgress(uploadedSize / buffer.byteLength);
     }
-    return await this.createFile(virtualPath, messageIds, buffer.byteLength, fileId);
+
+    const result = await this.createFile(virtualPath, messageIds, buffer.byteLength, fileId);
+    // Success: clear resume data
+    localStorage.removeItem(resumeKey);
+    return result;
   }
 
   async downloadFile(file, onProgress, signal) {
