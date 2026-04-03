@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Cloud, User, AlertCircle, Loader2, Key, X, Sparkles, Info, UserPlus, Zap } from 'lucide-react';
+import { Cloud, User, AlertCircle, Loader2, Key, X, Sparkles, Info, UserPlus, Zap, Globe } from 'lucide-react';
 import { useApp } from '../context/useAppHook.js';
 import { BASE_API } from '../utils/disbox.js';
 import styles from './LoginPage.module.css';
@@ -170,30 +170,31 @@ export default function LoginPage() {
             </div>
 
             <div className={styles.methodSelector}>
-            <button className={styles.methodBtnPrimary} onClick={() => setLoginMode('account')} disabled={loading}>
-              <User size={20} />
-              <div className={styles.methodInfo}>
-                <span className={styles.methodTitle}>{t('login_with_account')}</span>
-                <span className={styles.methodDesc}>{t('login_account_desc')}</span>
-              </div>
-            </button>
+              <button className={styles.methodBtnPrimary} onClick={() => setLoginMode('account')} disabled={loading}>
+                <User size={20} />
+                <div className={styles.methodInfo}>
+                  <span className={styles.methodTitle}>{t('login_with_account')}</span>
+                  <span className={styles.methodDesc}>{t('login_account_desc')}</span>
+                </div>
+              </button>
 
-            <button className={styles.methodBtnSecondary} onClick={() => setLoginMode('register')} disabled={loading}>
-              <UserPlus size={20} />
-              <div className={styles.methodInfo}>
-                <span className={styles.methodTitle}>{t('register_new_account')}</span>
-                <span className={styles.methodDesc}>{t('register_account_desc')}</span>
-              </div>
-            </button>
+              <button className={styles.methodBtnSecondary} onClick={() => setLoginMode('register')} disabled={loading}>
+                <UserPlus size={20} />
+                <div className={styles.methodInfo}>
+                  <span className={styles.methodTitle}>{t('register_new_account')}</span>
+                  <span className={styles.methodDesc}>{t('register_account_desc')}</span>
+                </div>
+              </button>
 
-            <button className={styles.methodBtnTernary} onClick={() => setLoginMode('manual')} disabled={loading}>
-              <Zap size={20} />
-              <div className={styles.methodInfo}>
-                <span className={styles.methodTitle}>{t('setup_new_drive')}</span>
-                <span className={styles.methodDesc}>{t('setup_drive_desc')}</span>
-              </div>
-            </button>
-          </div>
+              <button className={styles.methodBtnTernary} onClick={() => setLoginMode('manual')} disabled={loading}>
+                <Zap size={20} />
+                <div className={styles.methodInfo}>
+                  <span className={styles.methodTitle}>{t('setup_new_drive')}</span>
+                  <span className={styles.methodDesc}>{t('setup_drive_desc')}</span>
+                </div>
+              </button>
+            </div>
+          </>
         ) : loginMode === 'account' ? (
           <div className={styles.manualForm}>
             <div className={styles.formHeader}>
