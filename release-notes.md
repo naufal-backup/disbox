@@ -1,3 +1,10 @@
+## v4.9.4 (2026-04-03)
+
+* [Security] Implemented Session-based Trust for Proxy API
+* [Security] Proxy now requires either a valid JWT session or a valid signature
+* [Fix] Added credential support for cross-origin proxy requests
+* [Chore] Bumped version to 4.9.4
+
 ## v4.9.3 (2026-04-03)
 
 * [Security] Removed hardcoded API secrets from client-side bundle

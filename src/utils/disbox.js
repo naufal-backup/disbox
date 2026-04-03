@@ -523,7 +523,10 @@ export class DisboxAPI {
         bytes = await window.electron.proxyDownload(url, signal);
       } else {
         const proxiedUrl = `${BASE_API}/api/proxy?url=${encodeURIComponent(url)}`;
-        bytes = await fetch(proxiedUrl, { signal }).then(r => r.arrayBuffer());
+        bytes = await fetch(proxiedUrl, { 
+        ...(signal ? { signal } : {}),
+        credentials: 'include'
+      }).then(r => r.arrayBuffer());
       }
 
       const decrypted = await this.decrypt(bytes);
@@ -560,7 +563,10 @@ export class DisboxAPI {
       bytes = await window.electron.proxyDownload(url, signal || transferId);
     } else {
       const proxiedUrl = `${BASE_API}/api/proxy?url=${encodeURIComponent(url)}`;
-      bytes = await fetch(proxiedUrl, { signal }).then(r => r.arrayBuffer());
+      bytes = await fetch(proxiedUrl, { 
+        ...(signal ? { signal } : {}),
+        credentials: 'include'
+      }).then(r => r.arrayBuffer());
     }
     return await this.decrypt(bytes);
   }
@@ -603,7 +609,10 @@ export class DisboxAPI {
         bytes = await window.electron.proxyDownload(url, signal);
       } else {
         const proxiedUrl = `${BASE_API}/api/proxy?url=${encodeURIComponent(url)}`;
-        bytes = await fetch(proxiedUrl, { signal }).then(r => r.arrayBuffer());
+        bytes = await fetch(proxiedUrl, { 
+        ...(signal ? { signal } : {}),
+        credentials: 'include'
+      }).then(r => r.arrayBuffer());
       }
 
       const decrypted = await this.decrypt(bytes);

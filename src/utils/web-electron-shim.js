@@ -65,7 +65,10 @@ async function rangedProxyDownload(url, signal) {
   if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
 
   const firstProxyUrl = await buildProxyUrl(url, 0, SLICE_SIZE - 1);
-  const firstRes = await fetch(firstProxyUrl, signal ? { signal } : {});
+  const firstRes = await fetch(firstProxyUrl, { 
+    ...(signal ? { signal } : {}),
+    credentials: 'include'
+  });
   if (!firstRes.ok) throw new Error(`Proxy error: ${firstRes.status}`);
 
   const totalSize   = parseInt(firstRes.headers.get('x-total-size') || '0', 10);
@@ -85,7 +88,10 @@ async function rangedProxyDownload(url, signal) {
     const results = await Promise.all(
       batch.map(async ({ start, end }) => {
         const proxyUrl = await buildProxyUrl(url, start, end);
-        const res = await fetch(proxyUrl, signal ? { signal } : {});
+        const res = await fetch(proxyUrl, { 
+          ...(signal ? { signal } : {}),
+          credentials: 'include'
+        });
         if (!res.ok) throw new Error(`Proxy slice error: ${res.status}`);
         return res.arrayBuffer();
       })
