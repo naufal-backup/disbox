@@ -327,24 +327,25 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
   };
 
   const clearSelection = () => { setSelectedFiles(new Set()); setIsSelectionMode(false); };
-
-  const handleBulkDelete = async () => {
-    if (selectedFiles.size === 0) return;
-    setConfirmAction({
-      title: t('confirm_delete'),
-      message: t('confirm_delete_msg', { name: `${selectedFiles.size} item` }),
-      danger: true,
-      onConfirm: async () => {
-        setConfirmAction(null);
-        try {
-          await bulkDelete([...selectedFiles]);
-          clearSelection();
-          toast.success('Item dihapus');
-        } catch (e) { toast.error('Gagal hapus: ' + e.message); }
+const handleBulkDelete = async () => {
+  if (selectedFiles.size === 0) return;
+  setContextMenu(null);
+  setConfirmAction({
+    title: t('confirm_delete'),
+    message: t('confirm_delete_msg', { name: `${selectedFiles.size} item` }),
+    danger: true,
+    onConfirm: async () => {
+      setConfirmAction(null);
+      try {
+        await bulkDelete([...selectedFiles]);
+        clearSelection();
+        toast.success(t('hapus_item', { count: selectedFiles.size }));
+      } catch (e) {
+        toast.error('Gagal hapus: ' + e.message);
       }
-    });
-  };
-
+    }
+  });
+};
   const handleBulkMove = (mode = 'move') => { if (selectedFiles.size === 0) return; setMoveModal({ paths: [...selectedFiles], mode }); };
 
   const startRename = (path, isFolder = false, id = null) => { setRenameTarget({ path, isFolder, id }); setRenameValue(path.split('/').pop()); setContextMenu(null); };
@@ -693,7 +694,23 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
                 <button onClick={() => handleToggleLock(itemPath, fileId, !liveIsLocked)}>{liveIsLocked ? <Unlock size={13} /> : <Lock size={13} />} {liveIsLocked ? t('unlock') : t('lock')}</button>
                 <button onClick={() => handleToggleStar(itemPath, fileId, !liveIsStarred)}>{liveIsStarred ? <Star size={13} fill="currentColor" /> : <Star size={13} />} {liveIsStarred ? t('unstar') : t('star')}</button>
                 <div className={styles.contextDivider} />
-                <button className={styles.dangerItem} onClick={() => { setConfirmAction({ title: t('confirm_delete'), message: t('confirm_delete_msg', { name: itemPath.split('/').pop() }), danger: true, onConfirm: async () => { setConfirmAction(null); try { await deletePath(itemPath, fileId); setContextMenu(null); toast.success('Dihapus'); } catch (e) { toast.error('Gagal hapus: ' + e.message); } } }); }}><Trash2 size={13} /> {t('delete')}</button>
+                <button className={styles.dangerItem} onClick={() => { 
+                  setContextMenu(null);
+                  setConfirmAction({ 
+                    title: t('confirm_delete'), 
+                    message: t('confirm_delete_msg', { name: itemPath.split('/').pop() }), 
+                    danger: true, 
+                    onConfirm: async () => { 
+                      setConfirmAction(null); 
+                      try { 
+                        await deletePath(itemPath, fileId); 
+                        toast.success('Dihapus'); 
+                      } catch (e) { 
+                        toast.error('Gagal hapus: ' + e.message); 
+                      } 
+                    } 
+                  }); 
+                }}><Trash2 size={13} /> {t('delete')}</button>
               </>
             );
           })()}
