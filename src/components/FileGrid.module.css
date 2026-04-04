@@ -459,5 +459,32 @@
   .sortText { display: none; }
   .uploadBtn span { display: none; }
   .uploadBtn { padding: 8px; width: 36px; height: 36px; justify-content: center; }
-  .grid { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; padding: 12px; }
+  .grid { 
+    grid-template-columns: repeat(2, 1fr); 
+    gap: 10px; 
+    padding: 10px; 
+  }
+  .card {
+    aspect-ratio: 4 / 3;
+    height: auto;
+  }
+  .cardHeader {
+    padding: 8px 12px;
+    gap: 8px;
+  }
+  .cardTitleText {
+    font-size: 12px;
+  }
+  .cardPreview {
+    flex: 1;
+    height: auto;
+    min-height: 0;
+    padding: 0 8px;
+  }
+  .cardFooter {
+    padding: 6px 12px;
+  }
+  .cardFooterText {
+    font-size: 10px;
+  }
 }
