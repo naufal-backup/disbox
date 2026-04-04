@@ -600,7 +600,7 @@ export class DisboxAPI {
         resData = JSON.parse(res.body);
       } else {
         const webhookBase = this.webhookUrl.split('?')[0];
-        const proxiedMsgUrl = `${BASE_API}/api/proxy?url=${encodeURIComponent(`${webhookBase}/messages/${chunkIdx}`)}`;
+        const proxiedMsgUrl = `${BASE_API}/api/proxy?url=${encodeURIComponent(`${webhookBase}/messages/${msgId}`)}`;
         const res = await fetch(proxiedMsgUrl, { signal, credentials: 'include' });
         if (!res.ok) throw new Error(`Gagal memuat chunk ${chunkIdx + 1}`);
         resData = await res.json();

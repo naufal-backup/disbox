@@ -55,7 +55,9 @@ export default function MusicBar({ track, playlist, onNext, onPrev, onClose }) {
           hidden: true
         });
 
-        const buffer = await api.downloadFile(track, undefined, signal);
+        const { buffer } = await api.downloadPartialChunks(track, 5, signal, (p) => {
+          updateTransfer(transferId, { progress: p });
+        });
 
         const blob = new Blob([buffer], { type: mime });
         const url = URL.createObjectURL(blob);
