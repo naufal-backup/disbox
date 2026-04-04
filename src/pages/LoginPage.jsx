@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Cloud, User, AlertCircle, Loader2, Key, X, Sparkles, Info, UserPlus, Zap, Globe } from 'lucide-react';
 import { useApp } from '../context/useAppHook.js';
 import { BASE_API } from '../utils/disbox.js';
+import PasswordInput from '../components/PasswordInput.jsx';
 import styles from './LoginPage.module.css';
 import toast from 'react-hot-toast';
 
@@ -212,10 +213,9 @@ export default function LoginPage() {
 
             <div className={styles.inputGroup}>
               <label className={styles.label}>{t('password')}</label>
-              <input 
-                type="password" className={styles.input} placeholder={t('password_placeholder')}
-                value={password} onChange={e => setPassword(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && handleAccountLogin()}
+              <PasswordInput
+                className={styles.input} placeholder={t('password_placeholder')}
+                value={password} onChange={e => setPassword(e.target.value)}                onKeyDown={e => e.key === 'Enter' && handleAccountLogin()}
               />
             </div>
 
@@ -242,10 +242,9 @@ export default function LoginPage() {
 
             <div className={styles.inputGroup}>
               <label className={styles.label}>{t('password')}</label>
-              <input 
-                type="password" className={styles.input} placeholder={t('password_placeholder')}
-                value={password} onChange={e => setPassword(e.target.value)}
-              />
+              <PasswordInput
+                className={styles.input} placeholder={t('password_placeholder')}
+                value={password} onChange={e => setPassword(e.target.value)}              />
             </div>
 
             <div className={styles.inputGroup}>

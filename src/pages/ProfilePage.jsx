@@ -347,7 +347,7 @@ function CloudSaveSection() {
       <form onSubmit={currentAccount ? handleUpdate : handleRegister} className={styles.cloudForm}>
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
           <input type="text" placeholder={t('username')} className={styles.input} style={{ flex: 1, minWidth: '150px' }} value={username} onChange={e => setUsername(e.target.value)} required={!currentAccount} />
-          <input type="password" placeholder={currentAccount ? t('new_password_optional') : t('password')} className={styles.input} style={{ flex: 1, minWidth: '150px' }} value={password} onChange={e => setPassword(e.target.value)} required={!currentAccount} />
+          <PasswordInput placeholder={currentAccount ? t('new_password_optional') : t('password')} className={styles.input} style={{ flex: 1, minWidth: '150px' }} value={password} onChange={e => setPassword(e.target.value)} required={!currentAccount} />
           <div style={{ display: 'flex', gap: '8px' }}>
             <button className={styles.saveBtn} disabled={busy} style={{ background: 'var(--accent)', color: 'white', border: 'none', borderRadius: '12px', padding: '0 16px', fontWeight: '600', cursor: 'pointer' }}>{busy ? '...' : (currentAccount ? t('save') : t('register'))}</button>
             {isEditing && <button type="button" onClick={() => setIsEditing(false)} style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: '12px', padding: '0 12px', cursor: 'pointer' }}>{t('cancel')}</button>}
@@ -464,6 +464,13 @@ function WorkerUsageCard() {
                 <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Offline</span>
               )}
             </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+  </div>
           </div>
         ))}
       </div>

@@ -9,6 +9,7 @@ import ShareViewPage from './pages/ShareViewPage.jsx';
 import DiscordSetupPage from './pages/DiscordSetupPage.jsx';
 import MusicBar from './components/MusicBar.jsx';
 import { Shield, Loader2 } from 'lucide-react';
+import PasswordInput from './components/PasswordInput.jsx';
 import styles from './App.module.css';
 
 import { motion, AnimatePresence } from 'framer-motion';
@@ -70,8 +71,7 @@ function AppLockGateway({ onUnlocked }) {
             animate={error && animationsEnabled ? { x: [-10, 10, -10, 10, 0] } : {}}
             transition={{ duration: 0.4 }}
           >
-            <input
-              type="password"
+            <PasswordInput
               placeholder={t('app_lock_placeholder') || '••••'}
               value={pin}
               onChange={e => setPin(e.target.value)}
@@ -83,7 +83,6 @@ function AppLockGateway({ onUnlocked }) {
               }}
             />
           </motion.div>
-
           <AnimatePresence>
             {error && (
               <motion.p
