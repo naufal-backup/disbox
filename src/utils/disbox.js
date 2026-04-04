@@ -512,7 +512,8 @@ export class DisboxAPI {
         if (!res.ok) throw new Error(`Gagal memuat chunk ${i}`);
         resData = JSON.parse(res.body);
       } else {
-        const res = await fetch(`${webhookBase}/messages/${msgId}`, { signal });
+        const proxiedMsgUrl = `${BASE_API}/api/proxy?url=${encodeURIComponent(`${webhookBase}/messages/${msgId}`)}`;
+        const res = await fetch(proxiedMsgUrl, { signal, credentials: 'include' });
         if (!res.ok) throw new Error(`Gagal memuat chunk ${i}`);
         resData = await res.json();
       }
@@ -552,7 +553,8 @@ export class DisboxAPI {
       if (!res.ok) return new ArrayBuffer(0);
       resData = JSON.parse(res.body);
     } else {
-      const res = await fetch(`${webhookBase}/messages/${msgId}`, { signal });
+      const proxiedMsgUrl = `${BASE_API}/api/proxy?url=${encodeURIComponent(`${webhookBase}/messages/${msgId}`)}`;
+      const res = await fetch(proxiedMsgUrl, { signal, credentials: 'include' });
       if (!res.ok) return new ArrayBuffer(0);
       resData = await res.json();
     }
@@ -598,7 +600,8 @@ export class DisboxAPI {
         resData = JSON.parse(res.body);
       } else {
         const webhookBase = this.webhookUrl.split('?')[0];
-        const res = await fetch(`${webhookBase}/messages/${msgId}`, { signal });
+        const proxiedMsgUrl = `${BASE_API}/api/proxy?url=${encodeURIComponent(`${webhookBase}/messages/${chunkIdx}`)}`;
+        const res = await fetch(proxiedMsgUrl, { signal, credentials: 'include' });
         if (!res.ok) throw new Error(`Gagal memuat chunk ${chunkIdx + 1}`);
         resData = await res.json();
       }
