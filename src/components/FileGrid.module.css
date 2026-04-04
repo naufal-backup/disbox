@@ -481,6 +481,9 @@
     min-height: 0;
     padding: 0 8px;
   }
+  .cardPreviewInner img {
+    object-fit: contain !important;
+  }
   .cardFooter {
     padding: 6px 12px;
   }
