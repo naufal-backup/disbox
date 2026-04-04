@@ -470,10 +470,3 @@ function WorkerUsageCard() {
     </div>
   );
 }
-  </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
