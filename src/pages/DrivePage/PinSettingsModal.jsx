@@ -126,12 +126,3 @@ export default function PinSettingsModal({ mode, onClose }) {
     </motion.div>
   );
 }
-
-  );
-}
-v>
-        </form>
-      </motion.div>
-    </motion.div>
-  );
-}
