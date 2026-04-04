@@ -710,6 +710,7 @@ export function AppProvider({ children }) {
       animationsEnabled, setAnimationsEnabled,
       metadataStatus,
       closeToTray, startMinimized, chunksPerMessage, updatePrefs,
+      hideSyncOverlay, setHideSyncOverlay,
       isVerified, setIsVerified,
       appLockEnabled, setAppLockEnabled,
       appLockPin, setAppLockPin,

@@ -293,38 +293,19 @@ export default function MusicBar({ track, playlist, onNext, onPrev, onClose }) {
 }
 
 function FileThumbnailSmall({ file }) {
-  const { api, showPreviews, showAudioPreviews } = useApp();
-  const [url, setUrl] = useState(null);
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
 
   useEffect(() => {
-    if (!showPreviews || !showAudioPreviews || !file) return;
-    let isMounted = true;
-    api.downloadFirstChunk(file).then(buffer => {
-      if (!isMounted) return;
-      window.jsmediatags.read(new Blob([buffer]), {
-        onSuccess: (tag) => {
-          if (tag.tags.picture && isMounted) {
-            const { data, format } = tag.tags.picture;
-            let b64 = '';
-            for (let i = 0; i < data.length; i++) b64 += String.fromCharCode(data[i]);
-            setUrl(`data:${format};base64,${window.btoa(b64)}`);
-          }
-        }
-      });
-    }).catch(() => {});
-    return () => { isMounted = false; };
-  }, [file?.id]);
+    const handleResize = () => setIsMobile(window.innerWidth <= 768);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
-  if (url) return (
-    <img src={url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-  );
+  const url = isMobile 
+    ? '../../Pictures/Screenshots/Screenshot_20260404_102747.png' 
+    : '../../Downloads/playerview.png';
+
   return (
-    <div style={{
-      width: '100%', height: '100%',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      background: 'var(--bg-input)', color: 'var(--text-muted)'
-    }}>
-      <ListMusic size={18} />
-    </div>
+    <img src={url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
   );
 }

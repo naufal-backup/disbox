@@ -495,7 +495,8 @@
   }
   .trackInfo { flex: 1; min-width: 0; max-width: none; }
   .controls { flex: 1; min-width: 0; }
-  .extra { display: none; }
+  .volumeGroup { display: none; }
+  .extra { display: flex; width: auto; margin-left: auto; }
   .progressBarWrapper { display: none; }
   .container { height: 68px; padding: 0 14px; }
   .artwork { width: 42px; height: 42px; }

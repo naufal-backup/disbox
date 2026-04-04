@@ -44,7 +44,7 @@ export default function TransferPanel({ activePage }) {
 
   return (
     <>
-      {activePage !== 'settings' && (
+      {activePage !== 'settings' && !hideSyncOverlay && (
         <SyncIndicator 
           status={metadataStatus.status} 
           items={metadataStatus.items} 

@@ -258,6 +258,7 @@ export default function SettingsPanel({ onNavigate }) {
             )}
             <Toggle label={t('auto_close')} value={autoCloseTransfers} onChange={v => updatePrefs({ autoCloseTransfers: v })} description={t('auto_close_desc')} helpKey="auto_close" />
             <Toggle label={t('animations')} value={animationsEnabled} onChange={v => setAnimationsEnabled(v)} description={t('animations_desc')} helpKey="animations" />
+            <Toggle label={t('hide_sync_overlay') || 'Hide Sync Overlay'} value={hideSyncOverlay} onChange={v => updatePrefs({ hideSyncOverlay: v })} description={t('hide_sync_overlay_desc') || 'Hide sync indicator overlay.'} helpKey="hide_sync_overlay" />
             <Toggle label={t('show_recent')} value={showRecent} onChange={v => updatePrefs({ showRecent: v })} description={t('show_recent_desc')} helpKey="show_recent" />
             <Toggle
               label={t('app_lock')}
