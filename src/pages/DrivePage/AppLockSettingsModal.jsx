@@ -116,10 +116,3 @@ export default function AppLockSettingsModal({ mode, onClose }) {
     </motion.div>
   );
 }
-</button>
-          </div>
-        </form>
-      </motion.div>
-    </motion.div>
-  );
-}

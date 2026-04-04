@@ -111,9 +111,3 @@ export default function WorkerSetupModal({
     </motion.div>
   );
 }
-  </button>
-        </div>
-      </motion.div>
-    </motion.div>
-  );
-}
