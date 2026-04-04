@@ -924,6 +924,68 @@ ipcMain.handle('cloudsave-restore', async (_, { id, force }) => {
   }
 });
 
+async function triggerCloudSync(id) {
+  try {
+    const entry = db.prepare('SELECT * FROM cloudsave_entries WHERE id = ?').get(id);
+    if (!entry || !entry.local_path || !fs.existsSync(entry.local_path)) {
+      return { ok: false, reason: 'local_path_missing' };
+    }
+
+    mainWindow?.webContents.send('cloudsave-sync-status', { id, status: 'syncing' });
+
+    const tempZip = path.join(os.tmpdir(), `disbox_sync_${id}_${Date.now()}.zip`);
+    const output = fs.createWriteStream(tempZip);
+    const archive = archiver('zip', { zlib: { level: 6 } });
+
+    await new Promise((resolve, reject) => {
+      output.on('close', resolve);
+      archive.on('error', reject);
+      archive.pipe(output);
+      archive.directory(entry.local_path, false);
+      archive.finalize();
+    });
+
+    const webhookRow = db.prepare('SELECT value FROM settings WHERE hash = ? AND key = ?').get(entry.webhook_hash, 'webhook_url');
+    const webhookUrl = webhookRow?.value || activeWebhookUrl;
+    if (!webhookUrl) throw new Error('No webhook URL available');
+
+    const zipData = fs.readFileSync(tempZip);
+    const key = getEncryptionKey(webhookUrl);
+    const encryptedZip = encrypt(zipData, key);
+    
+    const filename = `${entry.name}_sync.zip`;
+    const boundary = '----DisboxSyncBoundary' + Date.now().toString(36);
+    const bodyBuf = buildMetadataFormData(encryptedZip, filename);
+
+    const res = await net.fetch(webhookUrl + '?wait=true', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'multipart/form-data; boundary=' + boundary,
+        'User-Agent': 'Mozilla/5.0 Disbox/2.0',
+      },
+      body: new Uint8Array(bodyBuf),
+    });
+
+    if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
+    
+    const data = JSON.parse(await res.text());
+    const now = Date.now();
+    db.prepare('UPDATE cloudsave_entries SET last_synced = ?, last_modified = ? WHERE id = ?')
+      .run(now, now, id);
+
+    fs.rmSync(tempZip, { force: true });
+    
+    mainWindow?.webContents.send('cloudsave-sync-status', { id, status: 'synced', lastSynced: now });
+    showSyncNotification(entry.name, 'upload');
+    
+    return { ok: true, msgId: data.id };
+  } catch (e) {
+    console.error('[cloudsave] Sync error:', e.message);
+    mainWindow?.webContents.send('cloudsave-sync-status', { id, status: 'error', reason: e.message });
+    return { ok: false, reason: e.message };
+  }
+}
+
 ipcMain.handle('cloudsave-sync-entry', async (_, id) => {
   return triggerCloudSync(id);
 });

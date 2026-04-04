@@ -57,6 +57,89 @@ export function AppProvider({ children }) {
   const [isAppUnlocked, setIsAppUnlocked] = useState(false);
   const [cloudSaveEnabled, setCloudSaveEnabled] = useState(false);
   const [cloudSaves, setCloudSaves] = useState([]);
+
+  const loadCloudSaves = useCallback(async () => {
+    if (!api || !window.electron?.cloudsaveGetAll) return;
+    try {
+      const saves = await window.electron.cloudsaveGetAll(api.hashedWebhook);
+      const savesWithStatus = await Promise.all((saves || []).map(async s => {
+        const status = await window.electron.cloudsaveGetStatus(s.id);
+        return { ...s, ...status };
+      }));
+      setCloudSaves(savesWithStatus);
+    } catch (e) { console.error('[cloudsave] Load failed:', e); }
+  }, [api]);
+
+  const addCloudSave = useCallback(async (name, localPath) => {
+    if (!api || !window.electron?.cloudsaveAdd) return;
+    const discordPath = `cloudsave/${name}`;
+    const id = await window.electron.cloudsaveAdd(api.hashedWebhook, { name, local_path: localPath, discord_path: discordPath });
+    if (id) await loadCloudSaves();
+    return id;
+  }, [api, loadCloudSaves]);
+
+  const removeCloudSave = useCallback(async (id) => {
+    if (!window.electron?.cloudsaveRemove) return;
+    const ok = await window.electron.cloudsaveRemove(id);
+    if (ok) await loadCloudSaves();
+    return ok;
+  }, [loadCloudSaves]);
+
+  const syncCloudSave = useCallback(async (id) => {
+    if (!window.electron?.cloudsaveSyncEntry) return;
+    return await window.electron.cloudsaveSyncEntry(id);
+  }, []);
+
+  const exportCloudSave = useCallback(async (id) => {
+    if (!window.electron?.cloudsaveExportZip) return;
+    return await window.electron.cloudsaveExportZip(id);
+  }, []);
+
+  const restoreCloudSave = useCallback(async (id, force = false) => {
+    if (!window.electron?.cloudsaveRestore) return;
+    const res = await window.electron.cloudsaveRestore(id, force);
+    if (res.ok) await loadCloudSaves();
+    return res;
+  }, [loadCloudSaves]);
+
+  const setLocalPath = useCallback(async (id, localPath) => {
+    if (!window.electron?.cloudsaveUpdate) return;
+    const ok = await window.electron.cloudsaveUpdate(id, { local_path: localPath });
+    if (ok) await loadCloudSaves();
+    return ok;
+  }, [loadCloudSaves]);
+
+  useEffect(() => {
+    if (isConnected && api) {
+      loadCloudSaves();
+    }
+  }, [isConnected, api, loadCloudSaves]);
+
+  useEffect(() => {
+    if (!window.electron?.onCloudSaveSyncStatus) return;
+    const unbind = window.electron.onCloudSaveSyncStatus((data) => {
+      setCloudSaves(prev => prev.map(s => s.id === data.id ? { ...s, ...data } : s));
+    });
+    return unbind;
+  }, []);
+
+  useEffect(() => {
+    if (!window.electron?.onCloudSaveDoUploadFile || !api) return;
+    const unbind = window.electron.onCloudSaveDoUploadFile(async (data) => {
+      // data: { id, filePath, discordPath }
+      try {
+        // Find file in our utils if needed, or just upload
+        // For simplicity, we use a basic fetch-based upload or use existing api instance
+        const fileData = await window.electron.readFile(data.filePath);
+        const res = await api.uploadFile({ name: data.discordPath.split('/').pop(), buffer: fileData }, data.discordPath);
+        window.electron.cloudsaveUploadFileResult(data.id, data.discordPath, !!res);
+      } catch (e) {
+        console.error('[cloudsave] Auto-upload failed:', e);
+        window.electron.cloudsaveUploadFileResult(data.id, data.discordPath, false);
+      }
+    });
+    return unbind;
+  }, [api]);
   const [shareEnabled, setShareEnabled] = useState(() => localStorage.getItem('disbox_share_enabled') !== 'false');
   const [shareMode, setShareMode] = useState(() => localStorage.getItem('disbox_share_mode') || 'public');
   const [shareLinks, setShareLinks] = useState([]);
@@ -718,6 +801,8 @@ export function AppProvider({ children }) {
       pinExists, setPinExists,
       isSidebarOpen, setIsSidebarOpen,
       isTransferring,
+      cloudSaveEnabled, cloudSaves,
+      addCloudSave, removeCloudSave, syncCloudSave, exportCloudSave, restoreCloudSave, setLocalPath,
       shareEnabled, setShareEnabled,
       shareMode, setShareMode,
       shareLinks, cfWorkerUrl, setCfWorkerUrl,
