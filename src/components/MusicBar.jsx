@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../context/useAppHook.js';
 import { formatSize, getMimeType } from '../utils/disbox.js';
+import FileThumbnail from './FileThumbnail.jsx';
 import styles from './MusicBar.module.css';
 
 export default function MusicBar({ track, playlist, onNext, onPrev, onClose }) {
@@ -180,7 +181,7 @@ export default function MusicBar({ track, playlist, onNext, onPrev, onClose }) {
         {/* Track Info */}
         <div className={styles.trackInfo}>
           <div className={styles.artwork}>
-            {track && <FileThumbnailSmall file={track} />}
+            {track && <FileThumbnail file={track} size={56} />}
           </div>
           <div className={styles.details}>
             <div className={styles.title}>{metadata.title || 'No Track Selected'}</div>
@@ -292,20 +293,3 @@ export default function MusicBar({ track, playlist, onNext, onPrev, onClose }) {
   );
 }
 
-function FileThumbnailSmall({ file }) {
-  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
-
-  useEffect(() => {
-    const handleResize = () => setIsMobile(window.innerWidth <= 768);
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
-
-  const url = isMobile 
-    ? '../../Pictures/Screenshots/Screenshot_20260404_102747.png' 
-    : '../../Downloads/playerview.png';
-
-  return (
-    <img src={url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-  );
-}
