@@ -11,7 +11,7 @@ import FileListPanel from './FilePreview/FileListPanel.jsx';
 import FilePreviewContent from './FilePreview/FilePreviewContent.jsx';
 
 export default function FilePreview({ file, allFiles = [], onFileChange, onClose }) {
-  const { api, addTransfer, updateTransfer, removeTransfer, animationsEnabled } = useApp();
+  const { api, addTransfer, updateTransfer, removeTransfer, animationsEnabled, t } = useApp();
   const [loading, setLoading] = useState(true);
   const [content, setContent] = useState(null);
   const [error, setError] = useState('');
@@ -117,8 +117,18 @@ export default function FilePreview({ file, allFiles = [], onFileChange, onClose
         const isVideo = ['mp4', 'webm', 'ogg', 'mov', 'mkv', 'avi', 'flv', 'wmv', 'm4v', '3gp', 'ts', 'mts', 'm2ts'].includes(ext);
         const isAudio = ['mp3', 'wav', 'flac', 'ogg', 'm4a', 'aac'].includes(ext);
 
-        // For desktop/electron, download file first for audio/video preview
-        // Streaming via BASE_API requires server endpoint that may not be available
+        if (isVideo || isAudio) {
+          // Use disbox-stream:// protocol for Electron
+          const messagesStr = JSON.stringify(file.messageIds);
+          const streamUrl = `disbox-stream://${file.id}?webhook=${encodeURIComponent(api.webhookUrl)}&mime=${encodeURIComponent(mime)}&size=${file.size}&chunkSize=${api.chunkSize}&messages=${encodeURIComponent(messagesStr)}&_t=${Date.now()}`;
+          const result = { type: isVideo ? 'video' : 'audio', url: streamUrl, isStream: true };
+
+          globalPreviewCache.set(file.id, result);
+          setContent(result);
+          setLoading(false);
+          return;
+        }
+
         const signal = addTransfer({
           id: transferId, name: `Preview: ${name}`,
           progress: 0, type: 'download', status: 'active', hidden: true
@@ -132,8 +142,7 @@ export default function FilePreview({ file, allFiles = [], onFileChange, onClose
               setDownloadProgress(Math.round(p * 100));
               updateTransfer(transferId, { progress: p });
             }
-          },
-          isVideo // use progressive only for video
+          }
         );
 
         if (!isMounted || (signal && signal.aborted)) return;

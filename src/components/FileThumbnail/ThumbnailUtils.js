@@ -34,6 +34,7 @@ export function captureFrameFromURL(url) {
       if (settled) return;
       settled = true;
       video.pause();
+      video.onerror = null; // Prevent triggering error event when clearing src
       video.src = '';
       video.load();
       if (url.startsWith('blob:')) URL.revokeObjectURL(url);
