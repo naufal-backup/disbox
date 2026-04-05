@@ -45,6 +45,7 @@ export function AppProvider({ children }) {
   const [showRecent, setShowRecent] = useState(() => localStorage.getItem('disbox_show_recent') !== 'false');
   const [autoCloseTransfers, setAutoCloseTransfers] = useState(() => localStorage.getItem('disbox_auto_close_transfers') !== 'false');
   const [animationsEnabled, setAnimationsEnabled] = useState(() => localStorage.getItem('disbox_animations_enabled') !== 'false');
+  const [hideSyncOverlay, setHideSyncOverlay] = useState(() => localStorage.getItem('disbox_hide_sync_overlay') === 'true');
   const [metadataStatus, setMetadataStatus] = useState({ status: 'synced', items: 0 });
   const [closeToTray, setCloseToTray] = useState(true);
   const [startMinimized, setStartMinimized] = useState(false);
@@ -200,6 +201,7 @@ export function AppProvider({ children }) {
         if (s.autoCloseTransfers !== undefined) setAutoCloseTransfers(s.autoCloseTransfers);
         if (s.animationsEnabled !== undefined) setAnimationsEnabled(s.animationsEnabled);
         if (s.showRecent !== undefined) setShowRecent(s.showRecent);
+        if (s.hideSyncOverlay !== undefined) setHideSyncOverlay(s.hideSyncOverlay);
       }
 
       if (serverContainer.pinHash) {
@@ -293,6 +295,7 @@ export function AppProvider({ children }) {
     if (prefs.showAudioPreviews !== undefined) setShowAudioPreviews(prefs.showAudioPreviews);
     if (prefs.autoCloseTransfers !== undefined) setAutoCloseTransfers(prefs.autoCloseTransfers);
     if (prefs.showRecent !== undefined) setShowRecent(prefs.showRecent);
+    if (prefs.hideSyncOverlay !== undefined) setHideSyncOverlay(prefs.hideSyncOverlay);
     if (window.electron?.setPrefs) window.electron.setPrefs(prefs);
   }, []);
 
@@ -758,6 +761,12 @@ export function AppProvider({ children }) {
     localStorage.setItem('disbox_auto_close_transfers', autoCloseTransfers.toString());
     syncSettingsToCloud({ autoCloseTransfers });
   }, [autoCloseTransfers]);
+
+  useEffect(() => { 
+    localStorage.setItem('disbox_hide_sync_overlay', hideSyncOverlay.toString());
+    syncSettingsToCloud({ hideSyncOverlay });
+  }, [hideSyncOverlay]);
+
   useEffect(() => { localStorage.setItem('disbox_chunks_per_message', chunksPerMessage.toString()); }, [chunksPerMessage]);
   useEffect(() => { localStorage.setItem('disbox_app_lock_enabled', appLockEnabled.toString()); }, [appLockEnabled]);
   useEffect(() => { localStorage.setItem('disbox_app_lock_pin', appLockPin); }, [appLockPin]);

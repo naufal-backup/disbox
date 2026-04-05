@@ -21,6 +21,7 @@ export default function SettingsPanel({ onNavigate }) {
     showRecent,
     autoCloseTransfers,
     animationsEnabled, setAnimationsEnabled,
+    hideSyncOverlay,
     closeToTray, startMinimized, chunksPerMessage, updatePrefs,
     appLockEnabled, setAppLockEnabled,
     appLockPin, setAppLockPin,

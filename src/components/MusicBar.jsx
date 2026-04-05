@@ -9,7 +9,7 @@ import FileThumbnail from './FileThumbnail.jsx';
 import styles from './MusicBar.module.css';
 
 export default function MusicBar({ track, playlist, onNext, onPrev, onClose }) {
-  const { api, addTransfer, removeTransfer } = useApp();
+  const { api, addTransfer, removeTransfer, updateTransfer } = useApp();
   const [isPlaying, setIsPlaying] = useState(false);
   const [isLooping, setIsLooping] = useState(false);
   const [isShuffle, setIsShuffle] = useState(false);
