@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'react-hot-toast';
-import { DisboxAPI, buildTree } from './utils/disbox.js';
+import { DisboxAPI, buildTree, BASE_API } from './utils/disbox.js';
 import { translations } from './utils/i18n.js';
 import { clearThumbCache } from './utils/thumbnailCache.js';
 import { AppContext } from './context/AppContextBase.jsx';
@@ -362,7 +362,7 @@ export function AppProvider({ children }) {
       const instance = new DisboxAPI(url);
       
       if (!isCloudAccount) {
-        const authRes = await fetch('https://disbox-web-weld.vercel.app/api/auth/webhook', {
+        const authRes = await fetch(`${BASE_API}/api/auth/webhook`, {
           method: 'POST',
           credentials: 'include',
           headers: { 'Content-Type': 'application/json' },

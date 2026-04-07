@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { Loader2, AlertCircle } from 'lucide-react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import vscDarkPlus from 'react-syntax-highlighter/dist/esm/styles/prism/vsc-dark-plus';
@@ -7,14 +8,29 @@ import { useApp } from '../../context/useAppHook.js';
 
 export default function FilePreviewContent({ 
   loading, downloadProgress, error, handleDownload, content, name, 
-  ext, file, navigatableFiles, onFileChange, onClose 
+  ext, file, navigatableFiles, onFileChange, onClose, retryWithDownload
 }) {
   const { t } = useApp();
+  const [videoError, setVideoError] = useState(false);
+
+  useEffect(() => {
+    setVideoError(false);
+  }, [content?.url]);
+
+  const handleVideoError = () => {
+    if (content?.isStream && retryWithDownload) {
+      console.log('[video] Streaming failed, attempting full download fallback...');
+      retryWithDownload();
+    } else {
+      setVideoError(true);
+    }
+  };
+
   if (loading) {
     return (
       <div className={styles.state}>
         <Loader2 size={32} className="spin" style={{ color: 'var(--accent)' }} />
-        <p>{t('downloading')} {downloadProgress > 0 ? `${downloadProgress}%` : ''}</p>
+        <p>{content?.isStream ? 'Connecting to stream...' : t('downloading')} {downloadProgress > 0 ? `${downloadProgress}%` : ''}</p>
       </div>
     );
   }
@@ -49,7 +65,28 @@ export default function FilePreviewContent({
         </div>
       )}
       {content.type === 'video' && (
-        <video key={content.url} src={content.url} controls autoPlay className={styles.video} />
+        <div className={styles.videoWrapper} style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          {!videoError ? (
+            <video 
+              key={content.url} 
+              src={content.url} 
+              controls 
+              autoPlay 
+              className={styles.video} 
+              onError={handleVideoError}
+            />
+          ) : (
+            <div className={styles.state}>
+              <AlertCircle size={32} style={{ color: 'var(--amber)' }} />
+              <p style={{ maxWidth: '300px' }}>
+                {t('video_codec_error') || 'Video codec tidak didukung (misal H.265) atau metadata rusak.'}
+              </p>
+              <button className={styles.retryBtn} onClick={handleDownload}>
+                {t('download_anyway') || 'Download & Putar Lokal'}
+              </button>
+            </div>
+          )}
+        </div>
       )}
       {content.type === 'audio' && (
         <div className={styles.audioWrapper} style={{ width: '100%', height: '100%' }}>

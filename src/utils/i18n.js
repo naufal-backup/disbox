@@ -140,6 +140,12 @@ export const translations = {
     unlock_access: 'Buka Akses',
     unlock_app: 'Buka Aplikasi',
     unlock_button: 'Buka Kunci',
+    unlock_folder_title: 'Buka Folder Terkunci',
+    unlock_file_title: 'Buka File Terkunci',
+    unlock_music_title: 'Putar Musik Terkunci',
+    unlock_download_title: 'Download File Terkunci',
+    unlock_confirm_title: 'Konfirmasi Buka Kunci',
+    video_codec_error: 'Video codec tidak didukung (misal H.265) atau metadata rusak.',
     // Sync & Transfers
     total_files: 'Total File',
     syncing_items: 'Menyinkronkan {count} item…',
@@ -390,6 +396,7 @@ export const translations = {
     unlock_access: 'Unlock Access',
     unlock_app: 'Unlock App',
     unlock_button: 'Unlock',
+    video_codec_error: 'Video codec not supported (e.g. H.265) or metadata corrupted.',
     // Sync & Transfers
     total_files: 'Total Files',
     syncing_items: 'Syncing {count} items…',
@@ -640,6 +647,7 @@ export const translations = {
     unlock_access: '开启访问',
     unlock_app: '解锁应用',
     unlock_button: '解锁',
+    video_codec_error: '不支持该视频编码（如 H.265）或元数据损坏。',
     // Sync & Transfers
     total_files: '总文件数',
     syncing_items: '正在同步 {count} 个项目…',

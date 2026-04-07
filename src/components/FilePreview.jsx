@@ -61,12 +61,12 @@ export default function FilePreview({ file, allFiles = [], onFileChange, onClose
     const targetExt = targetName.split('.').pop().toLowerCase();
     const targetMime = getMimeType(targetName);
 
-    const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(targetExt);
-    const isVideo = ['mp4', 'webm', 'ogg', 'mov', 'mkv', 'avi', 'flv', 'wmv', 'm4v', '3gp', 'ts', 'mts', 'm2ts'].includes(targetExt);
-    const isAudio = ['mp3', 'wav', 'flac', 'ogg', 'm4a', 'aac'].includes(targetExt);
+    const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'ico'].includes(targetExt);
+    const isVideo = ['mp4', 'webm', 'ogg', 'mov', 'mkv', 'avi', 'flv', 'wmv', 'm4v', '3gp', 'ts', 'mts', 'm2ts', 'qt', 'divx'].includes(targetExt);
+    const isAudio = ['mp3', 'wav', 'flac', 'ogg', 'm4a', 'aac', 'opus', 'oga', 'm4b'].includes(targetExt);
     const isPdf = targetExt === 'pdf';
     const isText = ['txt', 'md', 'js', 'jsx', 'ts', 'tsx', 'py', 'rs', 'html', 'css',
-                    'json', 'yml', 'yaml', 'sql', 'sh', 'bash', 'xml', 'cpp', 'c', 'java'].includes(targetExt);
+                    'json', 'yml', 'yaml', 'sql', 'sh', 'bash', 'xml', 'cpp', 'c', 'java', 'go', 'php', 'rb'].includes(targetExt);
 
     if (progressive && (isVideo || isAudio)) {
       // Download partial chunks for progressive loading
@@ -75,7 +75,7 @@ export default function FilePreview({ file, allFiles = [], onFileChange, onClose
       const blob = new Blob([result.buffer], { type: targetMime });
       const objectUrl = URL.createObjectURL(blob);
       return {
-        type: isVideo ? 'progressive_video' : 'progressive_audio',
+        type: isVideo ? 'video' : 'audio',
         url: objectUrl,
         partialData: result,
         file: targetFile
@@ -89,6 +89,14 @@ export default function FilePreview({ file, allFiles = [], onFileChange, onClose
       const blob = new Blob([buffer], { type: targetMime });
       const objectUrl = URL.createObjectURL(blob);
       return { type: isImage ? 'image' : 'pdf', url: objectUrl };
+    } else if (isVideo) {
+      const blob = new Blob([buffer], { type: targetMime });
+      const objectUrl = URL.createObjectURL(blob);
+      return { type: 'video', url: objectUrl };
+    } else if (isAudio) {
+      const blob = new Blob([buffer], { type: targetMime });
+      const objectUrl = URL.createObjectURL(blob);
+      return { type: 'audio', url: objectUrl };
     } else if (isText) {
       const text = new TextDecoder().decode(buffer);
       return { type: 'text', text };
@@ -114,13 +122,13 @@ export default function FilePreview({ file, allFiles = [], onFileChange, onClose
       setContent(null);
 
       try {
-        const isVideo = ['mp4', 'webm', 'ogg', 'mov', 'mkv', 'avi', 'flv', 'wmv', 'm4v', '3gp', 'ts', 'mts', 'm2ts'].includes(ext);
-        const isAudio = ['mp3', 'wav', 'flac', 'ogg', 'm4a', 'aac'].includes(ext);
+        const isVideo = ['mp4', 'webm', 'ogg', 'mov', 'mkv', 'avi', 'flv', 'wmv', 'm4v', '3gp', 'ts', 'mts', 'm2ts', 'qt', 'divx'].includes(ext);
+        const isAudio = ['mp3', 'wav', 'flac', 'ogg', 'm4a', 'aac', 'opus', 'oga', 'm4b'].includes(ext);
 
         if (isVideo || isAudio) {
-          // Use disbox-stream:// protocol for Electron
+          // Use Web API stream for better compatibility across environments
           const messagesStr = JSON.stringify(file.messageIds);
-          const streamUrl = `disbox-stream://${file.id}?webhook=${encodeURIComponent(api.webhookUrl)}&mime=${encodeURIComponent(mime)}&size=${file.size}&chunkSize=${api.chunkSize}&messages=${encodeURIComponent(messagesStr)}&_t=${Date.now()}`;
+          const streamUrl = `${BASE_API}/api/stream?webhook=${encodeURIComponent(api.webhookUrl)}&mime=${encodeURIComponent(mime)}&size=${file.size}&chunkSize=${api.chunkSize}&messages=${encodeURIComponent(messagesStr)}&_t=${Date.now()}`;
           const result = { type: isVideo ? 'video' : 'audio', url: streamUrl, isStream: true };
 
           globalPreviewCache.set(file.id, result);
@@ -271,6 +279,33 @@ export default function FilePreview({ file, allFiles = [], onFileChange, onClose
   };
   const transition = animationsEnabled ? {} : { duration: 0 };
 
+  const retryWithDownload = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    const transferId = `preview-retry-${file.id}`;
+    const signal = addTransfer({
+      id: transferId, name: `Buffering: ${name}`,
+      progress: 0, type: 'download', status: 'active', hidden: true
+    });
+
+    try {
+      const result = await downloadFileContent(file, signal, (p) => {
+        setDownloadProgress(Math.round(p * 100));
+        updateTransfer(transferId, { progress: p });
+      });
+      
+      if (result) {
+        setContent(result);
+        globalPreviewCache.set(file.id, result);
+      }
+    } catch (e) {
+      setError(t('failed_to_load') + ': ' + e.message);
+    } finally {
+      setLoading(false);
+      removeTransfer(transferId);
+    }
+  }, [file, name, addTransfer, updateTransfer, removeTransfer, downloadFileContent, t]);
+
   return (
     <motion.div
       className={`${styles.overlay} ${isFull ? styles.isFull : ''}`}
@@ -313,7 +348,7 @@ export default function FilePreview({ file, allFiles = [], onFileChange, onClose
             error={error} handleDownload={handleDownload}
             content={content} name={name} ext={ext} file={file}
             navigatableFiles={navigatableFiles} onFileChange={onFileChange}
-            onClose={onClose}
+            onClose={onClose} retryWithDownload={retryWithDownload}
           />
         </div>
       </motion.div>
