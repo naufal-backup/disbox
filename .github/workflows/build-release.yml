@@ -24,7 +24,9 @@ jobs:
           sudo apt-get install -y --no-install-recommends libarchive-tools fakeroot rpm
           
       - name: Install NPM Dependencies
-        run: npm ci
+        run: |
+          npm ci
+          npx electron-rebuild better-sqlite3
 
       - name: Build Web Assets
         run: npm run build:web
@@ -58,7 +60,9 @@ jobs:
           cache: 'npm'
 
       - name: Install NPM Dependencies
-        run: npm ci
+        run: |
+          npm ci
+          npx electron-rebuild better-sqlite3
 
       - name: Build Web Assets
         run: npm run build:web
