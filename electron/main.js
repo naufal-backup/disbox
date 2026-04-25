@@ -787,9 +787,12 @@ ipcMain.handle('cloudsave-remove', async (_, id) => {
 });
 
 async function downloadDiscordFile(webhookUrl, file, destPath) {
+  let writeStream = null;
   try {
     const encryptionKey = getEncryptionKey(webhookUrl);
-    const chunks = [];
+    fs.mkdirSync(path.dirname(destPath), { recursive: true });
+    writeStream = fs.createWriteStream(destPath);
+
     for (const msgId of file.messageIds) {
       const response = await net.fetch(`${webhookUrl}/messages/${msgId}`, {
         headers: { 'User-Agent': 'Mozilla/5.0 Disbox/2.0' }
@@ -800,16 +803,22 @@ async function downloadDiscordFile(webhookUrl, file, destPath) {
 
       const fileRes = await net.fetch(attachmentUrl);
       if (!fileRes.ok) throw new Error(`Failed to download attachment from ${attachmentUrl}`);
+      
       const buffer = Buffer.from(await fileRes.arrayBuffer());
       const decrypted = decrypt(buffer, encryptionKey);
-      chunks.push(decrypted);
+      
+      const canContinue = writeStream.write(decrypted);
+      if (!canContinue) {
+        await new Promise(resolve => writeStream.once('drain', resolve));
+      }
     }
-    const fullBuffer = Buffer.concat(chunks);
-    fs.mkdirSync(path.dirname(destPath), { recursive: true });
-    fs.writeFileSync(destPath, fullBuffer);
-    return true;
+    
+    return new Promise((resolve) => {
+      writeStream.end(() => resolve(true));
+    });
   } catch (e) {
     console.error(`[cloudsave] Error downloading ${file.path}:`, e.message);
+    if (writeStream) writeStream.end();
     return false;
   }
 }

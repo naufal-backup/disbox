@@ -501,6 +501,8 @@ export class DisboxAPI {
     const messageIds = file.messageIds || [];
     const chunks = [];
     const webhookBase = this.webhookUrl.split('?')[0];
+    const fileSize = parseInt(file.size, 10) || 0;
+    const isLarge = fileSize > 2 * 1024 * 1024 * 1024; // > 2GB
 
     for (let i = 0; i < messageIds.length; i++) {
       throwIfAborted(signal);
@@ -534,11 +536,65 @@ export class DisboxAPI {
       chunks.push(decrypted);
       if (onProgress) onProgress((i + 1) / messageIds.length);
     }
+
+    if (isLarge) {
+      // Return chunks as is to be handled by caller if it's too large for a single buffer
+      return chunks;
+    }
+
     const totalSize = chunks.reduce((s, c) => s + c.byteLength, 0);
     const result = new Uint8Array(totalSize);
     let off = 0;
     for (const c of chunks) { result.set(new Uint8Array(c), off); off += c.byteLength; }
     return result.buffer;
+  }
+
+  streamFile(file, onProgress, signal) {
+    const messageIds = file.messageIds || [];
+    const webhookBase = this.webhookUrl.split('?')[0];
+    const self = this;
+
+    return new ReadableStream({
+      async start(controller) {
+        try {
+          for (let i = 0; i < messageIds.length; i++) {
+            if (signal?.aborted) throw new DOMException('Batal', 'AbortError');
+            const msgId = typeof messageIds[i] === 'string' ? messageIds[i] : messageIds[i].msgId;
+
+            let resData;
+            if (window.electron) {
+              const res = await window.electron.fetch(`${self.webhookUrl}/messages/${msgId}`, { signal });
+              if (!res.ok) throw new Error(`Gagal memuat chunk ${i}`);
+              resData = JSON.parse(res.body);
+            } else {
+              const proxiedMsgUrl = `${BASE_API}/api/proxy?url=${encodeURIComponent(`${webhookBase}/messages/${msgId}`)}`;
+              const res = await fetch(proxiedMsgUrl, { signal, credentials: 'include' });
+              if (!res.ok) throw new Error(`Gagal memuat chunk ${i}`);
+              resData = await res.json();
+            }
+
+            const url = resData.attachments?.[0]?.url;
+            let bytes;
+            if (window.electron) {
+              bytes = await window.electron.proxyDownload(url, signal);
+            } else {
+              const proxiedUrl = `${BASE_API}/api/proxy?url=${encodeURIComponent(url)}`;
+              bytes = await fetch(proxiedUrl, {
+                ...(signal ? { signal } : {}),
+                credentials: 'include'
+              }).then(r => r.arrayBuffer());
+            }
+
+            const decrypted = await self.decrypt(bytes);
+            controller.enqueue(new Uint8Array(decrypted));
+            if (onProgress) onProgress((i + 1) / messageIds.length);
+          }
+          controller.close();
+        } catch (e) {
+          controller.error(e);
+        }
+      }
+    });
   }
 
   async downloadFirstChunk(file, signal, transferId) {

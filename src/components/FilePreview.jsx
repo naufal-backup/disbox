@@ -218,7 +218,7 @@ export default function FilePreview({ file, allFiles = [], onFileChange, onClose
   const handleDownload = useCallback(async () => {
     const fileName = file.path.split('/').pop();
     const transferId = `preview-dl-${file.id}-${Date.now()}`;
-    const totalBytes = file.size || 0;
+    const totalBytes = parseInt(file.size, 10) || 0;
     const CHUNK_SIZE = 7.5 * 1024 * 1024;
     const totalChunks = Math.ceil(totalBytes / CHUNK_SIZE) || 1;
     const signal = addTransfer({
@@ -227,8 +227,30 @@ export default function FilePreview({ file, allFiles = [], onFileChange, onClose
     });
 
     try {
+      // Use streaming if file is large and showSaveFilePicker is available
+      if (window.showSaveFilePicker && totalBytes > 20 * 1024 * 1024) {
+        try {
+          const handle = await window.showSaveFilePicker({ suggestedName: fileName });
+          const writable = await handle.createWritable();
+          const readable = api.streamFile(file, (p) => {
+            if (!signal.aborted) {
+              const chunk = totalChunks ? Math.min(Math.floor(p * totalChunks), totalChunks - 1) : 0;
+              updateTransfer(transferId, { progress: p, chunk });
+            }
+          }, signal);
+          
+          await readable.pipeTo(writable);
+          updateTransfer(transferId, { status: 'done', progress: 1 });
+          setTimeout(() => removeTransfer(transferId), 1000);
+          return;
+        } catch (e) {
+          if (e.name === 'AbortError') { removeTransfer(transferId); return; }
+          console.warn('Streaming download failed, falling back:', e);
+        }
+      }
+
       const cached = globalPreviewCache.get(file.id);
-      if (cached?.url) {
+      if (cached?.url && !cached.isStream) {
         // Native fetch is fine for blob: URLs
         const res = await fetch(cached.url);
         const buffer = await res.arrayBuffer();
@@ -246,7 +268,7 @@ export default function FilePreview({ file, allFiles = [], onFileChange, onClose
         return;
       }
 
-      const buffer = await api.downloadFile(file, (p) => {
+      const result = await api.downloadFile(file, (p) => {
         if (signal && !signal.aborted) {
           const chunk = totalChunks ? Math.min(Math.floor(p * totalChunks), totalChunks - 1) : 0;
           updateTransfer(transferId, { progress: p, chunk });
@@ -254,15 +276,19 @@ export default function FilePreview({ file, allFiles = [], onFileChange, onClose
       }, signal, transferId);
 
       if (signal && signal.aborted) return;
-      const blob = new Blob([buffer], { type: getMimeType(fileName) });
-      const url = URL.createObjectURL(blob);
+
       if (window.electron) {
         const savePath = await window.electron.saveFile(fileName);
-        if (savePath) await window.electron.writeFile(savePath, new Uint8Array(buffer));
+        if (savePath) {
+          const data = Array.isArray(result) ? Buffer.concat(result.map(c => Buffer.from(c))) : new Uint8Array(result);
+          await window.electron.writeFile(savePath, data);
+        }
       } else {
+        const blob = Array.isArray(result) ? new Blob(result, { type: getMimeType(fileName) }) : new Blob([result], { type: getMimeType(fileName) });
+        const url = URL.createObjectURL(blob);
         const a = document.createElement('a'); a.href = url; a.download = fileName; a.click();
+        URL.revokeObjectURL(url);
       }
-      URL.revokeObjectURL(url);
       updateTransfer(transferId, { status: 'done', progress: 1 });
       setTimeout(() => removeTransfer(transferId), 1000);
     } catch (e) {
