@@ -362,7 +362,8 @@ export function AppProvider({ children }) {
       const instance = new DisboxAPI(url);
       
       if (!isCloudAccount) {
-        const authRes = await fetch(`${BASE_API}/api/auth/webhook`, {
+        const authUrl = `${BASE_API}/api/auth/webhook`;
+        const authRes = await fetch(authUrl, {
           method: 'POST',
           credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
@@ -483,8 +484,25 @@ export function AppProvider({ children }) {
 
   const copyPath = useCallback(async (oldPath, destDir, id = null) => {
     if (!api) return false;
+    const name = oldPath.split('/').pop();
+    const newPath = destDir ? `${destDir}/${name}` : name;
+    
+    setFiles(prev => {
+      const toAdd = [];
+      prev.forEach(f => {
+        if ((id && f.id === id) || (!id && f.path === oldPath)) {
+          toAdd.push({ ...f, path: newPath, id: crypto.randomUUID(), createdAt: Date.now() });
+        } else if (f.path.startsWith(oldPath + '/')) {
+          toAdd.push({ ...f, path: f.path.replace(oldPath + '/', newPath + '/'), id: crypto.randomUUID(), createdAt: Date.now() });
+        }
+      });
+      const next = [...prev, ...toAdd];
+      setFileTree(buildTree(next));
+      return next;
+    });
+
     enqueueMutation(async () => {
-      await api.copyPath(oldPath, destDir, id);
+      await api.copyPath(oldPath, newPath, id);
     });
     return true;
   }, [api]);
@@ -559,6 +577,26 @@ export function AppProvider({ children }) {
 
   const bulkCopy = useCallback(async (paths, destDir) => {
     if (!api) return false;
+    setFiles(prev => {
+      const toAdd = [];
+      paths.forEach(target => {
+        const source = prev.find(f => f.id === target || f.path === target);
+        if (!source) return;
+        const name = source.path.split('/').pop();
+        const newBase = destDir ? `${destDir}/${name}` : name;
+        prev.forEach(f => {
+          if (f.id === source.id || f.path === source.path) {
+            toAdd.push({ ...f, path: newBase, id: crypto.randomUUID(), createdAt: Date.now() });
+          } else if (f.path.startsWith(source.path + '/')) {
+            toAdd.push({ ...f, path: f.path.replace(source.path + '/', newBase + '/'), id: crypto.randomUUID(), createdAt: Date.now() });
+          }
+        });
+      });
+      const next = [...prev, ...toAdd];
+      setFileTree(buildTree(next));
+      return next;
+    });
+
     enqueueMutation(async () => {
       await api.bulkCopy(paths, destDir);
     });

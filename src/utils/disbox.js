@@ -37,13 +37,17 @@ export class DisboxAPI {
     this.chunkSize = (savedChunkSize && savedChunkSize < 8 * 1024 * 1024) ? savedChunkSize : 7.5 * 1024 * 1024;
     this._taskQueue = Promise.resolve();
     this._syncing = false;
-    this.token = localStorage.getItem('disbox_auth_token');
   }
 
-  _getHeaders(extra = {}) {
+  get token() {
+    return localStorage.getItem('disbox_auth_token');
+  }
+
+  _getHeaders(extra = {}, url = '') {
     const headers = { ...extra };
-    if (this.token) {
-      headers['Authorization'] = `Bearer ${this.token}`;
+    const t = this.token;
+    if (t && (!url || url.startsWith(BASE_API))) {
+      headers['Authorization'] = `Bearer ${t}`;
     }
     return headers;
   }
@@ -116,9 +120,10 @@ export class DisboxAPI {
       const identifier = username || this.hashedWebhook;
 
       console.log(`[sync] Pulling structure for ${identifier}...`);
-      const res = await fetch(`${BASE_API}/api/files/list?identifier=${identifier}`, {
+      const url = `${BASE_API}/api/files/list?identifier=${identifier}`;
+      const res = await fetch(url, {
         credentials: 'include',
-        headers: this._getHeaders()
+        headers: this._getHeaders({}, url)
       });
 
       if (res.status === 401) throw new Error('Sesi API berakhir. Silakan login kembali.');
@@ -179,7 +184,7 @@ export class DisboxAPI {
       const proxiedUrl = `${BASE_API}/api/proxy?url=${encodeURIComponent(url)}`;
       bytes = await fetch(proxiedUrl, { 
         credentials: 'include',
-        headers: this._getHeaders()
+        headers: this._getHeaders({}, proxiedUrl)
       }).then(r => r.arrayBuffer());
     }
     const dec = await this.decrypt(bytes);
@@ -189,18 +194,20 @@ export class DisboxAPI {
   async _getMsgIdFromDiscovery() {
     let channelId = null;
     try {
-      const res = await (window.electron ? window.electron.fetch(this.webhookUrl) : fetch(`${BASE_API}/api/proxy?url=${encodeURIComponent(this.webhookUrl)}`, { 
+      const proxiedUrl = `${BASE_API}/api/proxy?url=${encodeURIComponent(this.webhookUrl)}`;
+      const res = await (window.electron ? window.electron.fetch(this.webhookUrl) : fetch(proxiedUrl, { 
         credentials: 'include',
-        headers: this._getHeaders()
+        headers: this._getHeaders({}, proxiedUrl)
       }));
       const data = window.electron ? JSON.parse(res.body) : await res.json();
       channelId = data.channel_id;
     } catch {}
     if (!channelId) return null;
     try {
-      const dRes = await (window.electron ? window.electron.fetch(`${BASE_API}/api/discord/discover?channel_id=${channelId}`) : fetch(`${BASE_API}/api/discord/discover?channel_id=${channelId}`, { 
+      const discoveryUrl = `${BASE_API}/api/discord/discover?channel_id=${channelId}`;
+      const dRes = await (window.electron ? window.electron.fetch(discoveryUrl) : fetch(discoveryUrl, { 
         credentials: 'include',
-        headers: this._getHeaders()
+        headers: this._getHeaders({}, discoveryUrl)
       }));
       const dData = window.electron ? JSON.parse(dRes.body) : await dRes.json();
       return dData.ok && dData.found ? { best: dData.message_id } : null;
@@ -230,10 +237,11 @@ export class DisboxAPI {
       isStarred: !!f.isStarred
     }));
 
-    return fetch(`${BASE_API}/api/files/sync-all`, {
+    const syncAllUrl = `${BASE_API}/api/files/sync-all`;
+    return fetch(syncAllUrl, {
       method: 'POST',
       credentials: 'include',
-      headers: this._getHeaders({ 'Content-Type': 'application/json' }),
+      headers: this._getHeaders({ 'Content-Type': 'application/json' }, syncAllUrl),
       body: JSON.stringify({ 
         identifier, 
         files: normalizedFiles,
@@ -286,10 +294,11 @@ export class DisboxAPI {
         
         const username = localStorage.getItem('dbx_username');
         if (username) {
-          fetch(`${BASE_API}/api/cloud/sync`, {
+          const syncUrl = `${BASE_API}/api/auth/sync`;
+          fetch(syncUrl, {
             method: 'POST',
             credentials: 'include',
-            headers: this._getHeaders({ 'Content-Type': 'application/json' }),
+            headers: this._getHeaders({ 'Content-Type': 'application/json' }, syncUrl),
             body: JSON.stringify({ username, last_msg_id: data.id })
           }).catch(() => {});
         }
@@ -532,7 +541,7 @@ export class DisboxAPI {
         resData = JSON.parse(res.body);
       } else {
         const proxiedMsgUrl = `${BASE_API}/api/proxy?url=${encodeURIComponent(`${webhookBase}/messages/${msgId}`)}`;
-        const res = await fetch(proxiedMsgUrl, { signal, credentials: 'include', headers: this._getHeaders() });
+        const res = await fetch(proxiedMsgUrl, { signal, credentials: 'include', headers: this._getHeaders({}, proxiedMsgUrl) });
         if (!res.ok) throw new Error(`Gagal memuat chunk ${i}`);
         resData = await res.json();
       }
@@ -546,7 +555,7 @@ export class DisboxAPI {
         bytes = await fetch(proxiedUrl, { 
           ...(signal ? { signal } : {}),
           credentials: 'include',
-          headers: this._getHeaders()
+          headers: this._getHeaders({}, proxiedUrl)
         }).then(r => r.arrayBuffer());
       }
 
@@ -619,7 +628,7 @@ export class DisboxAPI {
       resData = JSON.parse(res.body);
     } else {
       const proxiedMsgUrl = `${BASE_API}/api/proxy?url=${encodeURIComponent(`${webhookBase}/messages/${msgId}`)}`;
-      const res = await fetch(proxiedMsgUrl, { signal, credentials: 'include', headers: this._getHeaders() });
+      const res = await fetch(proxiedMsgUrl, { signal, credentials: 'include', headers: this._getHeaders({}, proxiedMsgUrl) });
       if (!res.ok) return new ArrayBuffer(0);
       resData = await res.json();
     }
@@ -633,7 +642,7 @@ export class DisboxAPI {
       bytes = await fetch(proxiedUrl, { 
         ...(signal ? { signal } : {}),
         credentials: 'include',
-        headers: this._getHeaders()
+        headers: this._getHeaders({}, proxiedUrl)
       }).then(r => r.arrayBuffer());
     }
     return await this.decrypt(bytes);
@@ -667,7 +676,7 @@ export class DisboxAPI {
       } else {
         const webhookBase = this.webhookUrl.split('?')[0];
         const proxiedMsgUrl = `${BASE_API}/api/proxy?url=${encodeURIComponent(`${webhookBase}/messages/${msgId}`)}`;
-        const res = await fetch(proxiedMsgUrl, { signal, credentials: 'include', headers: this._getHeaders() });
+        const res = await fetch(proxiedMsgUrl, { signal, credentials: 'include', headers: this._getHeaders({}, proxiedMsgUrl) });
         if (!res.ok) throw new Error(`Gagal memuat chunk ${chunkIdx + 1}`);
         resData = await res.json();
       }
@@ -681,7 +690,7 @@ export class DisboxAPI {
         bytes = await fetch(proxiedUrl, { 
           ...(signal ? { signal } : {}),
           credentials: 'include',
-          headers: this._getHeaders()
+          headers: this._getHeaders({}, proxiedUrl)
         }).then(r => r.arrayBuffer());
       }
 

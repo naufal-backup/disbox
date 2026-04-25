@@ -79,11 +79,28 @@ export default function FileGrid({ isLockedView = false, isStarredView = false, 
       const winW = window.innerWidth;
       const winH = window.innerHeight;
       let { x, y } = contextMenu;
-      if (x + rect.width > winW - 10) x = winW - rect.width - 10;
-      if (y + rect.height > winH - 10) y = winH - rect.height - 10;
-      if (x !== contextMenu.x || y !== contextMenu.y) setContextMenu(prev => ({ ...prev, x, y }));
+      
+      const padding = 10;
+      // contextMenu.x is clientX / uiScale. 
+      // rect is in screen pixels (affected by zoom).
+      const menuRight = (x * uiScale) + rect.width;
+      const menuBottom = (y * uiScale) + rect.height;
+      
+      if (menuRight > winW - padding) {
+        x = (winW - rect.width - padding) / uiScale;
+      }
+      if (menuBottom > winH - padding) {
+        y = (winH - rect.height - padding) / uiScale;
+      }
+      
+      x = Math.max(padding / uiScale, x);
+      y = Math.max(padding / uiScale, y);
+
+      if (Math.abs(x - contextMenu.x) > 0.1 || Math.abs(y - contextMenu.y) > 0.1) {
+        setContextMenu(prev => ({ ...prev, x, y }));
+      }
     }
-  }, [contextMenu]);
+  }, [contextMenu, uiScale]);
 
   useEffect(() => {
     if (activeFolderRef.current) {

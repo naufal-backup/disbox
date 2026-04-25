@@ -143,7 +143,7 @@ export default function DiscordSetupPage({ onBack }) {
 
               // ─── CLOUD SYNC: Simpan config awal ke KV ───
               if (cbData.user_id || cbData.username) {
-                window.electron.fetch(`${BASE_API}/api/cloud/sync`, {
+                window.electron.fetch(`${BASE_API}/api/auth/sync`, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({

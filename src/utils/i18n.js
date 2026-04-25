@@ -320,6 +320,8 @@ export const translations = {
     error_duplicate: 'Name already exists in this folder',
     error_invalid: 'Name contains invalid characters',
     error_empty: 'Name cannot be empty',
+    confirm_delete: 'Delete Item',
+    confirm_delete_msg: 'Are you sure you want to delete "{name}"? All its contents will be deleted.',
     language: 'Language',
     lang_id: 'Indonesian',
     lang_en: 'English',

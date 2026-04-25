@@ -7,27 +7,53 @@ export default function ConfirmModal({ title, message, onConfirm, onClose, dange
   const { t } = useApp();
   return (
     <Backdrop onClose={onClose}>
-      <div className={styles.modal}>
+      <div className={styles.modal} style={{ maxWidth: '400px' }}>
         <div className={styles.header}>
-          <div className={styles.headerIcon} style={{ background: danger ? 'rgba(237,66,69,0.15)' : 'var(--accent-dim)', color: danger ? 'var(--red)' : 'var(--accent-bright)' }}>
-            <AlertCircle size={16} />
+          <div className={styles.headerIcon} style={{ 
+            background: danger ? 'rgba(237, 66, 69, 0.12)' : 'var(--accent-dim)', 
+            color: danger ? '#ed4245' : 'var(--accent-bright)',
+            width: '32px',
+            height: '32px',
+            borderRadius: '10px'
+          }}>
+            <AlertCircle size={18} />
           </div>
-          <span>{title || t('confirm')}</span>
-          <button className={styles.closeBtn} onClick={onClose}><X size={14} /></button>
+          <span style={{ fontSize: '15px', fontWeight: 700 }}>{title || t('confirm')}</span>
+          <button className={styles.closeBtn} onClick={onClose} style={{ marginLeft: 'auto' }}>
+            <X size={18} />
+          </button>
         </div>
 
-        <div className={styles.body}>
-          <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+        <div className={styles.body} style={{ padding: '20px 24px' }}>
+          <p style={{ 
+            fontSize: '14px', 
+            color: 'var(--text-secondary)', 
+            lineHeight: '1.6',
+            margin: 0
+          }}>
             {message}
           </p>
         </div>
 
-        <div className={styles.footer}>
-          <button className={styles.cancelBtn} onClick={onClose}>{t('cancel')}</button>
+        <div className={styles.footer} style={{ padding: '16px 24px', background: 'var(--bg-surface-dim)' }}>
+          <button 
+            className={styles.cancelBtn} 
+            onClick={onClose}
+            style={{ fontWeight: 600, border: 'none', background: 'var(--bg-hover)' }}
+          >
+            {t('cancel')}
+          </button>
           <button
             className={styles.confirmBtn}
             onClick={() => { onConfirm(); onClose(); }}
-            style={danger ? { background: 'var(--red)' } : {}}
+            style={{ 
+              background: danger ? '#ed4245' : 'var(--accent)',
+              padding: '10px 24px',
+              borderRadius: '8px',
+              fontWeight: 700,
+              fontSize: '14px',
+              boxShadow: danger ? '0 4px 12px rgba(237, 66, 69, 0.2)' : '0 4px 12px var(--accent-dim)'
+            }}
           >
             {danger ? t('delete') : t('confirm')}
           </button>
