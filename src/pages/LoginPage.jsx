@@ -57,6 +57,7 @@ export default function LoginPage() {
       }
 
       localStorage.setItem('dbx_username', data.username);
+      if (data.token) localStorage.setItem('disbox_auth_token', data.token);
 
       const result = await connect(data.webhook_url, {
         forceId: data.last_msg_id,
@@ -100,6 +101,7 @@ export default function LoginPage() {
       }
 
       localStorage.setItem('dbx_username', username.trim().toLowerCase());
+      if (data.token) localStorage.setItem('disbox_auth_token', data.token);
       toast.success('Akun berhasil dibuat! Silakan login.');
       setLoginMode('account');
       setPassword('');

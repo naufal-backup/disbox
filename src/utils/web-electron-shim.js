@@ -7,8 +7,10 @@ const DB_NAME    = 'DisboxWebDB';
 const DB_VERSION = 2;
 const STORE_NAME = 'metadata';
 
+const nativeFetch = globalThis.fetch;
+
 // ─── CORS Proxy ───────────────────────────────────────────────────────────────
-const PROXY_BASE   = '/api/proxy';
+const PROXY_BASE   = 'https://disbox-web.naufal-backup.workers.dev/api/proxy';
 const SLICE_SIZE   = 4 * 1024 * 1024; // 4MB
 // Note: PROXY_SECRET is no longer bundled into the client for security.
 // Signatures will only be generated if the secret is available (e.g. during development).
@@ -65,7 +67,7 @@ async function rangedProxyDownload(url, signal) {
   if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
 
   const firstProxyUrl = await buildProxyUrl(url, 0, SLICE_SIZE - 1);
-  const firstRes = await fetch(firstProxyUrl, { 
+  const firstRes = await nativeFetch(firstProxyUrl, { 
     ...(signal ? { signal } : {}),
     credentials: 'include'
   });
@@ -88,7 +90,7 @@ async function rangedProxyDownload(url, signal) {
     const results = await Promise.all(
       batch.map(async ({ start, end }) => {
         const proxyUrl = await buildProxyUrl(url, start, end);
-        const res = await fetch(proxyUrl, { 
+        const res = await nativeFetch(proxyUrl, { 
           ...(signal ? { signal } : {}),
           credentials: 'include'
         });
@@ -129,17 +131,26 @@ export const webElectronShim = {
         fetchUrl = proxyUrlObj.toString();
       }
 
-      const response = await fetch(fetchUrl, {
+      const response = await nativeFetch(fetchUrl, {
         method: options.method || 'GET',
         headers: options.headers,
         body: options.body,
         signal: options.signal,
+        credentials: 'include'
       });
-      const body = await response.text();
+      
+      const text = await response.text();
+      const arrayBuffer = async () => new TextEncoder().encode(text).buffer;
+      const json = async () => JSON.parse(text);
 
-      // Jika proxy return 5xx (misal CDN attachment expired), jangan langsung fail —
-      // return status asli agar caller bisa handle (retry, fallback, dll)
-      return { status: response.status, body, ok: response.ok };
+      return { 
+        status: response.status, 
+        body: text, 
+        ok: response.ok,
+        text: async () => text,
+        json,
+        arrayBuffer
+      };
     } catch (e) {
       if (e.name === 'AbortError') return { status: 0, body: '', ok: false, error: 'ABORTED' };
       return { status: 0, body: '', ok: false, error: e.message };
@@ -152,7 +163,7 @@ export const webElectronShim = {
       : (transferId instanceof AbortSignal ? transferId : null);
 
     if (!isCdnUrl(url)) {
-      const response = await fetch(url, signal ? { signal } : {});
+      const response = await nativeFetch(url, signal ? { signal } : {});
       if (!response.ok) throw new Error(`Download failed: ${response.status}`);
       return new Uint8Array(await response.arrayBuffer());
     }

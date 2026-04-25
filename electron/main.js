@@ -59,18 +59,45 @@ function encrypt(data, key) {
 }
 
 function decrypt(data, key) {
-  if (!key || data.length < MAGIC_HEADER.length + 12 + 16) return data;
-  if (!data.slice(0, MAGIC_HEADER.length).equals(MAGIC_HEADER)) return data;
+  if (!key) return data;
+  
+  let buffer = data;
+  const isString = typeof data === 'string';
+  
+  if (isString) {
+    try {
+      buffer = Buffer.from(data, 'base64');
+    } catch {
+      return data;
+    }
+  }
 
+  // Case 1: Standard Disbox format [MAGIC][IV][CIPHERTEXT][TAG]
+  if (buffer.length >= MAGIC_HEADER.length + 12 + 16 && buffer.slice(0, MAGIC_HEADER.length).equals(MAGIC_HEADER)) {
+    try {
+      const iv = buffer.slice(MAGIC_HEADER.length, MAGIC_HEADER.length + 12);
+      const tag = buffer.slice(buffer.length - 16);
+      const ciphertext = buffer.slice(MAGIC_HEADER.length + 12, buffer.length - 16);
+      const decipher = cryptoNode.createDecipheriv('aes-256-gcm', key, iv);
+      decipher.setAuthTag(tag);
+      const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+      return isString ? decrypted.toString('utf8') : decrypted;
+    } catch (e) {
+      console.error('[crypto] Standard decryption failed:', e.message);
+    }
+  }
+
+  // Case 2: Cloudflare / Web Crypto format [IV (12)][CIPHERTEXT][TAG (16)]
   try {
-    const iv = data.slice(MAGIC_HEADER.length, MAGIC_HEADER.length + 12);
-    const tag = data.slice(data.length - 16);
-    const ciphertext = data.slice(MAGIC_HEADER.length + 12, data.length - 16);
+    const iv = buffer.slice(0, 12);
+    const tag = buffer.slice(buffer.length - 16);
+    const ciphertext = buffer.slice(12, buffer.length - 16);
     const decipher = cryptoNode.createDecipheriv('aes-256-gcm', key, iv);
     decipher.setAuthTag(tag);
-    return Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+    const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+    return isString ? decrypted.toString('utf8') : decrypted;
   } catch (e) {
-    console.error('[crypto] Decryption failed:', e.message);
+    // If both fail, return original data
     return data;
   }
 }
