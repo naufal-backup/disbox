@@ -363,14 +363,16 @@ export function AppProvider({ children }) {
       
       if (!isCloudAccount) {
         const authUrl = `${BASE_API}/api/auth/webhook`;
-        const authRes = await fetch(authUrl, {
+        // Use window.electron.fetch if available to handle cookies/session properly in Electron
+        const fetchFn = window.electron ? window.electron.fetch : fetch;
+        const authRes = await fetchFn(authUrl, {
           method: 'POST',
           credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ webhook_url: url.trim() })
         });
         if (!authRes.ok) {
-          const err = await authRes.json();
+          const err = typeof authRes.body === 'string' ? JSON.parse(authRes.body) : await authRes.json();
           throw new Error(err.error || 'Gagal membuat sesi API');
         }
       }

@@ -126,9 +126,7 @@ export default function FilePreview({ file, allFiles = [], onFileChange, onClose
         const isAudio = ['mp3', 'wav', 'flac', 'ogg', 'm4a', 'aac', 'opus', 'oga', 'm4b'].includes(ext);
 
         if (isVideo || isAudio) {
-          // Use Web API stream for better compatibility across environments
-          const messagesStr = JSON.stringify(file.messageIds);
-          const streamUrl = `${BASE_API}/api/stream?webhook=${encodeURIComponent(api.webhookUrl)}&mime=${encodeURIComponent(mime)}&size=${file.size}&chunkSize=${api.chunkSize}&messages=${encodeURIComponent(messagesStr)}&_t=${Date.now()}`;
+          const streamUrl = api.getStreamUrl(file, mime);
           const result = { type: isVideo ? 'video' : 'audio', url: streamUrl, isStream: true };
 
           globalPreviewCache.set(file.id, result);

@@ -76,45 +76,41 @@ export default function FileThumbnail({ file, size = 32 }) {
       const onAbort = () => combinedAbort.abort();
       signal.addEventListener('abort', onAbort);
       transferSignal?.addEventListener?.('abort', onAbort);
-try {
-  let compressed;
-  const mime = getMimeType(name);
-  console.log(`[thumb] Generating for ${name} (${mime})...`);
+      try {
+        let compressed;
+        const mime = getMimeType(name);
+        console.log(`[thumb] Generating for ${name} (${mime})...`);
 
-  if (isVideo) {
-    // Download first chunk + last chunk (metadata) and pad the gap
-    console.log(`[thumb] Video capture starting for ${name} (padded)`);
-    const result = await api.downloadPartialChunks(file, 1, combinedAbort.signal, undefined, true);
-    if (combinedAbort.signal.aborted) return null;
-    const blob = new Blob([result.buffer], { type: mime });
-    const bUrl = URL.createObjectURL(blob);
-    compressed = await captureFrameFromURL(bUrl);
-    console.log(`[thumb] Video capture finished for ${name}:`, !!compressed);
-  } else {
-    let buffer;
-    if (isAudio) {
-      console.log(`[thumb] Audio capture starting for ${name}`);
-      buffer = await api.downloadFirstChunk(file, combinedAbort.signal, transferId);
-    } else {
-      console.log(`[thumb] Image capture starting for ${name}`);
-      buffer = await api.downloadFile(file, (p) => updateTransfer(transferId, { progress: p }), combinedAbort.signal, transferId);
-    }
+        if (isVideo) {
+          const streamUrl = api.getStreamUrl(file, mime);
+          console.log(`[thumb] Video capture starting via stream for ${name}`);
+          compressed = await captureFrameFromURL(streamUrl);
+          console.log(`[thumb] Video capture finished for ${name}:`, !!compressed);
+        } else {
+          let buffer;
+          if (isAudio) {
+            console.log(`[thumb] Audio capture starting for ${name}`);
+            buffer = await api.downloadFirstChunk(file, combinedAbort.signal, transferId);
+          } else {
+            console.log(`[thumb] Image capture starting for ${name}`);
+            buffer = await api.downloadFile(file, (p) => updateTransfer(transferId, { progress: p }), combinedAbort.signal, transferId);
+          }
 
-    if (combinedAbort.signal.aborted) return null;
-    const blob = new Blob([buffer], { type: mime });
+          if (combinedAbort.signal.aborted) return null;
+          const blob = new Blob([buffer], { type: mime });
 
-    if (isAudio) {
-      compressed = await captureAudioArtworkFromBlob(blob);
-    } else {
-      compressed = await compressImageBlob(blob);
-    }
-    console.log(`[thumb] ${isAudio ? 'Audio' : 'Image'} capture finished for ${name}:`, !!compressed);
-  }
+          if (isAudio) {
+            compressed = await captureAudioArtworkFromBlob(blob);
+          } else {
+            compressed = await compressImageBlob(blob);
+          }
+          console.log(`[thumb] ${isAudio ? 'Audio' : 'Image'} capture finished for ${name}:`, !!compressed);
+        }
 
-  if (!compressed) {
-    console.warn(`[thumb] Generation returned null for ${name}`);
-    return null;
-  }
+        if (!compressed) {
+          console.warn(`[thumb] Generation returned null for ${name}`);
+          return null;
+        }
 
 
         const objectUrl = URL.createObjectURL(compressed);

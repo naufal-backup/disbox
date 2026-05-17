@@ -46,28 +46,16 @@ export default function MusicBar({ track, playlist, onNext, onPrev, onClose }) {
 
       try {
         const mime = getMimeType(track.path);
-        const signal = addTransfer({
-          id: transferId,
-          name: `Load: ${track.path.split('/').pop()}`,
-          progress: 0,
-          type: 'download',
-          status: 'active',
-          hidden: true
-        });
-
-        const { buffer } = await api.downloadPartialChunks(track, 5, signal, (p) => {
-          updateTransfer(transferId, { progress: p });
-        });
-
-        const blob = new Blob([buffer], { type: mime });
-        const url = URL.createObjectURL(blob);
-        currentAudioUrlRef.current = url;
-
+        const streamUrl = api.getStreamUrl(track, mime);
+        
         if (isMounted) {
-          setAudioUrl(url);
+          setAudioUrl(streamUrl);
           setIsPlaying(true);
-          // Extract ID3 tags from buffer if available
-          if (window.jsmediatags) {
+        }
+
+        // Extract metadata in background from the first chunk
+        api.downloadFirstChunk(track).then(buffer => {
+          if (isMounted && buffer && window.jsmediatags) {
             window.jsmediatags.read(new Blob([buffer]), {
               onSuccess: (tag) => {
                 if (isMounted) {
@@ -79,7 +67,8 @@ export default function MusicBar({ track, playlist, onNext, onPrev, onClose }) {
               }
             });
           }
-        }
+        }).catch(e => console.warn('[music] Metadata extraction failed:', e.message));
+
       } catch (e) {
         console.error('Failed to load music:', e);
       } finally {

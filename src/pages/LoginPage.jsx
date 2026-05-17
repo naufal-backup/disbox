@@ -32,8 +32,25 @@ export default function LoginPage() {
       return;
     }
 
-    const result = await connect(url.trim(), { metadataUrl: metadataUrl.trim() });
-    if (!result.ok) setError(result.message || t('error_connect_fail'));
+    try {
+      const authUrl = `${BASE_API}/api/auth/webhook`;
+      // Use window.electron.fetch if available to handle cookies/session properly in Electron
+      const fetchFn = window.electron ? window.electron.fetch : fetch;
+      const authRes = await fetchFn(authUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ webhook_url: url.trim() })
+      });
+      
+      const authData = typeof authRes.body === 'string' ? JSON.parse(authRes.body) : await authRes.json();
+      if (!authRes.ok) throw new Error(authData.error || t('error_connect_fail'));
+      if (authData.token) localStorage.setItem('disbox_auth_token', authData.token);
+
+      const result = await connect(url.trim(), { metadataUrl: metadataUrl.trim() });
+      if (!result.ok) throw new Error(result.message || t('error_connect_fail'));
+    } catch (e) {
+      setError(e.message || t('error_connect_fail'));
+    }
   };
 
   const handleAccountLogin = async () => {

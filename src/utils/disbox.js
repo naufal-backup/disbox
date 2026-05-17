@@ -90,6 +90,24 @@ export class DisboxAPI {
     return this.hashedWebhook;
   }
 
+  getStreamUrl(file, mime) {
+    const messagesStr = JSON.stringify(file.messageIds);
+    const params = new URLSearchParams({
+      webhook: this.webhookUrl,
+      mime: mime || getMimeType(file.path),
+      size: file.size,
+      chunkSize: this.chunkSize,
+      messages: messagesStr,
+      _t: Date.now()
+    });
+
+    if (window.electron) {
+      return `disbox-stream://${file.id}?${params.toString()}`;
+    } else {
+      return `${BASE_API}/api/stream?${params.toString()}`;
+    }
+  }
+
   async encrypt(data) {
     if (!this.encryptionKeys.length) return data;
     const iv = crypto.getRandomValues(new Uint8Array(12));
@@ -533,7 +551,7 @@ export class DisboxAPI {
     for (let i = 0; i < messageIds.length; i++) {
       throwIfAborted(signal);
       const msgId = typeof messageIds[i] === 'string' ? messageIds[i] : messageIds[i].msgId;
-      
+
       let resData;
       if (window.electron) {
         const res = await window.electron.fetch(`${this.webhookUrl}/messages/${msgId}`, { signal });
@@ -563,10 +581,12 @@ export class DisboxAPI {
       chunks.push(decrypted);
       if (onProgress) onProgress((i + 1) / messageIds.length);
     }
-
-    return new Blob(chunks, { type: getMimeType(file.path) });
+    const totalSize = chunks.reduce((s, c) => s + c.byteLength, 0);
+    const result = new Uint8Array(totalSize);
+    let off = 0;
+    for (const c of chunks) { result.set(new Uint8Array(c), off); off += c.byteLength; }
+    return result.buffer;
   }
-
   streamFile(file, onProgress, signal) {
     const messageIds = file.messageIds || [];
     const webhookBase = this.webhookUrl.split('?')[0];
